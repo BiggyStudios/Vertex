@@ -1,0 +1,3 @@
+[submodule "External/Vertex.Ogre"]
+	path = External/Vertex.Ogre
+	url = https://github.com/OGRECave/ogre.git
