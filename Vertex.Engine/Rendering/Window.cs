@@ -1,6 +1,7 @@
 using System.Diagnostics;
 
 using OpenTK.Graphics.OpenGL4;
+using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
@@ -30,6 +31,7 @@ namespace Vertex.Engine.Rendering
 
         private Shader _shader;
         private Texture _texture;
+        private Texture _texture2;
 
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
         {
@@ -66,6 +68,12 @@ namespace Vertex.Engine.Rendering
 
             _texture = Texture.LoadFromFile("Assets/container.png");
             _texture.Use(TextureUnit.Texture0);
+
+            _texture2 = Texture.LoadFromFile("Assets/awesomeface.png");
+            _texture2.Use(TextureUnit.Texture1);
+
+            _shader.SetInt("texture0", 0);
+            _shader.SetInt("texture1", 1);
         }
 
         protected override void OnRenderFrame(FrameEventArgs args)
@@ -76,8 +84,17 @@ namespace Vertex.Engine.Rendering
 
             GL.BindVertexArray(_vertexArrayObject);
 
+            var transform = Matrix4.Identity;
+
+            transform = transform * Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(20f));
+            transform = transform * Matrix4.CreateScale(1.1f);
+            transform = transform * Matrix4.CreateTranslation(0.1f, 0.1f, 0.0f);
+
             _texture.Use(TextureUnit.Texture0);
+            _texture2.Use(TextureUnit.Texture1);
             _shader.Use();
+
+            _shader.SetMatrix4("transform", transform);
 
             GL.DrawElements(BeginMode.Triangles, _indices.Length, DrawElementsType.UnsignedInt, 0);
 
