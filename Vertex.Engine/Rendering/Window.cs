@@ -128,10 +128,26 @@ namespace Vertex.Engine.Rendering
             _lightingShader.SetMatrix4("view", _camera.GetViewMatrix());
             _lightingShader.SetMatrix4("projection", _camera.GetProjectionMatrix());
 
-            _lightingShader.SetVector3("objectColor", new Vector3(1.0f, 0.5f, 0.31f));
-            _lightingShader.SetVector3("lightColor", new Vector3(1.0f, 1.0f, 1.0f));
-            _lightingShader.SetVector3("lightPos", _lightPos);
             _lightingShader.SetVector3("viewPos", _camera.Position);
+
+            _lightingShader.SetVector3("material.ambient", new Vector3(1.0f, 0.5f, 0.31f));
+            _lightingShader.SetVector3("material.diffuse", new Vector3(1.0f, 0.5f, 0.31f));
+            _lightingShader.SetVector3("material.specular", new Vector3(0.5f, 0.5f, 0.5f));
+            _lightingShader.SetFloat("material.shininess", 32.0f);
+
+            Vector3 lightColor;
+            float time = DateTime.Now.Second + DateTime.Now.Millisecond / 1000f;
+            lightColor.X = (MathF.Sin(time * 2.0f) + 1) / 2f;
+            lightColor.Y = (MathF.Sin(time * 0.7f) + 1) / 2f;
+            lightColor.Z = (MathF.Sin(time * 1.3f) + 1) / 2f;
+
+            Vector3 ambientColor = lightColor * new Vector3(0.2f);
+            Vector3 diffuseColor = lightColor * new Vector3(0.5f);
+
+            _lightingShader.SetVector3("light.position", _lightPos);
+            _lightingShader.SetVector3("light.ambient", ambientColor);
+            _lightingShader.SetVector3("light.diffuse", diffuseColor);
+            _lightingShader.SetVector3("light.specular", new Vector3(1.0f, 1.0f, 1.0f));
 
             GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
 
@@ -139,8 +155,9 @@ namespace Vertex.Engine.Rendering
             
             _lampShader.Use();
 
-            Matrix4 lampMatrix = Matrix4.CreateScale(0.2f);
-            lampMatrix = lampMatrix * Matrix4.CreateTranslation(_lightPos);
+            Matrix4 lampMatrix = Matrix4.Identity;
+            lampMatrix *= Matrix4.CreateScale(0.2f);
+            lampMatrix *= Matrix4.CreateTranslation(_lightPos);
 
             _lampShader.SetMatrix4("model", lampMatrix);
             _lampShader.SetMatrix4("view", _camera.GetViewMatrix());
