@@ -1,3 +1,3 @@
-[submodule "External/Vertex.Ogre"]
-	path = External/Vertex.Ogre
+[submodule "ThirdParty/Vertex.Ogre"]
+	path = ThirdParty/Vertex.Ogre
 	url = https://github.com/OGRECave/ogre.git
