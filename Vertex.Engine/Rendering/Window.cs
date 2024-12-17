@@ -33,6 +33,11 @@ namespace Vertex.Engine.Rendering
         private Texture _texture;
         private Texture _texture2;
 
+        private double _time;
+
+        private Matrix4 _view;
+        private Matrix4 _projection;
+
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
         {
             
@@ -43,6 +48,7 @@ namespace Vertex.Engine.Rendering
             base.OnLoad();
 
             GL.ClearColor(0.0f, 0.3f, 0.3f, 1.0f);
+            GL.Enable(EnableCap.DepthTest);
 
             _vertexArrayObject = GL.GenVertexArray();
             GL.BindVertexArray(_vertexArrayObject);
@@ -74,27 +80,30 @@ namespace Vertex.Engine.Rendering
 
             _shader.SetInt("texture0", 0);
             _shader.SetInt("texture1", 1);
+
+            _view = Matrix4.CreateTranslation(0.0f, 0.0f, -3.0f);
+            _projection = Matrix4.CreatePerspectiveFieldOfView(MathHelper.DegreesToRadians(45f), Size.X / (float) Size.Y, 0.1f, 100.0f);
         }
 
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
 
-            GL.Clear(ClearBufferMask.ColorBufferBit);
+            _time += 40.0 * args.Time;
+
+            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
             GL.BindVertexArray(_vertexArrayObject);
-
-            var transform = Matrix4.Identity;
-
-            transform = transform * Matrix4.CreateRotationZ(MathHelper.DegreesToRadians(20f));
-            transform = transform * Matrix4.CreateScale(1.1f);
-            transform = transform * Matrix4.CreateTranslation(0.1f, 0.1f, 0.0f);
 
             _texture.Use(TextureUnit.Texture0);
             _texture2.Use(TextureUnit.Texture1);
             _shader.Use();
 
-            _shader.SetMatrix4("transform", transform);
+            var model = Matrix4.Identity * Matrix4.CreateRotationX((float)MathHelper.DegreesToRadians(_time));
+
+            _shader.SetMatrix4("model", model);
+            _shader.SetMatrix4("view", _view);
+            _shader.SetMatrix4("projection", _projection);
 
             GL.DrawElements(BeginMode.Triangles, _indices.Length, DrawElementsType.UnsignedInt, 0);
 
