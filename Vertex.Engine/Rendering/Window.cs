@@ -29,6 +29,7 @@ namespace Vertex.Engine.Rendering
         private int _vertexArrayObject;
 
         private Shader _shader;
+        private Texture _texture;
 
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
         {
@@ -41,22 +42,30 @@ namespace Vertex.Engine.Rendering
 
             GL.ClearColor(0.0f, 0.3f, 0.3f, 1.0f);
 
-            _vertexBufferObject = GL.GenBuffer();
-
-            GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBufferObject);
-            GL.BufferData(BufferTarget.ArrayBuffer, _vertices.Length * sizeof(float), _vertices, BufferUsageHint.StaticDraw);
-
             _vertexArrayObject = GL.GenVertexArray();
             GL.BindVertexArray(_vertexArrayObject);
 
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
-            GL.EnableVertexAttribArray(0);
+            _vertexBufferObject = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBufferObject);
+            GL.BufferData(BufferTarget.ArrayBuffer, _vertices.Length * sizeof(float), _vertices, BufferUsageHint.StaticDraw);
+
+            _elementBufferObject = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, _elementBufferObject);
+            GL.BufferData(BufferTarget.ElementArrayBuffer, _indices.Length * sizeof(uint), _indices, BufferUsageHint.StaticDraw);
 
             _shader = new Shader("Rendering/Shaders/shader.vert", "Rendering/Shaders/shader.frag");
             _shader.Use();
 
-            _timer = new Stopwatch();
-            _timer.Start();
+            var vertexLocation = _shader.GetAttribLocation("aPos");
+            GL.EnableVertexAttribArray(vertexLocation);
+            GL.VertexAttribPointer(vertexLocation, 3, VertexAttribPointerType.Float, false, 5 * sizeof(float), 0);
+
+            var texCoordLocation = _shader.GetAttribLocation("aTexCoord");
+            GL.EnableVertexAttribArray(texCoordLocation);
+            GL.VertexAttribPointer(texCoordLocation, 2, VertexAttribPointerType.Float, false, 5 * sizeof(float), 3 * sizeof(float));
+
+            _texture = Texture.LoadFromFile("Assets/container.png");
+            _texture.Use(TextureUnit.Texture0);
         }
 
         protected override void OnRenderFrame(FrameEventArgs args)
@@ -65,17 +74,12 @@ namespace Vertex.Engine.Rendering
 
             GL.Clear(ClearBufferMask.ColorBufferBit);
 
+            GL.BindVertexArray(_vertexArrayObject);
+
+            _texture.Use(TextureUnit.Texture0);
             _shader.Use();
 
-            double timerValue = _timer.Elapsed.TotalSeconds;
-            float greenValue = (float)Math.Sin(timerValue) / 2.0f + 0.5f;
-
-            int vertexColorLocation = GL.GetUniformLocation(_shader.Handle, "ourColor");
-
-            GL.Uniform4(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
-
-            GL.BindVertexArray(_vertexArrayObject);
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            GL.DrawElements(BeginMode.Triangles, _indices.Length, DrawElementsType.UnsignedInt, 0);
 
             SwapBuffers();
         }
