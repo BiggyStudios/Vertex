@@ -56,6 +56,30 @@ namespace Vertex.Engine.Rendering
             -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f
         };
 
+        private readonly Vector3[] _cubePositions =
+        {
+            new Vector3(0.0f, 0.0f, 0.0f),
+            new Vector3(2.0f, 5.0f, -15.0f),
+            new Vector3(-1.5f, -2.2f, -2.5f),
+            new Vector3(-3.8f, -2.0f, -12.3f),
+            new Vector3(2.4f, -0.4f, -3.5f),
+            new Vector3(-1.7f, 3.0f, -7.5f),
+            new Vector3(1.3f, -2.0f, -2.5f),
+            new Vector3(1.5f, 2.0f, -2.5f),
+            new Vector3(1.5f, 0.2f, -1.5f),
+            new Vector3(-1.3f, 1.0f, -1.5f),
+            new Vector3(5.0f, 0.0f, 0.0f),
+            new Vector3(1.0f, 5.0f, -15.0f),
+            new Vector3(-1.5f, -5.2f, -2.5f),
+            new Vector3(-3.8f, 1.0f, -12.3f),
+            new Vector3(2.4f, -0.4f, -6.5f),
+            new Vector3(-5.7f, 3.0f, -7.5f),
+            new Vector3(5.3f, -2.0f, -1.5f),
+            new Vector3(2.5f, 3.0f, -2.5f),
+            new Vector3(1.5f, 2.2f, -6.5f),
+            new Vector3(-4.3f, -5.0f, -1.5f)
+        };
+
         private readonly Vector3 _lightPos = new Vector3(1.2f, 1.0f, 2.0f);
 
         private int _vertexBufferObject;
@@ -88,8 +112,8 @@ namespace Vertex.Engine.Rendering
             GL.BindBuffer(BufferTarget.ArrayBuffer, _vertexBufferObject);
             GL.BufferData(BufferTarget.ArrayBuffer, _vertices.Length * sizeof(float), _vertices, BufferUsageHint.StaticDraw);
 
-            _lightingShader = new Shader("Rendering/Shaders/shader.vert", "Rendering/Shaders/lighting.frag");
-            _lampShader = new Shader("Rendering/Shaders/shader.vert", "Rendering/Shaders/shader.frag");
+            _lightingShader = new Shader("Vertex.Engine/Rendering/Shaders/shader.vert", "Vertex.Engine/Rendering/Shaders/lighting.frag");
+            _lampShader = new Shader("Vertex.Engine/Rendering/Shaders/shader.vert", "Vertex.Engine/Rendering/Shaders/shader.frag");
 
             {
                 _vaoModel = GL.GenVertexArray();
@@ -117,8 +141,8 @@ namespace Vertex.Engine.Rendering
                 GL.VertexAttribPointer(positionLocation, 3, VertexAttribPointerType.Float, false, 8 * sizeof(float), 0);
             }
 
-            _diffuseMap = Texture.LoadFromFile("Assets/container2.png");
-            _specularMap = Texture.LoadFromFile("Assets/container2_specular.png");
+            _diffuseMap = Texture.LoadFromFile("Vertex.Engine/Assets/container2.png");
+            _specularMap = Texture.LoadFromFile("Vertex.Engine/Assets/container2_specular.png");
 
             _camera = new Camera(Vector3.UnitZ * 3, Size.X / (float)Size.Y);
             CursorState = CursorState.Grabbed;
@@ -147,20 +171,34 @@ namespace Vertex.Engine.Rendering
             _lightingShader.SetVector3("material.specular", new Vector3(0.5f, 0.5f, 0.5f));
             _lightingShader.SetFloat("material.shininess", 32.0f);
 
-            _lightingShader.SetVector3("light.position", _lightPos);
+            _lightingShader.SetVector3("light.position", _camera.Position);
+            _lightingShader.SetVector3("light.direction", _camera.Front);
+            _lightingShader.SetFloat("light.cutOff", MathF.Cos(MathHelper.DegreesToRadians(12.5f)));
+            _lightingShader.SetFloat("light.outerCutOff", MathF.Cos(MathHelper.DegreesToRadians(17.5f)));
+            _lightingShader.SetFloat("light.constant", 1.0f);
+            _lightingShader.SetFloat("light.linear", 0.09f);
+            _lightingShader.SetFloat("light.quadratic", 0.032f);
             _lightingShader.SetVector3("light.ambient", new Vector3(0.2f));
             _lightingShader.SetVector3("light.diffuse", new Vector3(0.5f));
             _lightingShader.SetVector3("light.specular", new Vector3(1.0f));
 
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+            for (int i = 0; i < _cubePositions.Length; i++)
+            {
+                Matrix4 model = Matrix4.CreateTranslation(_cubePositions[i]);
+                float angle = 20.0f * i;
+
+                model = model * Matrix4.CreateFromAxisAngle(new Vector3(1.0f, 0.3f, 0.5f), angle);
+                _lightingShader.SetMatrix4("model", model);
+
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+            }
 
             GL.BindVertexArray(_vaoLamp);
             
             _lampShader.Use();
 
-            Matrix4 lampMatrix = Matrix4.Identity;
-            lampMatrix *= Matrix4.CreateScale(0.2f);
-            lampMatrix *= Matrix4.CreateTranslation(_lightPos);
+            Matrix4 lampMatrix = Matrix4.CreateScale(0.2f);
+            lampMatrix = lampMatrix * Matrix4.CreateTranslation(_lightPos);
 
             _lampShader.SetMatrix4("model", lampMatrix);
             _lampShader.SetMatrix4("view", _camera.GetViewMatrix());

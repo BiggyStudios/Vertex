@@ -4,7 +4,7 @@ using OpenTK.Windowing.Desktop;
 
 using Vertex.Engine.Rendering;
 
-namespace Vertex.Engine
+namespace Vertex
 {
     public static class Program
     {
