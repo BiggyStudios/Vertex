@@ -79,6 +79,14 @@ namespace Vertex.Engine.Rendering
             new Vector3(1.5f, 2.2f, -6.5f),
             new Vector3(-4.3f, -5.0f, -1.5f)
         };
+        
+        private readonly Vector3[] _pointLightPositions =
+        {
+            new Vector3(0.7f, 0.2f, 2.0f),
+            new Vector3(2.3f, -3.3f, -4.0f),
+            new Vector3(-4.0f, 2.0f, -12.0f),
+            new Vector3(0.0f, 0.0f, -3.0f)
+        };
 
         private readonly Vector3 _lightPos = new Vector3(1.2f, 1.0f, 2.0f);
 
@@ -171,16 +179,32 @@ namespace Vertex.Engine.Rendering
             _lightingShader.SetVector3("material.specular", new Vector3(0.5f, 0.5f, 0.5f));
             _lightingShader.SetFloat("material.shininess", 32.0f);
 
-            _lightingShader.SetVector3("light.position", _camera.Position);
-            _lightingShader.SetVector3("light.direction", _camera.Front);
-            _lightingShader.SetFloat("light.cutOff", MathF.Cos(MathHelper.DegreesToRadians(12.5f)));
-            _lightingShader.SetFloat("light.outerCutOff", MathF.Cos(MathHelper.DegreesToRadians(17.5f)));
-            _lightingShader.SetFloat("light.constant", 1.0f);
-            _lightingShader.SetFloat("light.linear", 0.09f);
-            _lightingShader.SetFloat("light.quadratic", 0.032f);
-            _lightingShader.SetVector3("light.ambient", new Vector3(0.2f));
-            _lightingShader.SetVector3("light.diffuse", new Vector3(0.5f));
-            _lightingShader.SetVector3("light.specular", new Vector3(1.0f));
+            _lightingShader.SetVector3("dirLight.direction", new Vector3(-0.2f, -1.0f, -0.3f));
+            _lightingShader.SetVector3("dirLight.ambient", new Vector3(0.05f, 0.05f, 0.05f));
+            _lightingShader.SetVector3("dirLight.diffuse", new Vector3(0.4f, 0.4f, 0.4f));
+            _lightingShader.SetVector3("dirLight.specular", new Vector3(0.5f, 0.5f, 0.5f));
+
+            for (int i = 0; i < _pointLightPositions.Length; i++)
+            {
+                _lightingShader.SetVector3($"pointLights[{i}].position", _pointLightPositions[i]);
+                _lightingShader.SetVector3($"pointLights[{i}].ambient", new Vector3(0.05f, 0.05f, 0.05f));
+                _lightingShader.SetVector3($"pointLights[{i}].diffuse", new Vector3(0.8f, 0.8f, 0.8f));
+                _lightingShader.SetVector3($"pointLights[{i}].specular", new Vector3(1.0f, 1.0f, 1.0f));
+                _lightingShader.SetFloat($"pointLights[{i}].constant", 1.0f);
+                _lightingShader.SetFloat($"pointLights[{i}].linear", 0.09f);
+                _lightingShader.SetFloat($"pointLights[{i}].quadratic", 0.032f);
+            }
+
+            _lightingShader.SetVector3("spotLight.position", _camera.Position);
+            _lightingShader.SetVector3("spotLight.direction", _camera.Front);
+            _lightingShader.SetVector3("spotLight.ambient", new Vector3(0.0f, 0.0f, 0.0f));
+            _lightingShader.SetVector3("spotLight.diffuse", new Vector3(1.0f, 1.0f, 1.0f));
+            _lightingShader.SetVector3("spotLight.specular", new Vector3(1.0f, 1.0f, 1.0f));
+            _lightingShader.SetFloat("spotLight.constant", 1.0f);
+            _lightingShader.SetFloat("spotLight.linear", 0.09f);
+            _lightingShader.SetFloat("spotLight.quadratic", 0.032f);
+            _lightingShader.SetFloat("spotLight.cutOff", MathF.Cos(MathHelper.DegreesToRadians(12.5f)));
+            _lightingShader.SetFloat("spotLight.outerCutOff", MathF.Cos(MathHelper.DegreesToRadians(17.5f)));
 
             for (int i = 0; i < _cubePositions.Length; i++)
             {
@@ -197,14 +221,18 @@ namespace Vertex.Engine.Rendering
             
             _lampShader.Use();
 
-            Matrix4 lampMatrix = Matrix4.CreateScale(0.2f);
-            lampMatrix = lampMatrix * Matrix4.CreateTranslation(_lightPos);
-
-            _lampShader.SetMatrix4("model", lampMatrix);
             _lampShader.SetMatrix4("view", _camera.GetViewMatrix());
             _lampShader.SetMatrix4("projection", _camera.GetProjectionMatrix());
 
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+            for (int i = 0; i < _pointLightPositions.Length; i++)
+            {
+                Matrix4 lampMatrix = Matrix4.CreateScale(0.2f);
+                lampMatrix = lampMatrix * Matrix4.CreateTranslation(_pointLightPositions[i]);
+
+                _lampShader.SetMatrix4("model", lampMatrix);
+
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 36);
+            }
 
             SwapBuffers();
         }
