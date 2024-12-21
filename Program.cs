@@ -10,17 +10,22 @@ namespace Vertex
     {
         private static void Main()
         {
+            var gameWindowSettings = new GameWindowSettings()
+            {
+                UpdateFrequency = 120
+            };
+
             var nativeWindowSettings = new NativeWindowSettings()
             {
                 ClientSize = new Vector2i(800, 600),
                 Title = "Vertex",
-                Flags = ContextFlags.ForwardCompatible,
+                Flags = ContextFlags.ForwardCompatible
             };
 
-            using (var window = new Window(GameWindowSettings.Default, nativeWindowSettings))
-            {
-                window.Run();
-            }
+            Window window;
+            window = new Window(gameWindowSettings, nativeWindowSettings);
+
+            window.Run();
         }
     }
 }

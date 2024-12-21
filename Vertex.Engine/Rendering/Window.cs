@@ -104,7 +104,7 @@ namespace Vertex.Engine.Rendering
 
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
         {
-            
+
         }
 
         protected override void OnLoad()
