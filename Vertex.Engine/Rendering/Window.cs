@@ -251,7 +251,7 @@ namespace Vertex.Engine.Rendering
                 Close();
             }
 
-            const float cameraSpeed = 1.5f;
+            const float cameraSpeed = 5.5f;
             const float sensitivity = 0.2f;
 
             if (input.IsKeyDown(Keys.W))
