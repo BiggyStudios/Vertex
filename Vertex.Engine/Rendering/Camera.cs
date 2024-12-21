@@ -1,5 +1,4 @@
 using OpenTK.Mathematics;
-using System;
 
 namespace Vertex.Engine.Rendering
 {
@@ -11,7 +10,7 @@ namespace Vertex.Engine.Rendering
 
         private float _pitch;
         private float _yaw = -MathHelper.PiOver2;
-        
+
         private float _fov = MathHelper.PiOver2;
 
         public Camera(Vector3 position, float aspectRatio)
@@ -73,7 +72,7 @@ namespace Vertex.Engine.Rendering
             _front.X = MathF.Cos(_pitch) * MathF.Cos(_yaw);
             _front.Y = MathF.Sin(_pitch);
             _front.Z = MathF.Cos(_pitch) * MathF.Sin(_yaw);
-            
+
             _front = Vector3.Normalize(_front);
 
             _right = Vector3.Normalize(Vector3.Cross(_front, Vector3.UnitY));

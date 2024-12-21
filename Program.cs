@@ -12,9 +12,9 @@ namespace Vertex
         {
             var gameWindowSettings = new GameWindowSettings()
             {
-                UpdateFrequency = 120
+                UpdateFrequency = 240
             };
-
+            
             var nativeWindowSettings = new NativeWindowSettings()
             {
                 ClientSize = new Vector2i(800, 600),
