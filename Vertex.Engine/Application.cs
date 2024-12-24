@@ -38,6 +38,7 @@ namespace Vertex.Engine
                 throw new InvalidOperationException("Application already running!!!");
 
             _window = new GameWindow(gameWindowSettings, nativeWindowSettings);
+            _window.CursorState = CursorState.Grabbed;
             _activeScene = new Scene("Scene");
 
             _window.Load += OnLoad;
@@ -47,6 +48,22 @@ namespace Vertex.Engine
             _window.Closing += OnClosing;
 
             OnInitialize?.Invoke();
+        }
+
+        public void OnLoad()
+        {
+            GL.ClearColor(0.0f, 0.3f, 0.3f, 1.0f);
+            GL.Enable(EnableCap.DepthTest);
+
+            if (_window != null)
+            {
+                GL.Viewport(0, 0, _window.Size.X, _window.Size.Y);
+                var camera = _activeScene?.GetMainCamera();
+                if (camera != null)
+                {
+                    camera.AspectRatio = _window.Size.X / (float)_window.Size.Y;
+                }
+            }
         }
 
         public void Run()
@@ -67,12 +84,6 @@ namespace Vertex.Engine
         public void SetActiveScene(Scene scene)
         {
             _activeScene = scene;
-        }
-
-        public void OnLoad()
-        {
-            GL.ClearColor(0.0f, 0.3f, 0.3f, 1.0f);
-            GL.Enable(EnableCap.DepthTest);
         }
 
         private void OnUpdateFrame(FrameEventArgs args)
@@ -99,6 +110,11 @@ namespace Vertex.Engine
             if (_window != null)
             {
                 GL.Viewport(0, 0, _window.Size.X, _window.Size.Y);
+                var camera = _activeScene?.GetMainCamera();
+                if (camera != null)
+                {
+                    camera.AspectRatio = _window.Size.X / (float)_window.Size.Y;
+                }
             }
         }
 

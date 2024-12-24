@@ -36,7 +36,6 @@ namespace Game
                 var camera = cameraObject.AddComponent<Camera>();
                 cameraObject.AddComponent<CameraController>();
 
-                camera.AspectRatio = 800f / 600f;
                 camera.Transform.Position = new Vector3(0, 0, 3);
 
                 float[] vertices =

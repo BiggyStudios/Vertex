@@ -9,11 +9,15 @@ namespace Vertex.Engine.Core.Components
         private Vector2 _lastPos;
         private Camera _camera;
         private const float _cameraSpeed = 5.5f;
-        private const float _sensitivity = 0.2f;
+        private const float _sensitivity = 8f;
+
+        private float _pitch;
+        private float _yaw = -MathHelper.PiOver2;
 
         public override void Start()
         {
             _camera = GameObject.GetComponent<Camera>();
+            UpdateVectors();
         }
 
         public override void Update(double delaTime)
@@ -29,13 +33,13 @@ namespace Vertex.Engine.Core.Components
             if (input.IsKeyDown(Keys.S))
                 _camera.Transform.Position -= _camera.Front * _cameraSpeed * (float)delaTime;
             if (input.IsKeyDown(Keys.D))
-                _camera.Transform.Position += _camera.Transform.Right * _cameraSpeed * (float)delaTime;
+                _camera.Transform.Position += _camera.Right * _cameraSpeed * (float)delaTime;
             if (input.IsKeyDown(Keys.A))
-                _camera.Transform.Position -= _camera.Transform.Right * _cameraSpeed * (float)delaTime;
+                _camera.Transform.Position -= _camera.Right * _cameraSpeed * (float)delaTime;
             if (input.IsKeyDown(Keys.Space))
-                _camera.Transform.Position += _camera.Transform.Up * _cameraSpeed * (float)delaTime;
+                _camera.Transform.Position += _camera.Up * _cameraSpeed * (float)delaTime;
             if (input.IsKeyDown(Keys.LeftShift))
-                _camera.Transform.Position -= _camera.Transform.Up * _cameraSpeed * (float)delaTime;
+                _camera.Transform.Position -= _camera.Up * _cameraSpeed * (float)delaTime;
 
             if (_firstMove)
             {
@@ -49,8 +53,24 @@ namespace Vertex.Engine.Core.Components
                 var deltaY = mouse.Y - _lastPos.Y;
                 _lastPos = new Vector2(mouse.X, mouse.Y);
 
-                _camera.Transform.Rotation += new Vector3(-deltaY * _sensitivity, deltaX * _sensitivity, 0.0f);
+                _yaw += deltaX * _sensitivity * (float)delaTime;
+                _pitch -= deltaY * _sensitivity * (float)delaTime;
+                _pitch = Math.Clamp(_pitch, -89f, 89f);
+
+                UpdateVectors();
             }
+        }
+
+        private void UpdateVectors()
+        {
+            var front = new Vector3
+            {
+                X = MathF.Cos(MathHelper.DegreesToRadians(_pitch)) * MathF.Cos(MathHelper.DegreesToRadians(_yaw)),
+                Y = MathF.Sin(MathHelper.DegreesToRadians(_pitch)),
+                Z = MathF.Cos(MathHelper.DegreesToRadians(_pitch)) * MathF.Sin(MathHelper.DegreesToRadians(_yaw))
+            };
+
+            _camera.UpdateVectors(front);
         }
     }
 }
