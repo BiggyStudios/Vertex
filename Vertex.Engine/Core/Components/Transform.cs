@@ -2,6 +2,9 @@ using OpenTK.Mathematics;
 
 namespace Vertex.Engine.Core.Components
 {
+    /// <summary>
+    /// Component that handles positioning, rotation, and scaling of GameObjects.
+    /// </summary>
     public class Transform : Component
     {
         private Vector3 _position = Vector3.Zero;
@@ -10,6 +13,9 @@ namespace Vertex.Engine.Core.Components
         private Transform? _parent;
         private readonly List<Transform> _children = new();
 
+        /// <summary>
+        /// Gets or sets the local position relative to the parent transform.
+        /// </summary>
         public Vector3 Position
         {
             get => _position;
@@ -20,6 +26,9 @@ namespace Vertex.Engine.Core.Components
             }
         }
 
+        /// <summary>
+        /// Gets or sets the local rotation in euler angles.
+        /// </summary>
         public Vector3 Rotation
         {
             get => _rotation;
@@ -30,6 +39,9 @@ namespace Vertex.Engine.Core.Components
             }
         }
 
+        /// <summary>
+        /// Gets or sets the local scale.
+        /// </summary>
         public Vector3 Scale
         {
             get => _scale;
@@ -40,6 +52,10 @@ namespace Vertex.Engine.Core.Components
             }
         }
 
+
+        /// <summary>
+        /// Gets or sets the parent transform.
+        /// </summary>
         public Transform? Parent
         {
             get => _parent;
@@ -53,16 +69,34 @@ namespace Vertex.Engine.Core.Components
             }
         }
 
+        /// <summary>
+        /// Gets the list of child transforms.
+        /// </summary>
         public IReadOnlyList<Transform> Children => _children;
 
         private Matrix4 _localMatrix = Matrix4.Identity;
         private Matrix4 _worldMatrix = Matrix4.Identity;
 
+        /// <summary>
+        /// Gets the local transformation matrix.
+        /// </summary>
         public Matrix4 LocalMatrix => _localMatrix;
+        /// <summary>
+        /// Gets the world transformation matrix.
+        /// </summary>
         public Matrix4 WorldMatrix => _worldMatrix;
 
+        /// <summary>
+        /// Gets the forward direction vector.
+        /// </summary>
         public Vector3 Forward => Vector3.Transform(-Vector3.UnitZ, Quaternion.FromEulerAngles(_rotation));
+        /// <summary>
+        /// Gets the right direction vector.
+        /// </summary>
         public Vector3 Right => Vector3.Transform(Vector3.UnitX, Quaternion.FromEulerAngles(_rotation));
+        /// <summary>
+        /// Gets the up direction vector.
+        /// </summary>
         public Vector3 Up => Vector3.Transform(Vector3.UnitY, Quaternion.FromEulerAngles(_rotation));
 
         private void UpdateMatrices()
@@ -79,16 +113,29 @@ namespace Vertex.Engine.Core.Components
             }
         }
 
+        /// <summary>
+        /// Translates the transform by the specified vector.
+        /// </summary>
+        /// <param name="translation">The translation vector to apply.</param>
         public void Translate(Vector3 translation)
         {
             Position += translation;
         }
 
+        /// <summary>
+        /// Rotates the transform by the specified euler angles.
+        /// </summary>
+        /// <param name="eulerAngles">The rotation angles in degrees around each axis.</param>
         public void Rotate(Vector3 eulerAngles)
         {
             Rotation += eulerAngles;
         }
 
+        /// <summary>
+        /// Rotates the transform to look at a target position.
+        /// </summary>
+        /// <param name="target">The position to look at.</param>
+        /// <param name="up">The up vector to use for orientation.</param>
         public void LookAt(Vector3 target, Vector3 up)
         {
             var matrix = Matrix4.LookAt(_position, target, up);
