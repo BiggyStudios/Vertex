@@ -1,13 +1,23 @@
 using OpenTK.Graphics.OpenGL4;
-using System;
 using StbImageSharp;
 
 namespace Vertex.Engine.Rendering
 {
+    /// <summary>
+    /// Represents an OpenGL texture that can be loaded from and image file and used in shaders.
+    /// </summary>
     public class Texture
     {
+        /// <summary>
+        /// Gets the OpenGL handle for this texture.
+        /// </summary>
         public readonly int Handle;
 
+        /// <summary>
+        /// Creates a new texture from the specified image file path.
+        /// </summary>
+        /// <param name="path">Path to the image file.</param>
+        /// <returns>A new texture instance.</returns>
         public static Texture LoadFromFile(string path)
         {
             int handle = GL.GenTexture();
@@ -35,11 +45,19 @@ namespace Vertex.Engine.Rendering
             return new Texture(handle);
         }
 
+        /// <summary>
+        /// Creates a new texture with the specified OpenGL handle.
+        /// </summary>
+        /// <param name="gHandle">OpenGL texture handle.</param>
         public Texture(int gHandle)
         {
             Handle = gHandle;
         }
 
+        /// <summary>
+        /// Activates this texture on the specified texture unit.
+        /// </summary>
+        /// <param name="unit">Texture unit to activate on.</param>
         public void Use(TextureUnit unit)
         {
             GL.ActiveTexture(unit);

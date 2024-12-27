@@ -111,6 +111,7 @@ namespace Vertex.Engine.Rendering
             GL.UseProgram(Handle);
         }
 
+        //Get attrib location of the shader
         public int GetAttribLocation(string attribName)
         {
             return GL.GetAttribLocation(Handle, attribName);

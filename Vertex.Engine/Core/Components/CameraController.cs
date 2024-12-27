@@ -3,11 +3,14 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace Vertex.Engine.Core.Components
 {
+    /// <summary>
+    /// Component that handles camera movement and rotation based on keyboard and mouse input.
+    /// </summary>
     public class CameraController : Component
     {
         private bool _firstMove = true;
         private Vector2 _lastPos;
-        private Camera _camera;
+        private Camera? _camera;
         private const float _cameraSpeed = 5.5f;
         private const float _sensitivity = 8f;
 
