@@ -3,12 +3,20 @@ using OpenTK.Mathematics;
 
 namespace Vertex.Engine.Rendering
 {
+    /// <summary>
+    /// Represents an OpenGL shader program.
+    /// </summary>
     public class Shader
     {
         public readonly int Handle;
 
         private readonly Dictionary<string, int> _uniformLocation;
 
+        /// <summary>
+        /// Creates a new shader program from vertex and fragment shader files.
+        /// </summary>
+        /// <param name="vertPath">Path to the vertex shader file.</param>
+        /// <param name="fragPath">Path to the fragment shader file.</param>
         public Shader(string vertPath, string fragPath)
         {
             //Get the vertex shader data
@@ -95,12 +103,15 @@ namespace Vertex.Engine.Rendering
             }
         }
 
-        //A wrapper function that enables the shader program
+        /// <summary>
+        /// Activates the shader program.
+        /// </summary>
         public void Use()
         {
             GL.UseProgram(Handle);
         }
 
+        //Get attrib location of the shader
         public int GetAttribLocation(string attribName)
         {
             return GL.GetAttribLocation(Handle, attribName);

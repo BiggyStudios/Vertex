@@ -2,7 +2,7 @@ using OpenTK.Mathematics;
 
 namespace Vertex.Engine.Rendering
 {
-    public class Camera
+    public class CameraOld
     {
         private Vector3 _front = -Vector3.UnitZ;
         private Vector3 _up = Vector3.UnitY;
@@ -13,7 +13,7 @@ namespace Vertex.Engine.Rendering
 
         private float _fov = MathHelper.PiOver2;
 
-        public Camera(Vector3 position, float aspectRatio)
+        public CameraOld(Vector3 position, float aspectRatio)
         {
             Position = position;
             AspectRatio = aspectRatio;

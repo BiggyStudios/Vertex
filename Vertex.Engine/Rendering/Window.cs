@@ -98,7 +98,7 @@ namespace Vertex.Engine.Rendering
         private Texture _diffuseMap;
         private Texture _specularMap;
 
-        private Camera _camera;
+        private CameraOld _camera;
         private bool _firstMove;
         private Vector2 _lastPos;
 
@@ -150,7 +150,7 @@ namespace Vertex.Engine.Rendering
             _diffuseMap = Texture.LoadFromFile("Vertex.Engine/Assets/container2.png");
             _specularMap = Texture.LoadFromFile("Vertex.Engine/Assets/container2_specular.png");
 
-            _camera = new Camera(Vector3.UnitZ * 3, Size.X / (float)Size.Y);
+            _camera = new CameraOld(Vector3.UnitZ * 3, Size.X / (float)Size.Y);
             CursorState = CursorState.Grabbed;
         }
 
