@@ -1,0 +1,13 @@
+Vertex is licensed in two parts.
+
+The engine (the Vertex folder) is under the MIT License: use it however you like.
+See Vertex/LICENSE.
+
+The sample game (the SampleGame folder) is under the Vertex Sample Game License:
+you can learn from it and build your own, different game from it with credit, but
+you can't sell it, reupload it, or release a rebranded or lightly changed version
+of it.
+See SampleGame/LICENSE.
+
+Copyright (c) 2026 BiggyStudios
+https://github.com/BiggyStudios/Vertex
