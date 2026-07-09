@@ -1,0 +1,98 @@
+Vertex Sample Game License
+
+Copyright (c) 2026 BiggyStudios
+https://github.com/BiggyStudios/Vertex
+
+This license covers the game in the SampleGame folder of the Vertex repository:
+its code, maps, weapons, classes, models, sounds, interface and design (together,
+"the Game"). The Vertex engine in the Vertex folder is not covered by this license;
+it is under the MIT License (see Vertex/LICENSE) and you can use it however you like.
+
+Files in the SampleGame folder that come with their own license are under that
+license instead (for example the Noto Sans fonts, which are under the SIL Open
+Font License in Assets/Fonts/OFL.txt).
+
+In short:
+  - Learn from it, teach with it, and play it: yes.
+  - Build your own, genuinely different game from it, with credit: yes.
+  - Sell or monetize the Game or a lightly changed version of it: no.
+  - Reupload or share the Game, changed or unchanged, even for free: no.
+The numbered terms below are what actually apply; this summary is only a guide.
+
+
+1. Definitions
+
+"Credit" means a visible notice reading "Based on Vertex by BiggyStudios", with a
+link to https://github.com/BiggyStudios/Vertex, placed where players and users will
+see it: in the game's credits or about screen, and in its store page, download
+page or README.
+
+"Different Game" means a game that a reasonable player would not see as a copy,
+version, remake, reskin or rebrand of the Game. Changing the name, art, colours,
+sounds, maps or weapon stats while keeping the Game's gameplay does not make a
+Different Game. For example, these are NOT Different Games:
+  - the Game with a new name, logo, art style or menus;
+  - the Game with new or edited maps, weapons or classes;
+  - a multiplayer surf and bunny-hop arena shooter built from the Game's movement,
+    weapons, classes, maps or grapple.
+
+"Monetize" means making money from something in any way: selling it, charging to
+download, play or access it, putting it behind a paywall or subscription, adding
+in-game purchases or in-game advertising, or offering it on a paid store listing
+(for example on Steam, itch.io or a console store).
+
+
+2. What you may do
+
+2.1 Learn and teach. You may read, run, play, study and modify the Game for
+personal learning, teaching, courses, tutorials and research. You may show parts
+of the Game's code, changed or unchanged, in tutorials, articles, videos and
+classes, with Credit, as long as you are not releasing a playable game.
+
+2.2 Make your own game. You may use the Game's code and content to make a
+Different Game, as long as you give Credit. You may Monetize a Different Game.
+
+2.3 Fork and contribute. You may fork the repository on GitHub and change the
+Game in your fork to experiment, learn or contribute changes back, as long as you
+don't release the result as a game outside that fork.
+
+2.4 Play with changes privately. You may change the Game for your own use and
+play your changed version with friends, as long as you don't publish it.
+
+
+3. What you may not do
+
+3.1 You may not Monetize the Game, or any game that is not a Different Game made
+from it.
+
+3.2 You may not share, upload or release copies of the Game, whether unchanged,
+changed, renamed, reskinned or rebranded, or any game made from it that is not a
+Different Game, whether you charge for it or give it away for free. GitHub forks
+under 2.3 are the only exception.
+
+3.3 You may not remove or hide Credit, or claim to have made the Game.
+
+3.4 You may not use the BiggyStudios name to suggest that BiggyStudios made,
+approves of or supports your game, beyond giving Credit.
+
+
+4. Other uses
+
+Anything this license does not allow needs written permission from BiggyStudios.
+To ask, open an issue on https://github.com/BiggyStudios/Vertex.
+
+
+5. Ending this license
+
+If you break these terms, your permission under this license ends automatically.
+BiggyStudios may give it back in writing if you fix the problem.
+
+
+6. No warranty
+
+THE GAME IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE GAME
+OR THE USE OR OTHER DEALINGS IN THE GAME.
