@@ -11,4 +11,10 @@
     <ProjectReference Include="..\Vertex\Vertex.csproj"/>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Tells Steam which app this is while developing: 480 is Valve's Spacewar test app. -->
+    <None Include="steam_appid.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
