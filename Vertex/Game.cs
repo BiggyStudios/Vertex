@@ -4,6 +4,5 @@ namespace Vertex
     {
         public virtual void Load() {}
         public virtual void Update() {}
-        public virtual void Render() {}
     }
 }
