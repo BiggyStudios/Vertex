@@ -30,6 +30,11 @@ namespace SampleGame
         private const byte _flagHeadshot = 1;
         private const byte _flagFell = 2;
         private const byte _flagNoScope = 4;
+        private const byte _flagBackstab = 8;
+
+        // A knife stab counts as in the back when the attacker is more than this far round behind the victim:
+        // 0.5 is 60 degrees either side of straight behind.
+        private const float _backstabAngle = 0.5f;
 
         // Sniper kills from at least this far away, in metres, show the distance in the kill feed.
         private const float _longShotDistance = 30f;
@@ -84,6 +89,7 @@ namespace SampleGame
 
             LocalPlayer.Died += OnLocalPlayerDied;
             LocalPlayer.Gun.Fired += OnShotFired;
+            LocalPlayer.Gun.Struck += OnStruck;
 
             Announce("F1 host a Steam lobby, F2 join one, F3/F4 host/join on this PC, F5 leave. Enter to chat, Tab for scores.");
 
@@ -330,7 +336,7 @@ namespace SampleGame
                         byte hitFlags = message.ReadByte();
                         var hitWeapon = (WeaponId)message.ReadByte();
                         LocalPlayer.TakeDamage(damage, from, (hitFlags & _flagHeadshot) != 0, hitWeapon,
-                            noScope: (hitFlags & _flagNoScope) != 0, distance: message.ReadUShort());
+                            noScope: (hitFlags & _flagNoScope) != 0, distance: message.ReadUShort(), backstab: (hitFlags & _flagBackstab) != 0);
                         break;
 
                     case MessageType.Died:
@@ -340,7 +346,7 @@ namespace SampleGame
                         ushort distance = message.ReadUShort();
                         remote.MarkDead();
                         OnRemoteDied(remote, killer, new Death(killer, (how & _flagHeadshot) != 0, (how & _flagFell) != 0, weapon.Id,
-                            (how & _flagNoScope) != 0, distance));
+                            (how & _flagNoScope) != 0, distance, (how & _flagBackstab) != 0));
                         break;
 
                     case MessageType.Chat:
@@ -371,7 +377,7 @@ namespace SampleGame
             if (byYou)
             {
                 Kills++;
-                LocalPlayer.Hud.ShowKill(victim.Name, victim.Color, death.Headshot, death.NoScope, longShot);
+                LocalPlayer.Hud.ShowKill(victim.Name, victim.Color, death.Headshot, death.NoScope, longShot, death.Backstab);
             }
 
             if (killer.Value == 0)
@@ -384,7 +390,8 @@ namespace SampleGame
                 : _remotePlayers.TryGetValue(killer, out RemotePlayer? other) ? (other.Name, other.Color)
                 : (Network.GetName(killer), ColorOf(killer));
 
-            KillFeed.Add(killerName, killerColor, victim.Name, victim.Color, weapon, death.Headshot, fell: false, involvesYou: byYou, death.NoScope, longShot);
+            KillFeed.Add(killerName, killerColor, victim.Name, victim.Color, weapon, death.Headshot, fell: false, involvesYou: byYou, death.NoScope, longShot,
+                death.Backstab);
         }
 
         /// <summary>How far away a sniper kill was, to show in the kill feed: 0 for other weapons, and for close kills.</summary>
@@ -414,18 +421,55 @@ namespace SampleGame
                 hits[target] = (damage + (headshot ? weapon.HeadDamage : weapon.BodyDamage), anyHeadshot || headshot, MathF.Min(nearest, result.Distance));
             }
 
-            Span<byte> hitBuffer = stackalloc byte[8];
             foreach ((RemotePlayer target, (int total, bool headshot, float distance)) in hits)
             {
-                var damage = new MessageWriter(hitBuffer, MessageType.Hit);
-                damage.Write((byte)Math.Min(total, byte.MaxValue));
-                damage.Write((byte)((headshot ? _flagHeadshot : 0) | (noScope ? _flagNoScope : 0)));
-                damage.Write((byte)weapon.Id);
-                damage.Write((ushort)Math.Min(MathF.Round(distance), ushort.MaxValue));
-                Network.Send(target.Peer, damage.Data, SendMode.Reliable);
+                SendHit(target, total, (byte)((headshot ? _flagHeadshot : 0) | (noScope ? _flagNoScope : 0)), weapon, distance);
             }
 
             if (hits.Count > 0) LocalPlayer.Hud.ShowHit(hits.Values.Any(h => h.Headshot));
+        }
+
+        /// <summary>
+        /// A knife swing. Everyone hears it, as a Shot with no pellets. A slash or stab that reaches another player hurts
+        /// them; a stab in the back kills outright. The knife never counts a headshot.
+        /// </summary>
+        private void OnStruck(Weapon weapon, Vector3 blade, RaycastHit? hit, bool stab)
+        {
+            if (!Network.InSession) return;
+
+            var swing = new MessageWriter(stackalloc byte[16], MessageType.Shot);
+            swing.Write(blade);
+            swing.Write((byte)weapon.Id);
+            swing.Write((byte)0);
+            Network.Broadcast(swing.Data, SendMode.Unreliable);
+
+            if (hit is not { GameObject: RemotePlayer { Alive: true } target } result) return;
+
+            bool backstab = stab && IsBehind(target, LocalPlayer.Transform.WorldPosition);
+            int damage = backstab ? Player.MaxHealth : stab ? weapon.StabDamage : weapon.BodyDamage;
+            SendHit(target, damage, backstab ? _flagBackstab : (byte)0, weapon, result.Distance);
+            LocalPlayer.Hud.ShowHit(headshot: false);
+        }
+
+        /// <summary>Whether <paramref name="position"/> is behind <paramref name="target"/>, going by which way they face.</summary>
+        private static bool IsBehind(RemotePlayer target, Vector3 position)
+        {
+            Vector3 away = (position - target.Transform.WorldPosition) with { Y = 0f };
+            Vector3 facing = target.Transform.Forward with { Y = 0f };
+            if (away.LengthSquared() < 1e-6f || facing.LengthSquared() < 1e-6f) return false;
+
+            return Vector3.Dot(Vector3.Normalize(away), Vector3.Normalize(facing)) < -_backstabAngle;
+        }
+
+        /// <summary>Tells <paramref name="target"/> they were hit: how hard, how (the flags), with what, and from how far, in metres.</summary>
+        private static void SendHit(RemotePlayer target, int damage, byte flags, Weapon weapon, float distance)
+        {
+            var hit = new MessageWriter(stackalloc byte[8], MessageType.Hit);
+            hit.Write((byte)Math.Min(damage, byte.MaxValue));
+            hit.Write(flags);
+            hit.Write((byte)weapon.Id);
+            hit.Write((ushort)Math.Min(MathF.Round(distance), ushort.MaxValue));
+            Network.Send(target.Peer, hit.Data, SendMode.Reliable);
         }
 
         private void OnLocalPlayerDied(Death death)
@@ -435,7 +479,7 @@ namespace SampleGame
             if (death.Killer is PeerId killer && _remotePlayers.TryGetValue(killer, out RemotePlayer? by))
             {
                 KillFeed.Add(by.Name, by.Color, LocalName, LocalColor, Weapon.Get(death.Weapon), death.Headshot, fell: false, involvesYou: true,
-                    death.NoScope, LongShot(death));
+                    death.NoScope, LongShot(death), death.Backstab);
             }
             else
             {
@@ -446,7 +490,8 @@ namespace SampleGame
 
             var died = new MessageWriter(stackalloc byte[16], MessageType.Died);
             died.Write(death.Killer?.Value ?? 0);
-            died.Write((byte)((death.Headshot ? _flagHeadshot : 0) | (death.Fell ? _flagFell : 0) | (death.NoScope ? _flagNoScope : 0)));
+            died.Write((byte)((death.Headshot ? _flagHeadshot : 0) | (death.Fell ? _flagFell : 0) | (death.NoScope ? _flagNoScope : 0)
+                | (death.Backstab ? _flagBackstab : 0)));
             died.Write((byte)death.Weapon);
             died.Write((ushort)Math.Min(MathF.Round(death.Distance), ushort.MaxValue));
             Network.Broadcast(died.Data, SendMode.Reliable);

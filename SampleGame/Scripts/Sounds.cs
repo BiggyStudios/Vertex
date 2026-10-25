@@ -19,6 +19,9 @@ namespace SampleGame
         public static AudioClip Headshot { get; } = CreateHeadshot();
         public static AudioClip Kill { get; } = CreateKill();
         public static AudioClip Hurt { get; } = CreateHurt();
+        public static AudioClip KnifeSwing { get; } = CreateKnifeSwing();
+        public static AudioClip KnifeHitWall { get; } = CreateKnifeHitWall();
+        public static AudioClip KnifeDraw { get; } = CreateKnifeDraw();
 
         /// <summary>Bounce pads. Recorded rather than made here: Assets/Sounds/Bouncepad.wav.</summary>
         public static AudioClip Bounce { get; } = AudioClip.Load(Path.Combine(AppContext.BaseDirectory, "Assets", "Sounds", "Bouncepad.wav"));
@@ -279,6 +282,89 @@ namespace SampleGame
 
             FadeOut(samples);
             Normalize(samples, peak: 0.85f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>
+        /// A knife cutting the air: a "whoosh" of noise that swells and fades, its pitch sweeping up then down as the blade
+        /// passes. Played lower for a stab.
+        /// </summary>
+        private static AudioClip CreateKnifeSwing()
+        {
+            const float duration = 0.22f;
+            var samples = new float[(int)(_sampleRate * duration)];
+            var random = new Random(31);
+            float low = 0f, lower = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                // The band kept between the two filters moves up and back down over the swing.
+                float sweep = MathF.Sin(MathF.PI * t / duration);
+                low += (noise - low) * (0.08f + 0.3f * sweep);
+                lower += (noise - lower) * 0.03f;
+                float swell = sweep * sweep;
+                samples[i] = (low - lower) * swell;
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.7f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>The knife hitting a wall: a short, bright clink of steel on something hard.</summary>
+        private static AudioClip CreateKnifeHitWall()
+        {
+            var samples = new float[(int)(_sampleRate * 0.25f)];
+            var random = new Random(47);
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float ring = MathF.Sin(2f * MathF.PI * 1900f * t) * MathF.Exp(-t / 0.05f)
+                    + 0.6f * MathF.Sin(2f * MathF.PI * 4370f * t) * MathF.Exp(-t / 0.025f);
+                float tick = (random.NextSingle() * 2f - 1f) * MathF.Exp(-t / 0.003f);
+                samples[i] = ring * 0.7f + tick;
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.7f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>
+        /// Drawing the knife: steel scraping out of a sheath. A short, gritty scrape of hissy noise, roughened so it drags
+        /// rather than whooshes, then a brief, faint ring of the blade at fixed pitches as it comes free.
+        /// </summary>
+        private static AudioClip CreateKnifeDraw()
+        {
+            const float scrapeLength = 0.22f;
+            var samples = new float[(int)(_sampleRate * 0.45f)];
+            var random = new Random(53);
+            float low = 0f, grain = 0f;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                // The noise with its low end taken out is thin and hissy, like metal on metal. Slowly wandering
+                // loudness (grain) makes it catch and drag unevenly, as a blade does along a sheath.
+                low += (noise - low) * 0.25f;
+                grain += ((random.NextSingle() * 0.8f + 0.2f) - grain) * 0.004f;
+                float swell = t < scrapeLength ? MathF.Sin(MathF.PI * MathF.Min(t / scrapeLength * 1.6f, 1f) * 0.5f) : MathF.Exp(-(t - scrapeLength) / 0.01f);
+                float scrape = (noise - low) * grain * swell;
+
+                // The blade clearing the sheath: a few out-of-tune steel partials, quiet and quick.
+                float free = t - scrapeLength;
+                float ring = free < 0f ? 0f
+                    : (MathF.Sin(2f * MathF.PI * 2350f * free) + 0.6f * MathF.Sin(2f * MathF.PI * 3910f * free) + 0.4f * MathF.Sin(2f * MathF.PI * 6280f * free))
+                        * MathF.Exp(-free / 0.06f) * MathF.Min(free / 0.002f, 1f);
+
+                samples[i] = scrape + ring * 0.12f;
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.5f);
             return AudioClip.FromSamples(samples, _sampleRate);
         }
 

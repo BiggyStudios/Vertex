@@ -63,6 +63,7 @@ namespace Vertex
         private void OnLoad()
         {
             Renderer.Initialise(_window);
+            Screen.Initialise(_window);
 
             IInputContext input = _window.CreateInput();
             InputSystem.Initialise(input);

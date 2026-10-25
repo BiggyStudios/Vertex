@@ -17,9 +17,10 @@ namespace SampleGame
         private static readonly Color _headshotColor = new(1f, 0.55f, 0.3f);
         private static readonly Color _noScopeColor = new(0.55f, 0.8f, 1f);
         private static readonly Color _distanceColor = new(0.75f, 0.75f, 0.75f);
+        private static readonly Color _backstabColor = new(1f, 0.4f, 0.45f);
 
         private sealed record Entry(string? Killer, Color KillerColor, string Victim, Color VictimColor, Weapon? Weapon, bool Headshot, bool Fell, bool Involved,
-            bool NoScope, float Distance, float Time);
+            bool NoScope, float Distance, bool Backstab, float Time);
 
         private readonly List<Entry> _entries = new();
 
@@ -27,12 +28,13 @@ namespace SampleGame
         /// Adds a death. <paramref name="killer"/> is null when nobody did it: falling off the map (<paramref name="fell"/>)
         /// or the kill command. <paramref name="weapon"/> is what they were killed with, and <paramref name="involvesYou"/>
         /// highlights the entry, as in most shooters. <paramref name="noScope"/> tags a sniper kill without the scope, and
-        /// a <paramref name="distance"/> above 0 shows how far away the victim was, in metres.
+        /// a <paramref name="distance"/> above 0 shows how far away the victim was, in metres. <paramref name="backstab"/>
+        /// tags a knife in the back.
         /// </summary>
         public void Add(string? killer, Color killerColor, string victim, Color victimColor, Weapon? weapon, bool headshot, bool fell, bool involvesYou,
-            bool noScope = false, float distance = 0f)
+            bool noScope = false, float distance = 0f, bool backstab = false)
         {
-            _entries.Add(new Entry(killer, killerColor, victim, victimColor, weapon, headshot, fell, involvesYou, noScope, distance, Time.TotalTime));
+            _entries.Add(new Entry(killer, killerColor, victim, victimColor, weapon, headshot, fell, involvesYou, noScope, distance, backstab, Time.TotalTime));
             if (_entries.Count > _maxEntries) _entries.RemoveAt(0);
         }
 
@@ -57,6 +59,7 @@ namespace SampleGame
                     parts.Add((entry.Victim, Fonts.Bold, entry.VictimColor));
                     if (entry.Headshot) parts.Add(("  (headshot)", Fonts.Regular, _headshotColor));
                     if (entry.NoScope) parts.Add(("  (noscope)", Fonts.Regular, _noScopeColor));
+                    if (entry.Backstab) parts.Add(("  (backstab)", Fonts.Regular, _backstabColor));
                     if (entry.Distance > 0f) parts.Add(($"  ({entry.Distance:0} m)", Fonts.Regular, _distanceColor));
                 }
                 else

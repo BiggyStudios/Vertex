@@ -1,5 +1,6 @@
 using System.Text.Json;
 
+using Vertex;
 using Vertex.Audio;
 using Vertex.UI;
 
@@ -29,6 +30,9 @@ namespace SampleGame
 
         public float UiScale { get; set; } = 1f;
 
+        /// <summary>Borderless fullscreen on the monitor the game is on.</summary>
+        public bool Fullscreen { get; set; }
+
         /// <summary>
         /// Puts the settings into effect. The interface size can be left out, for while its slider is being dragged:
         /// rescaling the UI would move the slider out from under the mouse.
@@ -43,6 +47,7 @@ namespace SampleGame
             player.LookSensitivity = Sensitivity * _degreesPerCount;
             player.FieldOfView = VerticalFieldOfView(FieldOfView);
             Sound.Volume = Volume;
+            Screen.Fullscreen = Fullscreen;
             if (includeUiScale) Canvas.UiScale = UiScale;
         }
 

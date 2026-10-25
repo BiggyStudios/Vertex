@@ -20,7 +20,8 @@ namespace SampleGame
         public override void Load()
         {
             // The player has the camera: mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot,
-            // hold right mouse to scope, V for noclip. B to change class, Escape for the menu, ` for the console.
+            // hold right mouse to scope (or stab, with the knife), 1 for the knife and 2 for the gun, F to inspect, V for noclip.
+            // B to change class, Escape for the menu, ` for the console.
             var player = new Player();
             Settings.Current.Apply(player);
 

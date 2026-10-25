@@ -7,7 +7,8 @@ namespace SampleGame
     {
         Rifle,
         Sniper,
-        Shotgun
+        Shotgun,
+        Knife
     }
 
     /// <summary>
@@ -15,6 +16,7 @@ namespace SampleGame
     /// weapon you hold caps how fast you can run, and sv_maxspeed caps everything. Damage is per pellet; most weapons
     /// fire one. Range is in metres, spread in degrees, impact force (how hard a shot pushes rigidbodies) in
     /// newton-seconds, and knockback (how hard firing pushes you, away from where you aim) in metres per second.
+    /// A melee weapon swings instead of firing: left mouse uses the damage, rate and range above, right mouse stabs.
     /// </summary>
     public sealed record Weapon(
         WeaponId Id,
@@ -33,7 +35,11 @@ namespace SampleGame
         float UnscopedSpread,
         float Knockback,
         AudioClip Sound,
-        float SoundVolume)
+        float SoundVolume,
+        bool Melee = false,
+        int StabDamage = 0,
+        float SecondsPerStab = 0f,
+        float StabRange = 0f)
     {
         /// <summary>Hold to fire. Quick and steady.</summary>
         public static Weapon Rifle { get; } = new(WeaponId.Rifle, "Rifle",
@@ -57,8 +63,17 @@ namespace SampleGame
         /// </summary>
         public static Weapon Shotgun { get; } = new(WeaponId.Shotgun, "Shotgun",
             BodyDamage: 12, HeadDamage: 24, Pellets: 10, SecondsPerShot: 0.85f, Automatic: false, Range: 50f, ImpactForce: 10f,
-            MoveSpeed: 240f, Spread: 5f, ScopeZoom: 1f, ScopedMoveSpeed: 240f, UnscopedSpread: 5f, Knockback: 10f,
+            MoveSpeed: 240f, Spread: 5f, ScopeZoom: 1f, ScopedMoveSpeed: 240f, UnscopedSpread: 5f, Knockback: 15f,
             Sounds.ShotgunShot, SoundVolume: 0.9f);
+
+        /// <summary>
+        /// Everyone carries one, on 1, as in CS. Left mouse slashes (hold to keep slashing); right mouse stabs, slower and
+        /// harder, and a stab in the back kills outright. It only reaches a step in front of you.
+        /// </summary>
+        public static Weapon Knife { get; } = new(WeaponId.Knife, "Knife",
+            BodyDamage: 25, HeadDamage: 25, Pellets: 1, SecondsPerShot: 0.4f, Automatic: true, Range: 1.5f, ImpactForce: 2f,
+            MoveSpeed: 250f, Spread: 0f, ScopeZoom: 1f, ScopedMoveSpeed: 250f, UnscopedSpread: 0f, Knockback: 0f,
+            Sounds.KnifeSwing, SoundVolume: 0.5f, Melee: true, StabDamage: 65, SecondsPerStab: 1f, StabRange: 1.2f);
 
         public bool HasScope => ScopeZoom > 1f;
 
@@ -66,6 +81,7 @@ namespace SampleGame
         {
             WeaponId.Sniper => Sniper,
             WeaponId.Shotgun => Shotgun,
+            WeaponId.Knife => Knife,
             _ => Rifle
         };
     }

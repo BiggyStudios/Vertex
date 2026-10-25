@@ -74,6 +74,8 @@ namespace SampleGame
                 {
                     if (InputSystem.GetKeyDown(Key.Number1 + i))
                     {
+                        // So the same press doesn't also switch weapon slot once the menu is gone.
+                        InputSystem.Consume(Key.Number1 + i);
                         Choose(PlayerClass.All[i]);
                         return;
                     }

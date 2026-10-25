@@ -12,16 +12,17 @@ namespace SampleGame
 {
     /// <summary>
     /// How a player died: who killed them (null for nobody), whether by headshot, whether they fell off the map, the
-    /// weapon, whether it was a sniper shot without the scope, and how far away the killer was, in metres.
+    /// weapon, whether it was a sniper shot without the scope, how far away the killer was, in metres, and whether it
+    /// was a knife in the back.
     /// </summary>
     public readonly record struct Death(PeerId? Killer, bool Headshot, bool Fell = false, WeaponId Weapon = WeaponId.Rifle,
-        bool NoScope = false, float Distance = 0f);
+        bool NoScope = false, float Distance = 0f, bool Backstab = false);
 
     /// <summary>
     /// First-person player with Quake / Source style movement, ported from Source's gamemovement.cpp:
     /// ground friction and acceleration, air control that allows air strafing, and bunny hopping.
-    /// Mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot, hold right mouse to scope (sniper rifle),
-    /// V to toggle noclip.
+    /// Mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot, hold right mouse to scope (sniper rifle)
+    /// or stab (knife), 1 for the knife and 2 for the gun, F to inspect, V to toggle noclip.
     /// </summary>
     public class Player : GameObject
     {
@@ -163,22 +164,29 @@ namespace SampleGame
         /// metres.
         /// </summary>
         public void TakeDamage(int amount, PeerId? attacker = null, bool headshot = false, WeaponId weapon = WeaponId.Rifle,
-            bool noScope = false, float distance = 0f)
+            bool noScope = false, float distance = 0f, bool backstab = false)
         {
             if (IsDead || amount <= 0) return;
 
             Health = Math.Max(Health - amount, 0);
             Hud.ShowDamage(amount);
-            if (Health == 0) Die(new Death(attacker, headshot, Weapon: weapon, NoScope: noScope, Distance: distance));
+            if (Health == 0) Die(new Death(attacker, headshot, Weapon: weapon, NoScope: noScope, Distance: distance, Backstab: backstab));
         }
 
-        /// <summary>Changes class, switching to its weapon straight away.</summary>
+        /// <summary>
+        /// Changes class, switching to its weapon straight away. Picking the class you already are just takes its gun
+        /// out, if you had the knife in hand.
+        /// </summary>
         public void SetClass(PlayerClass playerClass)
         {
-            if (playerClass == Class) return;
+            if (playerClass == Class)
+            {
+                if (Gun.Weapon != Gun.Primary) Gun.Equip(Gun.Primary);
+                return;
+            }
 
             Class = playerClass;
-            Gun.Equip(playerClass.Weapon);
+            Gun.SetPrimary(playerClass.Weapon);
         }
 
         /// <summary>

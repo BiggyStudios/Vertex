@@ -93,14 +93,16 @@ namespace SampleGame
         {
             const float width = 420f;
             const float rowHeight = 64f;
+            const float toggleRowHeight = 40f;
+            const float rowsHeight = 4 * rowHeight + toggleRowHeight;
             Settings settings = Settings.Current;
 
             float x = (Canvas.Width - width) / 2f;
-            float y = (Canvas.Height - (4 * rowHeight + _buttonHeight + 20f)) / 2f + 20f;
+            float y = (Canvas.Height - (rowsHeight + _buttonHeight + 20f)) / 2f + 20f;
             DrawTitle("Settings", y - 80f);
 
-            // A panel behind the sliders, so they're readable over whatever's in view.
-            Canvas.DrawRect(new Vector2(x - 28f, y - 22f), new Vector2(width + 56f, 4 * rowHeight + 24f), new Color(0.05f, 0.06f, 0.08f, 0.75f));
+            // A panel behind the controls, so they're readable over whatever's in view.
+            Canvas.DrawRect(new Vector2(x - 28f, y - 22f), new Vector2(width + 56f, rowsHeight + 24f), new Color(0.05f, 0.06f, 0.08f, 0.75f));
 
             float sensitivity = Gui.Slider(Fonts.Regular, "Mouse sensitivity", settings.Sensitivity, 0.5f, 10f, new Vector2(x, y), width, "0.0");
             y += rowHeight;
@@ -109,9 +111,12 @@ namespace SampleGame
             float volume = Gui.Slider(Fonts.Regular, "Volume", settings.Volume * 100f, 0f, 100f, new Vector2(x, y), width, "0'%'") / 100f;
             y += rowHeight;
             float uiScale = Gui.Slider(Fonts.Regular, "Interface size", settings.UiScale, 0.75f, 1.5f, new Vector2(x, y), width, "0.00×");
-            y += rowHeight + 10f;
+            y += rowHeight;
+            settings.Fullscreen = Gui.Toggle(Fonts.Regular, "Fullscreen (borderless)", settings.Fullscreen, new Vector2(x, y), width);
+            y += toggleRowHeight + 10f;
 
-            // Applied straight away, so the change can be felt while dragging; the interface size waits until Back.
+            // Applied straight away, so the change can be felt while dragging (fullscreen switches on the click); the
+            // interface size waits until Back.
             settings.Sensitivity = MathF.Round(sensitivity, 1);
             settings.FieldOfView = MathF.Round(fov);
             settings.Volume = MathF.Round(volume, 2);

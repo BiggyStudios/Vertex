@@ -23,6 +23,7 @@ namespace SampleGame
 
         private static readonly Color _headshotColor = new(1f, 0.55f, 0.3f);
         private static readonly Color _noScopeColor = new(0.55f, 0.8f, 1f);
+        private static readonly Color _backstabColor = new(1f, 0.4f, 0.45f);
 
         // How long the kill popup stays up, and how long it takes to fade out at the end.
         private const float _killPopupTime = 2.2f;
@@ -47,9 +48,9 @@ namespace SampleGame
 
         /// <summary>
         /// You killed someone: a popup with their name under the crosshair, and a chime. Tags under the name say if it was
-        /// a headshot or a no-scope, and how far away they were, for a <paramref name="distance"/> above 0.
+        /// a headshot, a no-scope or a backstab, and how far away they were, for a <paramref name="distance"/> above 0.
         /// </summary>
-        public void ShowKill(string name, Color color, bool headshot, bool noScope = false, float distance = 0f)
+        public void ShowKill(string name, Color color, bool headshot, bool noScope = false, float distance = 0f, bool backstab = false)
         {
             _hitMarkerTime = 0.4f;
             _sinceKill = 0f;
@@ -58,6 +59,7 @@ namespace SampleGame
             _killTags.Clear();
             if (headshot) _killTags.Add(("HEADSHOT", _headshotColor));
             if (noScope) _killTags.Add(("NOSCOPE", _noScopeColor));
+            if (backstab) _killTags.Add(("BACKSTAB", _backstabColor));
             if (distance > 0f) _killTags.Add(($"{distance:0} M", new Color(0.85f, 0.85f, 0.85f)));
             Sound.Play(Sounds.Kill, volume: 0.6f);
         }
@@ -86,7 +88,7 @@ namespace SampleGame
             else if (!GameInput.LookBlocked) DrawCrosshair();
 
             DrawHealth();
-            if (!_player.IsDead) DrawWeapon(gun.Weapon);
+            if (!_player.IsDead) DrawWeapon(gun);
             DrawKillPopup();
         }
 
@@ -226,16 +228,27 @@ namespace SampleGame
             return new Texture(size, size, pixels);
         }
 
-        /// <summary>The weapon you're holding, and how to change it.</summary>
-        private static void DrawWeapon(Weapon weapon)
+        /// <summary>The weapon you're holding, and below it both slots, the one in hand lit up, and how to change class.</summary>
+        private static void DrawWeapon(Gun gun)
         {
             var corner = new Vector2(Canvas.Width - 28f, Canvas.Height - 36f);
-            float nameWidth = Canvas.MeasureText(Fonts.Bold, weapon.Name, 24f).X;
-            Canvas.DrawText(Fonts.Bold, weapon.Name, new Vector2(corner.X - nameWidth, corner.Y - 32f), Color.White, 24f, shadow: true);
+            float nameWidth = Canvas.MeasureText(Fonts.Bold, gun.Weapon.Name, 24f).X;
+            Canvas.DrawText(Fonts.Bold, gun.Weapon.Name, new Vector2(corner.X - nameWidth, corner.Y - 32f), Color.White, 24f, shadow: true);
 
-            const string hint = "B to change class";
-            float hintWidth = Canvas.MeasureText(Fonts.Regular, hint, 14f).X;
-            Canvas.DrawText(Fonts.Regular, hint, new Vector2(corner.X - hintWidth, corner.Y - 2f), new Color(1f, 1f, 1f, 0.55f), 14f, shadow: true);
+            var dim = new Color(1f, 1f, 1f, 0.55f);
+            (string Text, Color Color)[] parts =
+            [
+                ($"1 {Weapon.Knife.Name}", gun.Weapon == Weapon.Knife ? Color.White : dim),
+                ($"    2 {gun.Primary.Name}", gun.Weapon == gun.Primary ? Color.White : dim),
+                ("    ·    B to change class", dim)
+            ];
+
+            const float size = 14f;
+            float x = corner.X - parts.Sum(part => Canvas.MeasureText(Fonts.Regular, part.Text, size).X);
+            foreach ((string text, Color color) in parts)
+            {
+                x += Canvas.DrawText(Fonts.Regular, text, new Vector2(x, corner.Y - 2f), color, size, shadow: true);
+            }
         }
 
         private void DrawHealth()

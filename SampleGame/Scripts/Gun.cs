@@ -11,15 +11,72 @@ using Vertex.Rendering;
 namespace SampleGame
 {
     /// <summary>
-    /// The player's hitscan gun: whichever <see cref="Weapon"/> their class carries. Left mouse fires; with the sniper
-    /// rifle, hold right mouse to scope in. Shots go straight from the eye to whatever the crosshair is on, instantly; the
-    /// shotgun fires a spread of pellets and kicks the player back. The model in view kicks back when firing, bobs while
-    /// walking, lags behind the mouse, and the sniper's bolt and the shotgun's pump are worked between shots.
+    /// What the player holds: the knife on 1, or on 2 the hitscan gun their class carries. Left mouse fires; with the
+    /// sniper rifle, hold right mouse to scope in. Shots go straight from the eye to whatever the crosshair is on,
+    /// instantly; the shotgun fires a spread of pellets and kicks the player back. The knife slashes on left mouse and
+    /// stabs on right. F inspects whatever's in hand. The model in view kicks back when firing, bobs while walking, lags
+    /// behind the mouse, and the sniper's bolt and the shotgun's pump are worked between shots.
     /// </summary>
     public class Gun : Component
     {
         private const float _units = 0.0254f;
         private const float _deployTime = 0.5f;
+
+        // How far off the crosshair a knife swing still connects, in degrees: melee in Source sweeps a box, not a line.
+        private const float _meleeCone = 7f;
+
+        /// <summary>A pose of the model in view, <see cref="Time"/> seconds into an animation: moved and turned from where it rests.</summary>
+        private readonly record struct Pose(float Time, Vector3 Offset, Vector3 Angles);
+
+        // A slash: wind up a touch, then turn the blade flat and sweep it across the view from right to left, and come back.
+        private static readonly Pose[] _slash =
+        [
+            new(0f, Vector3.Zero, Vector3.Zero),
+            new(0.05f, new Vector3(0.04f, 0.02f, 0.01f), new Vector3(4f, -15f, -20f)),
+            new(0.14f, new Vector3(-0.16f, 0.02f, -0.08f), new Vector3(-4f, 35f, -65f)),
+            new(0.38f, Vector3.Zero, Vector3.Zero)
+        ];
+
+        // Every other slash comes back the other way: wound across to the left, then swept out to the right.
+        private static readonly Pose[] _backhandSlash =
+        [
+            new(0f, Vector3.Zero, Vector3.Zero),
+            new(0.05f, new Vector3(-0.08f, 0.03f, -0.02f), new Vector3(4f, 30f, 10f)),
+            new(0.14f, new Vector3(0.07f, 0f, -0.04f), new Vector3(-4f, 8f, 30f)),
+            new(0.38f, Vector3.Zero, Vector3.Zero)
+        ];
+
+        // A stab: draw back, then drive the point forward.
+        private static readonly Pose[] _stab =
+        [
+            new(0f, Vector3.Zero, Vector3.Zero),
+            new(0.12f, new Vector3(0f, 0.01f, 0.05f), new Vector3(12f, 0f, 0f)),
+            new(0.22f, new Vector3(-0.03f, 0.02f, -0.15f), new Vector3(-4f, 8f, 0f)),
+            new(0.5f, Vector3.Zero, Vector3.Zero)
+        ];
+
+        // Inspecting a gun: swing the muzzle in across the view and tip it to show one side, then roll it over to show
+        // the other, then put it back. The muzzle stays pointing ahead, so the stock never swings into your face.
+        private static readonly Pose[] _inspectGun =
+        [
+            new(0f, Vector3.Zero, Vector3.Zero),
+            new(0.45f, new Vector3(-0.08f, 0.04f, -0.02f), new Vector3(6f, 40f, 30f)),
+            new(1.1f, new Vector3(-0.07f, 0.045f, -0.02f), new Vector3(8f, 44f, 34f)),
+            new(1.55f, new Vector3(-0.06f, 0.05f, -0.03f), new Vector3(14f, 25f, -45f)),
+            new(2f, new Vector3(-0.06f, 0.05f, -0.03f), new Vector3(15f, 24f, -48f)),
+            new(2.4f, Vector3.Zero, Vector3.Zero)
+        ];
+
+        // Inspecting the knife: hold the blade up flat across the view, flip it over to show the other side, put it back.
+        private static readonly Pose[] _inspectKnife =
+        [
+            new(0f, Vector3.Zero, Vector3.Zero),
+            new(0.35f, new Vector3(-0.1f, 0.06f, -0.02f), new Vector3(10f, 60f, -60f)),
+            new(0.9f, new Vector3(-0.1f, 0.06f, -0.02f), new Vector3(12f, 65f, -55f)),
+            new(1.25f, new Vector3(-0.1f, 0.07f, -0.02f), new Vector3(10f, 65f, 125f)),
+            new(1.8f, new Vector3(-0.1f, 0.07f, -0.02f), new Vector3(8f, 60f, 120f)),
+            new(2.2f, Vector3.Zero, Vector3.Zero)
+        ];
 
         // When the sniper's bolt is worked, in seconds after the shot. The sound's two clicks and clack line up with it.
         private const float _boltStart = 0.38f;
@@ -30,6 +87,12 @@ namespace SampleGame
         private const float _pumpEnd = 0.58f;
 
         public Weapon Weapon { get; private set; } = Weapon.Rifle;
+
+        /// <summary>The class's gun, on 2. The knife is always on 1.</summary>
+        public Weapon Primary { get; private set; } = Weapon.Rifle;
+
+        /// <summary>Showing the weapon off, after pressing F.</summary>
+        public bool IsInspecting => _inspectTime >= 0f;
 
         /// <summary>Looking down the scope: the view zooms in, the gun is hidden, and shots go exactly where aimed.</summary>
         public bool IsScoped { get; private set; }
@@ -52,6 +115,9 @@ namespace SampleGame
         /// </summary>
         public event Action<Weapon, Vector3, IReadOnlyList<Pellet>, bool>? Fired;
 
+        /// <summary>Raised for every knife swing: the weapon, where the blade was, what it hit (if anything), and whether it was a stab.</summary>
+        public event Action<Weapon, Vector3, RaycastHit?, bool>? Struck;
+
         /// <summary>One weapon's model in view.</summary>
         private sealed class ViewModel(GameObject root, Vector3 restPosition, float recoilDistance, float recoilPitch)
         {
@@ -72,6 +138,11 @@ namespace SampleGame
 
         private readonly Dictionary<WeaponId, ViewModel> _models = new();
 
+        // When each weapon last fired, and when it can fire again, in Time.TotalTime. They carry on while a weapon is
+        // put away, so switching to the knife and back can't skip the wait for the sniper's bolt or the shotgun's pump.
+        private readonly Dictionary<WeaponId, float> _firedAt = new();
+        private readonly Dictionary<WeaponId, float> _readyAt = new();
+
         private Player _owner = null!;
         private GameObject _eye = null!;
 
@@ -80,7 +151,14 @@ namespace SampleGame
         private float _sinceShot = float.PositiveInfinity;
         private bool _actionSoundPlayed = true;
         private bool _triggerHeld;
+        private bool _stabHeld;
         private bool _triggerLocked;
+
+        private float _sinceSwing = float.PositiveInfinity;
+        private bool _swingWasStab;
+        // Whether the last slash was the backhand; starts true, so the first one is the forehand.
+        private bool _backhand = true;
+        private float _inspectTime = -1f;
 
         private float _recoil;
         private float _flashTime;
@@ -104,20 +182,37 @@ namespace SampleGame
             _models[WeaponId.Rifle] = BuildRifle();
             _models[WeaponId.Sniper] = BuildSniper();
             _models[WeaponId.Shotgun] = BuildShotgun();
+            _models[WeaponId.Knife] = BuildKnife();
             Equip(Weapon.Rifle, deploy: false);
         }
 
-        /// <summary>Switches to <paramref name="weapon"/>, which is brought up into view before it can fire.</summary>
+        /// <summary>Gives the player a new gun for slot 2, from their class, and switches to it.</summary>
+        public void SetPrimary(Weapon weapon)
+        {
+            Primary = weapon;
+            Equip(weapon);
+        }
+
+        /// <summary>
+        /// Switches to <paramref name="weapon"/>, which is brought up into view before it can fire. A gun put away halfway
+        /// through working its bolt or pump carries on from where it would be by now, and isn't ready any sooner.
+        /// </summary>
         public void Equip(Weapon weapon, bool deploy = true)
         {
             Weapon = weapon;
             IsScoped = false;
-            _sinceShot = float.PositiveInfinity;
-            _actionSoundPlayed = true;
+            _sinceShot = Time.TotalTime - _firedAt.GetValueOrDefault(weapon.Id, float.NegativeInfinity);
+            _sinceSwing = float.PositiveInfinity;
+            _inspectTime = -1f;
+            _actionSoundPlayed = _sinceShot >= ActionStart(_models[weapon.Id]);
             _recoil = 0f;
             _flashTime = 0f;
             _deploy = deploy ? 1f : 0f;
-            _cooldown = deploy ? _deployTime : 0f;
+
+            float stillBusy = _readyAt.GetValueOrDefault(weapon.Id, float.NegativeInfinity) - Time.TotalTime;
+            _cooldown = MathF.Max(deploy ? _deployTime : 0f, stillBusy);
+
+            if (deploy && weapon.Melee) Sound.Play(Sounds.KnifeDraw, volume: 0.5f);
 
             foreach ((WeaponId id, ViewModel model) in _models)
             {
@@ -131,9 +226,21 @@ namespace SampleGame
             float dt = Time.DeltaTime;
             _cooldown -= dt;
             _sinceShot += dt;
+            _sinceSwing += dt;
+
+            if (!_owner.IsDead && !GameInput.Blocked)
+            {
+                // Switching to what's already in hand does nothing, as in CS.
+                if (InputSystem.GetKeyDown(Key.Number1) && Weapon != Weapon.Knife) Equip(Weapon.Knife);
+                else if (InputSystem.GetKeyDown(Key.Number2) && Weapon != Primary) Equip(Primary);
+
+                // Pressing it again starts over. Not while the gun is busy: being brought up, or working its bolt or pump.
+                if (InputSystem.GetKeyDown(Key.F) && _cooldown <= 0f && !IsScoped) _inspectTime = 0f;
+            }
 
             UpdateTrigger(dt);
             UpdateScope();
+            if (IsScoped || _owner.IsDead) _inspectTime = -1f;
 
             float zoomTarget = IsScoped ? Weapon.ScopeZoom : 1f;
             Zoom += (zoomTarget - Zoom) * (1f - MathF.Exp(-30f * dt));
@@ -149,18 +256,39 @@ namespace SampleGame
             // After a menu, the console or chat had the mouse, the trigger has to be let go first, so the click that
             // closed the menu (or a button still held) doesn't fire.
             bool held = InputSystem.GetMouseButton(MouseButton.Left) && !_owner.IsDead;
+            bool stabHeld = Weapon.Melee && InputSystem.GetMouseButton(MouseButton.Right) && !_owner.IsDead;
             if (GameInput.Blocked) _triggerLocked = true;
-            if (!held) _triggerLocked = false;
+            if (!held && !stabHeld) _triggerLocked = false;
 
-            // Automatic weapons fire as long as the trigger is held; the others need a fresh click for every shot.
+            // Automatic weapons fire as long as the trigger is held; the others need a fresh click for every shot. The
+            // knife's stab, on right mouse, is one per click.
             bool pulled = held && !_triggerLocked && (Weapon.Automatic || !_triggerHeld);
+            bool stab = stabHeld && !_triggerLocked && !_stabHeld;
             _triggerHeld = held;
+            _stabHeld = stabHeld;
 
-            if (!pulled || _cooldown > 0f) return;
+            if (_cooldown > 0f) return;
 
-            Fire();
-            // Carry over the leftover time, so the fire rate doesn't depend on the frame rate.
-            _cooldown = Weapon.Automatic ? MathF.Max(_cooldown, -dt) + Weapon.SecondsPerShot : Weapon.SecondsPerShot;
+            if (stab)
+            {
+                Strike(stab: true);
+                _cooldown = Weapon.SecondsPerStab;
+            }
+            else if (pulled)
+            {
+                if (Weapon.Melee) Strike(stab: false);
+                else Fire();
+
+                // Carry over the leftover time, so the fire rate doesn't depend on the frame rate.
+                _cooldown = Weapon.Automatic ? MathF.Max(_cooldown, -dt) + Weapon.SecondsPerShot : Weapon.SecondsPerShot;
+            }
+            else
+            {
+                return;
+            }
+
+            _firedAt[Weapon.Id] = Time.TotalTime;
+            _readyAt[Weapon.Id] = Time.TotalTime + _cooldown;
         }
 
         /// <summary>
@@ -215,6 +343,7 @@ namespace SampleGame
             _recoil = 1f;
             _flashTime = 0.05f;
             _sinceShot = 0f;
+            _inspectTime = -1f;
 
             // A bolt or pump has to be worked after every shot, which takes you out of the scope until it's done.
             if (!Weapon.Automatic)
@@ -226,6 +355,57 @@ namespace SampleGame
             Fired?.Invoke(Weapon, muzzle, pellets, noScope);
         }
 
+        /// <summary>
+        /// Swings the knife: a slash, or with <paramref name="stab"/> a shorter, harder stab. Whatever is within reach
+        /// near the crosshair is hit; a wall or prop gives a spark and a clink. What it does to another player is worked
+        /// out by whoever listens to <see cref="Struck"/>.
+        /// </summary>
+        public void Strike(bool stab)
+        {
+            Vector3 origin = _eye.Transform.WorldPosition;
+            Vector3 aim = _eye.Transform.Forward;
+
+            RaycastHit? hit = MeleeTrace(origin, aim, stab ? Weapon.StabRange : Weapon.Range);
+            if (hit is { } result)
+            {
+                result.Collider.GetComponent<Rigidbody>()?.AddImpulse(aim * Weapon.ImpactForce);
+                if (result.GameObject is not RemotePlayer)
+                {
+                    Effects.Impact(result.Point);
+                    Sound.Play(Sounds.KnifeHitWall, volume: 0.6f, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f);
+                }
+            }
+
+            // A stab is a heavier, lower whoosh.
+            Sound.Play(Weapon.Sound, Weapon.SoundVolume, pitch: (stab ? 0.75f : 0.95f) + Random.Shared.NextSingle() * 0.1f);
+
+            _sinceSwing = 0f;
+            _swingWasStab = stab;
+            if (!stab) _backhand = !_backhand;
+            _inspectTime = -1f;
+
+            Struck?.Invoke(Weapon, Model.Muzzle.Transform.WorldPosition, hit, stab);
+        }
+
+        /// <summary>
+        /// The ray straight ahead, then a ring of six around it, <see cref="_meleeCone"/> degrees out. A player caught by
+        /// any of them is hit, even if the middle ray found the wall behind them; otherwise, the first thing found.
+        /// </summary>
+        private RaycastHit? MeleeTrace(Vector3 origin, Vector3 aim, float reach)
+        {
+            RaycastHit? first = null;
+            for (int i = -1; i < 6; i++)
+            {
+                Vector3 direction = i < 0 ? aim : Tilt(aim, _eye.Transform.Right, _eye.Transform.Up, i * MathF.Tau / 6f, _meleeCone);
+                if (!GameObject.Scene.Physics.Raycast(origin, direction, reach, out RaycastHit result, ignore: _owner.Controller)) continue;
+
+                if (result.GameObject is RemotePlayer) return result;
+                first ??= result;
+            }
+
+            return first;
+        }
+
         /// <summary>A random direction within <paramref name="degrees"/> of <paramref name="forward"/>, spread evenly over the circle.</summary>
         private static Vector3 Scatter(Vector3 forward, Vector3 right, Vector3 up, float degrees)
         {
@@ -234,6 +414,13 @@ namespace SampleGame
             float angle = Random.Shared.NextSingle() * MathF.Tau;
             float distance = MathF.Sqrt(Random.Shared.NextSingle()) * MathF.Tan(MathHelper.ToRadians(degrees));
             return Vector3.Normalize(forward + (right * MathF.Cos(angle) + up * MathF.Sin(angle)) * distance);
+        }
+
+        /// <summary><paramref name="forward"/> tipped <paramref name="degrees"/> towards <paramref name="around"/> radians round the clock (0 is right, a quarter turn is up).</summary>
+        private static Vector3 Tilt(Vector3 forward, Vector3 right, Vector3 up, float around, float degrees)
+        {
+            float distance = MathF.Tan(MathHelper.ToRadians(degrees));
+            return Vector3.Normalize(forward + (right * MathF.Cos(around) + up * MathF.Sin(around)) * distance);
         }
 
         private void Animate(float dt)
@@ -275,10 +462,60 @@ namespace SampleGame
 
             float roll = AnimateBolt(model);
             float tilt = AnimatePump(model);
+            (Vector3 swingOffset, Vector3 swingAngles) = AnimateSwing();
+            (Vector3 inspectOffset, Vector3 inspectAngles) = AnimateInspect(dt);
 
-            model.Root.Transform.Position = model.RestPosition + bob + new Vector3(_sway.X, _sway.Y - lowered * 0.25f - roll * 0.002f, _recoil * model.RecoilDistance);
-            model.Root.Transform.EulerAngles = new Vector3(_recoil * model.RecoilPitch - lowered * 40f + tilt, 0f, roll);
+            model.Root.Transform.Position = model.RestPosition + bob + swingOffset + inspectOffset
+                + new Vector3(_sway.X, _sway.Y - lowered * 0.25f - roll * 0.002f, _recoil * model.RecoilDistance);
+            model.Root.Transform.EulerAngles = swingAngles + inspectAngles
+                + new Vector3(_recoil * model.RecoilPitch - lowered * 40f + tilt, 0f, roll);
         }
+
+        /// <summary>The knife's slash or stab, played out after a swing. Slashes go alternately one way, then the other.</summary>
+        private (Vector3 Offset, Vector3 Angles) AnimateSwing()
+        {
+            if (!Weapon.Melee) return default;
+
+            return Sample(_swingWasStab ? _stab : _backhand ? _backhandSlash : _slash, _sinceSwing);
+        }
+
+        /// <summary>Plays the inspect animation, if F was pressed, and stops it at the end.</summary>
+        private (Vector3 Offset, Vector3 Angles) AnimateInspect(float dt)
+        {
+            if (!IsInspecting) return default;
+
+            Pose[] poses = Weapon.Melee ? _inspectKnife : _inspectGun;
+            _inspectTime += dt;
+            if (_inspectTime >= poses[^1].Time)
+            {
+                _inspectTime = -1f;
+                return default;
+            }
+
+            return Sample(poses, _inspectTime);
+        }
+
+        /// <summary>Where an animation is <paramref name="time"/> seconds in, easing in and out between each pair of poses.</summary>
+        private static (Vector3 Offset, Vector3 Angles) Sample(Pose[] poses, float time)
+        {
+            if (time <= poses[0].Time) return (poses[0].Offset, poses[0].Angles);
+
+            for (int i = 1; i < poses.Length; i++)
+            {
+                Pose from = poses[i - 1];
+                Pose to = poses[i];
+                if (time > to.Time) continue;
+
+                float t = (time - from.Time) / (to.Time - from.Time);
+                t = t * t * (3f - 2f * t);
+                return (Vector3.Lerp(from.Offset, to.Offset, t), Vector3.Lerp(from.Angles, to.Angles, t));
+            }
+
+            return (poses[^1].Offset, poses[^1].Angles);
+        }
+
+        /// <summary>How long after a shot the bolt or pump starts being worked, for a model with one. Anything else has nothing to wait for.</summary>
+        private static float ActionStart(ViewModel model) => model.Bolt != null ? _boltStart : model.Pump != null ? _pumpStart : 0f;
 
         /// <summary>
         /// Racks the shotgun's pump after a shot: it slides back towards you and forward again, while the muzzle tips up
@@ -435,6 +672,36 @@ namespace SampleGame
             model.Pump = pump;
 
             AddMuzzle(model, new Vector3(0f, 0.02f, -0.61f), flashSize: 0.14f);
+            return model;
+        }
+
+        /// <summary>
+        /// A combat knife held point-forward in the right hand, angled in towards the middle of the view: a black grip, a
+        /// steel guard and pommel, and a long bright blade with a clipped point.
+        /// </summary>
+        private ViewModel BuildKnife()
+        {
+            var model = new ViewModel(new GameObject("Knife"), new Vector3(0.15f, -0.16f, -0.37f), recoilDistance: 0f, recoilPitch: 0f);
+            GameObject root = model.Root;
+            root.Transform.Parent = _eye.Transform;
+
+            // The knife sits at an angle in the hand; the whole model moves and turns from here.
+            var grip = new GameObject("Knife Grip");
+            grip.Transform.Parent = root.Transform;
+            grip.Transform.EulerAngles = new Vector3(15f, 12f, 0f);
+
+            var steel = new Color(0.62f, 0.64f, 0.68f);
+            var darkSteel = new Color(0.3f, 0.3f, 0.33f);
+            var black = new Color(0.1f, 0.1f, 0.11f);
+
+            AddPart(grip, "Handle", new Vector3(0.024f, 0.03f, 0.1f), new Vector3(0f, 0f, 0.025f), 0f, black, metallic: false);
+            AddPart(grip, "Pommel", new Vector3(0.028f, 0.032f, 0.014f), new Vector3(0f, 0f, 0.082f), 0f, darkSteel, metallic: true);
+            AddPart(grip, "Guard", new Vector3(0.05f, 0.014f, 0.016f), new Vector3(0f, 0f, -0.032f), 0f, darkSteel, metallic: true);
+            AddPart(grip, "Blade", new Vector3(0.006f, 0.032f, 0.15f), new Vector3(0f, 0.002f, -0.115f), 0f, steel, metallic: true);
+            AddPart(grip, "Point", new Vector3(0.006f, 0.022f, 0.045f), new Vector3(0f, -0.002f, -0.2f), 18f, steel, metallic: true);
+
+            // Nothing fires from it; it only marks where the blade is, for the swing other players see.
+            AddMuzzle(model, new Vector3(-0.04f, 0.05f, -0.2f), flashSize: 0f);
             return model;
         }
 

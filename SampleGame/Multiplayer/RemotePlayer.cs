@@ -87,6 +87,10 @@ namespace SampleGame
             AddShape(shotgun, "Barrel", Primitives.Cube, new Vector3(0f, 0.01f, -0.4f), new Vector3(0.05f, 0.05f, 0.4f), new Color(0.18f, 0.18f, 0.2f));
             AddShape(shotgun, "Pump", Primitives.Cube, new Vector3(0f, -0.03f, -0.35f), new Vector3(0.06f, 0.05f, 0.14f), new Color(0.36f, 0.21f, 0.11f));
 
+            GameObject knife = AddGun(WeaponId.Knife, "Knife", new Vector3(0f, 0f, -0.3f));
+            AddShape(knife, "Handle", Primitives.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.035f, 0.04f, 0.12f), new Color(0.1f, 0.1f, 0.11f));
+            AddShape(knife, "Blade", Primitives.Cube, new Vector3(0f, 0.005f, -0.15f), new Vector3(0.01f, 0.04f, 0.18f), new Color(0.62f, 0.64f, 0.68f));
+
             // Moved to the tip of whichever gun they're holding.
             _flash = AddShape(_guns[WeaponId.Rifle].Muzzle, "Muzzle Flash", Primitives.Sphere, Vector3.Zero, new Vector3(0.1f), new Color(1f, 0.9f, 0.5f), unlit: true);
             _flash.Active = false;
@@ -116,7 +120,8 @@ namespace SampleGame
 
         /// <summary>
         /// Plays the gunshot of <paramref name="weapon"/> from where they are, and draws their muzzle flash and the shot's
-        /// tracer. It switches them to that weapon too, in case the shot arrived before the update saying they changed.
+        /// tracer. A knife swing has no pellets: just its whoosh, and the knife jerking forward. It switches them to that
+        /// weapon too, in case the shot arrived before the update saying they changed.
         /// </summary>
         public void ShowShot(IReadOnlyList<Vector3> ends, Weapon weapon)
         {
@@ -129,7 +134,7 @@ namespace SampleGame
             Sound.PlayAt(weapon.Sound, muzzle, volume: 1f, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f, fullVolumeDistance: weapon.SoundVolume * 5f);
 
             _gunKick = 1f;
-            _flashTime = 0.05f;
+            if (!weapon.Melee) _flashTime = 0.05f;
         }
 
         /// <summary>Called when they announce their death, so they go down straight away rather than at their next update.</summary>
@@ -164,10 +169,13 @@ namespace SampleGame
             _collider.Enabled = Alive;
 
             _gunKick *= MathF.Exp(-14f * Time.DeltaTime);
-            _gunPivot.Transform.EulerAngles = new Vector3(shown.Pitch + _gunKick * 8f, 0f, 0f);
             ShowWeapon(newest.Weapon);
+
+            // Guns kick back and up; the knife jabs forward.
+            bool melee = Weapon.Get(_weapon).Melee;
+            _gunPivot.Transform.EulerAngles = new Vector3(shown.Pitch + (melee ? 0f : _gunKick * 8f), 0f, 0f);
             GameObject gun = _guns[_weapon].Model;
-            gun.Transform.Position = new Vector3(0f, 0f, _gunKick * 0.06f);
+            gun.Transform.Position = new Vector3(0f, 0f, melee ? -_gunKick * 0.25f : _gunKick * 0.06f);
 
             _flashTime -= Time.DeltaTime;
             _flash.Active = _flashTime > 0f;
