@@ -7,6 +7,7 @@ using Vertex.Input;
 using Vertex.Networking;
 using Vertex.Rendering;
 using Vertex.Rendering.OpenGL;
+using Vertex.UI;
 
 namespace Vertex
 {
@@ -66,6 +67,8 @@ namespace Vertex
             IInputContext input = _window.CreateInput();
             InputSystem.Initialise(input);
             Sound.Initialise();
+            DevConsole.Initialise();
+            DevConsole.AddCommand("quit", "Closes the game.", _ => Close());
 
             _game.Load();
         }
@@ -73,6 +76,10 @@ namespace Vertex
         private void OnUpdate(double deltaTime)
         {
             Time.Advance(deltaTime);
+            Canvas.BeginFrame(Renderer.Width, Renderer.Height, _window.Size.Y);
+
+            // The console goes first, so while it's open it takes the keyboard before the game sees it.
+            DevConsole.Update();
 
             // Receive first, so this frame's game code sees the latest messages.
             Network.Update();
@@ -92,8 +99,12 @@ namespace Vertex
             _game.Update();
             Scene.Active.Update();
 
+            // Over the top of the game's own UI.
+            DevConsole.Draw();
+
             // After everything has moved, so sounds come from where things are drawn.
             Sound.Update();
+            Canvas.EndFrame();
             InputSystem.EndFrame();
         }
 

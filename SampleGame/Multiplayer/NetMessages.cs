@@ -11,18 +11,29 @@ namespace SampleGame
         /// <summary>Unreliable, many times a second: <see cref="PlayerState"/>.</summary>
         State = 1,
 
-        /// <summary>Unreliable: a shot's start and end, so others can draw it.</summary>
+        /// <summary>Unreliable: a shot's start, the weapon, and where each pellet ended, so others can draw it and hear the right sound.</summary>
         Shot,
 
-        /// <summary>Reliable, to the player who was hit: how much damage to take.</summary>
+        /// <summary>Reliable, to the player who was hit: how much damage to take, flags (1 headshot, 4 no-scope), the weapon, and the distance in metres.</summary>
         Hit,
 
-        /// <summary>Reliable, from a player who just died: who killed them (0 for nobody).</summary>
-        Died
+        /// <summary>Reliable, from a player who just died: who killed them (0 for nobody), flags (1 headshot, 2 fell, 4 no-scope), the weapon, and the distance in metres.</summary>
+        Died,
+
+        /// <summary>Reliable: a chat message.</summary>
+        Chat,
+
+        /// <summary>Reliable, from the host: every server variable's name and value (see <see cref="ServerVariables"/>).</summary>
+        ServerVariables
     }
 
-    /// <summary>Where a player is and what they're doing. <see cref="Time"/> is the sender's clock.</summary>
-    internal readonly record struct PlayerState(float Time, Vector3 Position, Vector3 Velocity, float Yaw, float Pitch, byte Health, bool Alive);
+    /// <summary>
+    /// Where a player is and what they're doing. <see cref="Time"/> is the sender's clock. Each player counts their
+    /// own kills and deaths and sends them here, so someone joining late still sees the right scores, along with the
+    /// weapon they're holding, so others see it in their hands.
+    /// </summary>
+    internal readonly record struct PlayerState(float Time, Vector3 Position, Vector3 Velocity, float Yaw, float Pitch, byte Health, bool Alive,
+        ushort Kills, ushort Deaths, WeaponId Weapon);
 
     /// <summary>Writes a message into a buffer, usually on the stack: <c>new MessageWriter(stackalloc byte[64], MessageType.Hit)</c>.</summary>
     internal ref struct MessageWriter
@@ -43,10 +54,30 @@ namespace SampleGame
 
         public void Write(bool value) => Write(value ? (byte)1 : (byte)0);
 
+        public void Write(ushort value)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(_buffer[_length..], value);
+            _length += 2;
+        }
+
         public void Write(float value)
         {
             BinaryPrimitives.WriteSingleLittleEndian(_buffer[_length..], value);
             _length += 4;
+        }
+
+        /// <summary>UTF-8, after a one-byte length, so at most 255 bytes; anything longer is cut short.</summary>
+        public void Write(string value)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(value);
+            int count = Math.Min(bytes.Length, 255);
+
+            // Don't cut a character in half: back up to where the cut-off character starts.
+            while (count > 0 && count < bytes.Length && (bytes[count] & 0xC0) == 0x80) count--;
+
+            _buffer[_length] = (byte)count;
+            bytes.AsSpan(0, count).CopyTo(_buffer[(_length + 1)..]);
+            _length += 1 + count;
         }
 
         public void Write(ulong value)
@@ -71,6 +102,9 @@ namespace SampleGame
             Write(state.Pitch);
             Write(state.Health);
             Write(state.Alive);
+            Write(state.Kills);
+            Write(state.Deaths);
+            Write((byte)state.Weapon);
         }
     }
 
@@ -92,10 +126,25 @@ namespace SampleGame
 
         public bool ReadBool() => ReadByte() != 0;
 
+        public ushort ReadUShort()
+        {
+            ushort value = BinaryPrimitives.ReadUInt16LittleEndian(_data[_position..]);
+            _position += 2;
+            return value;
+        }
+
         public float ReadFloat()
         {
             float value = BinaryPrimitives.ReadSingleLittleEndian(_data[_position..]);
             _position += 4;
+            return value;
+        }
+
+        public string ReadString()
+        {
+            int length = ReadByte();
+            string value = System.Text.Encoding.UTF8.GetString(_data.Slice(_position, length));
+            _position += length;
             return value;
         }
 
@@ -109,7 +158,7 @@ namespace SampleGame
         public Vector3 ReadVector3() => new(ReadFloat(), ReadFloat(), ReadFloat());
 
         public PlayerState ReadPlayerState() =>
-            new(ReadFloat(), ReadVector3(), ReadVector3(), ReadFloat(), ReadFloat(), ReadByte(), ReadBool());
+            new(ReadFloat(), ReadVector3(), ReadVector3(), ReadFloat(), ReadFloat(), ReadByte(), ReadBool(), ReadUShort(), ReadUShort(), (WeaponId)ReadByte());
 
         public PeerId ReadPeer() => new(ReadULong());
     }

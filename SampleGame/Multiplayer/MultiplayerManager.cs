@@ -6,16 +6,16 @@ using Vertex;
 using Vertex.Input;
 using Vertex.Networking;
 using Vertex.Physics;
-using Vertex.Rendering;
+using Vertex.UI;
 
 namespace SampleGame
 {
     /// <summary>
     /// Multiplayer over Steam (or local UDP for testing on one PC). Every player is in charge of their own player:
     /// they send where they are many times a second, and when they shoot someone they tell that player, who takes
-    /// the damage and announces their own death. Status and the kill feed are printed to the console.
+    /// the damage and announces their own death. Each player also counts their own kills and deaths.
     /// <para>F1 host a Steam lobby, F2 join any Steam lobby, F3 host locally, F4 join a local host, F5 leave.
-    /// Friends can also join through Steam invites or "Join Game".</para>
+    /// Friends can also join through Steam invites or "Join Game". Enter to chat, Tab for the scoreboard.</para>
     /// </summary>
     public class MultiplayerManager : Component
     {
@@ -26,13 +26,21 @@ namespace SampleGame
         // Every other physics step: 30 updates a second.
         private const int _stateInterval = 2;
 
-        private const int _bodyDamage = 20;
-        private const int _headshotDamage = 50;
+        // How someone was hit or died, in a Hit or Died message's flags byte.
+        private const byte _flagHeadshot = 1;
+        private const byte _flagFell = 2;
+        private const byte _flagNoScope = 4;
+
+        // Sniper kills from at least this far away, in metres, show the distance in the kill feed.
+        private const float _longShotDistance = 30f;
+
+        // The most pellets a Shot message carries, which keeps it small.
+        private const int _maxPellets = 16;
 
         private static readonly Color[] _colors =
         [
-            new(0.85f, 0.25f, 0.25f), new(0.25f, 0.45f, 0.9f), new(0.3f, 0.75f, 0.35f), new(0.85f, 0.7f, 0.2f),
-            new(0.65f, 0.3f, 0.8f), new(0.2f, 0.75f, 0.75f), new(0.9f, 0.5f, 0.2f), new(0.85f, 0.85f, 0.85f)
+            new(0.95f, 0.35f, 0.35f), new(0.35f, 0.55f, 1f), new(0.35f, 0.85f, 0.4f), new(0.95f, 0.8f, 0.25f),
+            new(0.75f, 0.4f, 0.95f), new(0.25f, 0.85f, 0.85f), new(1f, 0.6f, 0.25f), new(0.9f, 0.9f, 0.9f)
         ];
 
         public Player LocalPlayer { get; set; } = null!;
@@ -40,12 +48,35 @@ namespace SampleGame
         /// <summary>Connect to Steam when the game starts, so friends' invites work. Off, Steam only starts on F1 or F2.</summary>
         public bool ConnectToSteamOnStart { get; set; } = true;
 
+        public ChatBox Chat { get; private set; } = null!;
+        public KillFeed KillFeed { get; private set; } = null!;
+
+        /// <summary>The local player's score.</summary>
+        public int Kills { get; private set; }
+        public int Deaths { get; private set; }
+
+        /// <summary>A short description of the connection, for the scoreboard.</summary>
+        public string SessionStatus => Network.Transport switch
+        {
+            SteamTransport { InSession: true } => $"Steam lobby · {Network.Peers.Count + 1} players",
+            UdpTransport { InSession: true } => $"Local game · {Network.Peers.Count + 1} players",
+            _ => "Not in a game · F1 host, F2 join"
+        };
+
         private readonly Dictionary<PeerId, RemotePlayer> _remotePlayers = new();
         private SteamTransport? _steam;
         private int _tick;
 
+        private string LocalName => Network.InSession ? Network.GetName(Network.LocalPeer) : "You";
+        private Color LocalColor => Network.InSession ? ColorOf(Network.LocalPeer) : _colors[6];
+
         protected override void Start()
         {
+            Chat = GameObject.AddComponent<ChatBox>();
+            KillFeed = GameObject.AddComponent<KillFeed>();
+            GameObject.AddComponent<Scoreboard>().Source = this;
+            Chat.MessageSent += OnChatSent;
+
             Network.PeerJoined += OnPeerJoined;
             Network.PeerLeft += OnPeerLeft;
             Network.SessionEnded += OnSessionEnded;
@@ -54,7 +85,7 @@ namespace SampleGame
             LocalPlayer.Died += OnLocalPlayerDied;
             LocalPlayer.Gun.Fired += OnShotFired;
 
-            Console.WriteLine("Multiplayer: F1 host Steam lobby, F2 find Steam lobby, F3 host local, F4 join local, F5 leave.");
+            Announce("F1 host a Steam lobby, F2 join one, F3/F4 host/join on this PC, F5 leave. Enter to chat, Tab for scores.");
 
             // Started from a Steam invite while the game wasn't running: Steam passes the lobby on the command line.
             string[] args = Environment.GetCommandLineArgs();
@@ -80,25 +111,123 @@ namespace SampleGame
 
         protected override void Update()
         {
-            if (InputSystem.GetKeyDown(Key.F1)) StartSteam()?.HostLobby();
-            if (InputSystem.GetKeyDown(Key.F2)) StartSteam()?.FindLobby();
+            if (GameInput.Blocked) return;
 
-            if (InputSystem.GetKeyDown(Key.F3))
+            if (InputSystem.GetKeyDown(Key.F1)) HostSteam();
+            if (InputSystem.GetKeyDown(Key.F2)) FindSteam();
+            if (InputSystem.GetKeyDown(Key.F3)) HostLocal(UdpTransport.DefaultPort);
+            if (InputSystem.GetKeyDown(Key.F4)) JoinLocal("127.0.0.1", UdpTransport.DefaultPort);
+            if (InputSystem.GetKeyDown(Key.F5)) Leave();
+        }
+
+        public void HostSteam() => StartSteam()?.HostLobby();
+
+        public void FindSteam() => StartSteam()?.FindLobby();
+
+        public void HostLocal(int port)
+        {
+            _steam = null;
+            try
             {
-                _steam = null;
-                Network.Start(UdpTransport.Host());
+                Network.Start(UdpTransport.Host(port));
+                Announce($"Hosting on port {port}. Others on this network can join with: connect <this PC's address>. On this PC, press F4 in another copy.");
+            }
+            catch (System.Net.Sockets.SocketException exception)
+            {
+                Announce($"Couldn't host on port {port}: {exception.Message}");
+            }
+        }
+
+        public void JoinLocal(string address, int port)
+        {
+            _steam = null;
+            try
+            {
+                Network.Start(UdpTransport.Join(address, port));
+                Announce($"Joining {address}:{port}...");
+            }
+            catch (Exception exception) when (exception is System.Net.Sockets.SocketException or ArgumentException)
+            {
+                Announce($"Couldn't join {address}: {exception.Message}");
+            }
+        }
+
+        public void Leave()
+        {
+            if (_steam != null && Network.Transport == _steam) _steam.LeaveLobby();
+            else Network.Stop();
+        }
+
+        /// <summary>Sends a chat message from the local player (the chat box and the console's say command).</summary>
+        public void SendChat(string text) => OnChatSent(text);
+
+        public void PrintStatus()
+        {
+            if (!Network.InSession)
+            {
+                DevConsole.Print("Not in a game. Playing alone, you're the host.");
+                return;
             }
 
-            if (InputSystem.GetKeyDown(Key.F4))
+            DevConsole.Print(SessionStatus);
+            DevConsole.Print($"  {LocalName} (you){(Network.IsHost ? ", host" : "")}  {Kills} kills, {Deaths} deaths");
+            foreach (RemotePlayer remote in _remotePlayers.Values)
             {
-                _steam = null;
-                Network.Start(UdpTransport.Join("127.0.0.1"));
+                DevConsole.Print($"  {remote.Name}{(remote.Peer == Network.HostPeer ? ", host" : "")}  {remote.Kills} kills, {remote.Deaths} deaths");
+            }
+        }
+
+        /// <summary>A server variable changed from the console. Only the host can, and the change goes to everyone.</summary>
+        internal void SetServerVariable(ServerVariables.Variable variable, float value)
+        {
+            if (!Network.IsHost)
+            {
+                DevConsole.Error($"Only the host can change {variable.Name}.");
+                return;
             }
 
-            if (InputSystem.GetKeyDown(Key.F5))
+            variable.Set(LocalPlayer, value);
+            string shown = variable.Get(LocalPlayer).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+            if (Network.InSession)
             {
-                if (_steam != null) _steam.LeaveLobby();
-                else Network.Stop();
+                SendServerVariables(to: null);
+                Announce($"Server setting {variable.Name} changed to {shown}.");
+            }
+            else
+            {
+                DevConsole.Print($"{variable.Name} = {shown}");
+            }
+        }
+
+        /// <summary>The host sends every server variable: to one player who just joined, or to everyone after a change.</summary>
+        private void SendServerVariables(PeerId? to)
+        {
+            var message = new MessageWriter(stackalloc byte[1024], MessageType.ServerVariables);
+            message.Write((byte)ServerVariables.All.Length);
+            foreach (ServerVariables.Variable variable in ServerVariables.All)
+            {
+                message.Write(variable.Name);
+                message.Write(variable.Get(LocalPlayer));
+            }
+
+            if (to is PeerId peer) Network.Send(peer, message.Data, SendMode.Reliable);
+            else Network.Broadcast(message.Data, SendMode.Reliable);
+        }
+
+        private void ApplyServerVariables(ref MessageReader message)
+        {
+            int count = message.ReadByte();
+            for (int i = 0; i < count; i++)
+            {
+                string name = message.ReadString();
+                float value = message.ReadFloat();
+                if (ServerVariables.Find(name) is not { } variable) continue;
+
+                float before = variable.Get(LocalPlayer);
+                variable.Set(LocalPlayer, value);
+                float after = variable.Get(LocalPlayer);
+                if (MathF.Abs(after - before) > 0.0001f) Announce($"Server setting {variable.Name} is {after.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}.");
             }
         }
 
@@ -113,11 +242,25 @@ namespace SampleGame
                 LocalPlayer.Yaw,
                 LocalPlayer.Pitch,
                 (byte)LocalPlayer.Health,
-                !LocalPlayer.IsDead);
+                !LocalPlayer.IsDead,
+                (ushort)Math.Min(Kills, ushort.MaxValue),
+                (ushort)Math.Min(Deaths, ushort.MaxValue),
+                LocalPlayer.Gun.Weapon.Id);
 
             var message = new MessageWriter(stackalloc byte[64], MessageType.State);
             message.Write(state);
             Network.Broadcast(message.Data, SendMode.Unreliable);
+        }
+
+        /// <summary>Everyone in the game, for the scoreboard.</summary>
+        public IEnumerable<ScoreEntry> GetScores()
+        {
+            yield return new ScoreEntry(LocalName, LocalColor, Kills, Deaths, IsLocal: true, Alive: !LocalPlayer.IsDead);
+
+            foreach (RemotePlayer remote in _remotePlayers.Values)
+            {
+                yield return new ScoreEntry(remote.Name, remote.Color, remote.Kills, remote.Deaths, IsLocal: false, remote.Alive);
+            }
         }
 
         /// <summary>Connects to Steam if not already, making it the active transport. Null if Steam isn't available.</summary>
@@ -128,20 +271,22 @@ namespace SampleGame
             _steam = SteamTransport.TryStart(_steamAppId, _steamGameTag, out string error);
             if (_steam == null)
             {
-                Console.WriteLine($"Steam isn't available ({error}). For local play, press F3 in one game and F4 in another.");
+                Announce($"Steam isn't available ({error}). For a local game, press F3 in one copy and F4 in another.");
                 return null;
             }
 
             Network.Start(_steam);
-            Console.WriteLine($"Connected to Steam as {_steam.GetName(_steam.LocalPeer)}.");
+            Announce($"Connected to Steam as {_steam.GetName(_steam.LocalPeer)}.");
             return _steam;
         }
 
         private void OnPeerJoined(PeerId peer)
         {
-            Color color = _colors[(int)(peer.Value % (ulong)_colors.Length)];
-            _remotePlayers[peer] = new RemotePlayer(peer, Network.GetName(peer), color);
-            Console.WriteLine($"{Network.GetName(peer)} joined.");
+            _remotePlayers[peer] = new RemotePlayer(peer, Network.GetName(peer), ColorOf(peer));
+            Announce($"{Network.GetName(peer)} joined.");
+
+            // So they play by the same rules as everyone else.
+            if (Network.IsHost) SendServerVariables(peer);
         }
 
         private void OnPeerLeft(PeerId peer)
@@ -149,14 +294,14 @@ namespace SampleGame
             if (!_remotePlayers.Remove(peer, out RemotePlayer? remote)) return;
 
             remote.Destroy();
-            Console.WriteLine($"{remote.Name} left.");
+            Announce($"{remote.Name} left.");
         }
 
         private void OnSessionEnded()
         {
             foreach (RemotePlayer remote in _remotePlayers.Values) remote.Destroy();
             _remotePlayers.Clear();
-            Console.WriteLine("Left the session.");
+            Announce("Left the game.");
         }
 
         private void OnMessage(PeerId from, ReadOnlySpan<byte> data)
@@ -174,20 +319,38 @@ namespace SampleGame
 
                     case MessageType.Shot:
                         message.ReadVector3();
-                        remote.ShowShot(message.ReadVector3());
+                        Weapon shotWeapon = Weapon.Get((WeaponId)message.ReadByte());
+                        var ends = new Vector3[Math.Min((int)message.ReadByte(), _maxPellets)];
+                        for (int i = 0; i < ends.Length; i++) ends[i] = message.ReadVector3();
+                        remote.ShowShot(ends, shotWeapon);
                         break;
 
                     case MessageType.Hit:
-                        LocalPlayer.TakeDamage(message.ReadByte(), from);
+                        byte damage = message.ReadByte();
+                        byte hitFlags = message.ReadByte();
+                        var hitWeapon = (WeaponId)message.ReadByte();
+                        LocalPlayer.TakeDamage(damage, from, (hitFlags & _flagHeadshot) != 0, hitWeapon,
+                            noScope: (hitFlags & _flagNoScope) != 0, distance: message.ReadUShort());
                         break;
 
                     case MessageType.Died:
                         PeerId killer = message.ReadPeer();
+                        byte how = message.ReadByte();
+                        Weapon weapon = Weapon.Get((WeaponId)message.ReadByte());
+                        ushort distance = message.ReadUShort();
                         remote.MarkDead();
-                        if (killer == Network.LocalPeer) LocalPlayer.Hud.ShowHitMarker(kill: true);
-                        Console.WriteLine(killer == Network.LocalPeer ? $"You killed {remote.Name}."
-                            : killer.Value != 0 ? $"{Network.GetName(killer)} killed {remote.Name}."
-                            : $"{remote.Name} died.");
+                        OnRemoteDied(remote, killer, new Death(killer, (how & _flagHeadshot) != 0, (how & _flagFell) != 0, weapon.Id,
+                            (how & _flagNoScope) != 0, distance));
+                        break;
+
+                    case MessageType.Chat:
+                        string text = Clean(message.ReadString());
+                        if (text.Length > 0) Chat.AddMessage(remote.Name, remote.Color, text);
+                        break;
+
+                    case MessageType.ServerVariables:
+                        // Only the host's say counts.
+                        if (from == Network.HostPeer) ApplyServerVariables(ref message);
                         break;
                 }
             }
@@ -200,33 +363,118 @@ namespace SampleGame
             }
         }
 
-        private void OnShotFired(Vector3 muzzle, Vector3 end, RaycastHit? hit)
+        private void OnRemoteDied(RemotePlayer victim, PeerId killer, Death death)
+        {
+            Weapon weapon = Weapon.Get(death.Weapon);
+            float longShot = LongShot(death);
+            bool byYou = killer == Network.LocalPeer;
+            if (byYou)
+            {
+                Kills++;
+                LocalPlayer.Hud.ShowKill(victim.Name, victim.Color, death.Headshot, death.NoScope, longShot);
+            }
+
+            if (killer.Value == 0)
+            {
+                KillFeed.Add(null, default, victim.Name, victim.Color, weapon: null, headshot: false, death.Fell, involvesYou: false);
+                return;
+            }
+
+            (string killerName, Color killerColor) = byYou ? (LocalName, LocalColor)
+                : _remotePlayers.TryGetValue(killer, out RemotePlayer? other) ? (other.Name, other.Color)
+                : (Network.GetName(killer), ColorOf(killer));
+
+            KillFeed.Add(killerName, killerColor, victim.Name, victim.Color, weapon, death.Headshot, fell: false, involvesYou: byYou, death.NoScope, longShot);
+        }
+
+        /// <summary>How far away a sniper kill was, to show in the kill feed: 0 for other weapons, and for close kills.</summary>
+        private static float LongShot(Death death) => death.Weapon == WeaponId.Sniper && death.Distance >= _longShotDistance ? death.Distance : 0f;
+
+        private void OnShotFired(Weapon weapon, Vector3 muzzle, IReadOnlyList<Gun.Pellet> pellets, bool noScope)
         {
             if (!Network.InSession) return;
 
-            var shot = new MessageWriter(stackalloc byte[32], MessageType.Shot);
+            int count = Math.Min(pellets.Count, _maxPellets);
+            var shot = new MessageWriter(stackalloc byte[16 + _maxPellets * 12], MessageType.Shot);
             shot.Write(muzzle);
-            shot.Write(end);
+            shot.Write((byte)weapon.Id);
+            shot.Write((byte)count);
+            for (int i = 0; i < count; i++) shot.Write(pellets[i].End);
             Network.Broadcast(shot.Data, SendMode.Unreliable);
 
-            if (hit is not { GameObject: RemotePlayer { Alive: true } target } result) return;
+            // Add up every pellet that hit each player, so they take one hit for the whole shot. It counts as a headshot
+            // if any pellet hit the head, and the distance is to the nearest pellet that hit them.
+            var hits = new Dictionary<RemotePlayer, (int Damage, bool Headshot, float Distance)>();
+            foreach (Gun.Pellet pellet in pellets)
+            {
+                if (pellet.Hit is not { GameObject: RemotePlayer { Alive: true } target } result) continue;
 
-            bool headshot = result.Point.Y - target.Transform.WorldPosition.Y >= RemotePlayer.HeadHeight;
-            var damage = new MessageWriter(stackalloc byte[8], MessageType.Hit);
-            damage.Write((byte)(headshot ? _headshotDamage : _bodyDamage));
-            Network.Send(target.Peer, damage.Data, SendMode.Reliable);
+                bool headshot = result.Point.Y - target.Transform.WorldPosition.Y >= RemotePlayer.HeadHeight;
+                (int damage, bool anyHeadshot, float nearest) = hits.TryGetValue(target, out var sofar) ? sofar : (0, false, float.MaxValue);
+                hits[target] = (damage + (headshot ? weapon.HeadDamage : weapon.BodyDamage), anyHeadshot || headshot, MathF.Min(nearest, result.Distance));
+            }
 
-            LocalPlayer.Hud.ShowHitMarker();
+            Span<byte> hitBuffer = stackalloc byte[8];
+            foreach ((RemotePlayer target, (int total, bool headshot, float distance)) in hits)
+            {
+                var damage = new MessageWriter(hitBuffer, MessageType.Hit);
+                damage.Write((byte)Math.Min(total, byte.MaxValue));
+                damage.Write((byte)((headshot ? _flagHeadshot : 0) | (noScope ? _flagNoScope : 0)));
+                damage.Write((byte)weapon.Id);
+                damage.Write((ushort)Math.Min(MathF.Round(distance), ushort.MaxValue));
+                Network.Send(target.Peer, damage.Data, SendMode.Reliable);
+            }
+
+            if (hits.Count > 0) LocalPlayer.Hud.ShowHit(hits.Values.Any(h => h.Headshot));
         }
 
-        private void OnLocalPlayerDied(PeerId? killer)
+        private void OnLocalPlayerDied(Death death)
         {
-            Console.WriteLine(killer is PeerId by ? $"Killed by {Network.GetName(by)}." : "You died.");
+            Deaths++;
+
+            if (death.Killer is PeerId killer && _remotePlayers.TryGetValue(killer, out RemotePlayer? by))
+            {
+                KillFeed.Add(by.Name, by.Color, LocalName, LocalColor, Weapon.Get(death.Weapon), death.Headshot, fell: false, involvesYou: true,
+                    death.NoScope, LongShot(death));
+            }
+            else
+            {
+                KillFeed.Add(null, default, LocalName, LocalColor, weapon: null, headshot: false, death.Fell, involvesYou: true);
+            }
+
             if (!Network.InSession) return;
 
             var died = new MessageWriter(stackalloc byte[16], MessageType.Died);
-            died.Write(killer?.Value ?? 0);
+            died.Write(death.Killer?.Value ?? 0);
+            died.Write((byte)((death.Headshot ? _flagHeadshot : 0) | (death.Fell ? _flagFell : 0) | (death.NoScope ? _flagNoScope : 0)));
+            died.Write((byte)death.Weapon);
+            died.Write((ushort)Math.Min(MathF.Round(death.Distance), ushort.MaxValue));
             Network.Broadcast(died.Data, SendMode.Reliable);
         }
+
+        private void OnChatSent(string text)
+        {
+            text = Clean(text);
+            if (text.Length == 0) return;
+
+            Chat.AddMessage(LocalName, LocalColor, text);
+            if (!Network.InSession) return;
+
+            var message = new MessageWriter(stackalloc byte[260], MessageType.Chat);
+            message.Write(text);
+            Network.Broadcast(message.Data, SendMode.Reliable);
+        }
+
+        /// <summary>Shows a game message in chat (which also writes it to the console).</summary>
+        private void Announce(string text) => Chat.AddSystemMessage(text);
+
+        /// <summary>No control characters, and no longer than the chat box allows, whoever sent it.</summary>
+        private static string Clean(string text)
+        {
+            string cleaned = new string(text.Where(c => !char.IsControl(c)).ToArray()).Trim();
+            return cleaned.Length > ChatBox.MaxMessageLength ? cleaned[..ChatBox.MaxMessageLength] : cleaned;
+        }
+
+        private static Color ColorOf(PeerId peer) => _colors[(int)(peer.Value % (ulong)_colors.Length)];
     }
 }

@@ -17,8 +17,25 @@ namespace Vertex.Input
         private static Vector2 _lastMousePosition;
         private static bool _hasMousePosition;
         private static bool _cursorLocked;
+        private static readonly System.Text.StringBuilder _typedText = new();
 
         public static Vector2 MouseDelta { get; private set; }
+
+        /// <summary>
+        /// The characters typed this frame, with Shift, accents and the keyboard layout already applied:
+        /// use this for text boxes rather than reading keys. Doesn't include Enter, Backspace or other control keys.
+        /// </summary>
+        public static string TypedText => _typedText.ToString();
+
+        /// <summary>The system clipboard's text, for copy and paste. Empty if there's no keyboard.</summary>
+        public static string ClipboardText
+        {
+            get => _keyboard?.ClipboardText ?? "";
+            set
+            {
+                if (_keyboard != null) _keyboard.ClipboardText = value;
+            }
+        }
 
         public static float ScrollDelta { get; private set; }
 
@@ -49,6 +66,7 @@ namespace Vertex.Input
             {
                 _keyboard.KeyDown += (_, key, _) => _keysPressed.Add(key);
                 _keyboard.KeyUp += (_, key, _) => _keysReleased.Add(key);
+                _keyboard.KeyChar += (_, character) => _typedText.Append(character);
             }
 
             if (_mouse != null)
@@ -63,6 +81,15 @@ namespace Vertex.Input
         public static bool GetKey(Key key) => _keyboard?.IsKeyPressed(key) ?? false;
 
         public static bool GetKeyDown(Key key) => _keysPressed.Contains(key);
+
+        /// <summary>
+        /// Marks this frame's press of <paramref name="key"/> as handled, so <see cref="GetKeyDown"/> is false for
+        /// everything after: closing a menu with Escape shouldn't also open another one.
+        /// </summary>
+        public static void Consume(Key key) => _keysPressed.Remove(key);
+
+        /// <summary>Marks this frame's <see cref="TypedText"/> as handled, so nothing after receives it.</summary>
+        public static void ConsumeTypedText() => _typedText.Clear();
 
         public static bool GetKeyUp(Key key) => _keysReleased.Contains(key);
 
@@ -86,6 +113,7 @@ namespace Vertex.Input
             _buttonsReleased.Clear();
             MouseDelta = Vector2.Zero;
             ScrollDelta = 0f;
+            _typedText.Clear();
         }
     }
 }

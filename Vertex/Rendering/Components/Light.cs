@@ -20,5 +20,11 @@ namespace Vertex.Rendering
 
         /// <summary>Distance at which a point light fades to nothing.</summary>
         public float Range { get; set; } = 10f;
+
+        /// <summary>
+        /// Whether objects block this light, casting shadows. Only directional lights cast shadows,
+        /// and only the first one that has this on. See <see cref="Lighting.ShadowDistance"/>.
+        /// </summary>
+        public bool CastShadows { get; set; } = true;
     }
 }

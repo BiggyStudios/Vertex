@@ -1,11 +1,9 @@
 using System.Numerics;
 
-using Silk.NET.Input;
-
 using Vertex;
-using Vertex.Input;
 using Vertex.Physics;
 using Vertex.Rendering;
+using Vertex.UI;
 
 namespace SampleGame
 {
@@ -22,14 +20,33 @@ namespace SampleGame
         public override void Load()
         {
             // The player has the camera: mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot,
-            // V for noclip.
+            // hold right mouse to scope, V for noclip. B to change class, Escape for the menu, ` for the console.
             var player = new Player();
+            Settings.Current.Apply(player);
 
             // F1-F5 to host or join; see MultiplayerManager.
-            new GameObject("Multiplayer").AddComponent<MultiplayerManager>().LocalPlayer = player;
+            var multiplayerObject = new GameObject("Multiplayer");
+            MultiplayerManager multiplayer = multiplayerObject.AddComponent<MultiplayerManager>();
+            multiplayer.LocalPlayer = player;
 
+            // B, or Change class in the menu, to pick a class. It also opens as the game starts.
+            ClassMenu classMenu = multiplayerObject.AddComponent<ClassMenu>();
+            classMenu.Player = player;
+
+            PauseMenu menu = multiplayerObject.AddComponent<PauseMenu>();
+            menu.Player = player;
+            menu.Multiplayer = multiplayer;
+            menu.ClassMenu = classMenu;
+            menu.Quit = () => _window?.Close();
+
+            DevConsole.Font = Fonts.Regular;
+            GameCommands.Register(player, multiplayer);
+
+            // Slightly warm sunlight, which reads nicely against the cooler light from the sky.
             var sun = new GameObject("Sun");
-            sun.AddComponent<Light>().Intensity = 0.9f;
+            Light sunLight = sun.AddComponent<Light>();
+            sunLight.Color = new Color(1f, 0.95f, 0.87f);
+            sunLight.Intensity = 1.1f;
             sun.Transform.EulerAngles = new Vector3(-50f, 30f, 0f);
 
             var ground = new GameObject("Ground");
@@ -69,15 +86,27 @@ namespace SampleGame
             house.Transform.Position = new Vector3(-4.5f, 0f, -1f);
             house.Transform.EulerAngles = new Vector3(0f, 25f, 0f);
 
-            // Step on the glowing pad to go surfing; the pad at the end of the map brings you back here.
-            // Surf servers raise sv_airaccelerate from 10 to 150, so the pads switch it on the way there and back.
-            SurfMap.Build(exit: Player.SpawnPosition, exitYaw: 0f);
-            SurfMap.CreateTeleportPad("To Surf", new Vector3(6f, 0f, 2f), SurfMap.Start, SurfMap.StartYaw, airAcceleration: 150f);
-        }
+            // Two glowing pads either side of the spawn: cyan (right) to the practice surf course, purple (left) to the
+            // surf_vertex combat arena. Pads in each bring you back. In both, air control comes from sv_surf_airaccelerate
+            // (150, as on surf servers) instead of sv_airaccelerate.
+            var home = new SpawnPoint(Player.SpawnPosition, 0f);
+            SurfMap.Build(exit: home);
+            MapBuilder.TeleportPad("To Surf", new Vector3(6f, 0f, 2f), new SpawnPoint(SurfMap.Start, SurfMap.StartYaw), SurfMap.Zone, new Color(0.2f, 0.9f, 1f));
 
-        public override void Update()
-        {
-            if (InputSystem.GetKeyDown(Key.Escape)) _window?.Close();
+            CombatSurfMap.Build(exit: home);
+            MapBuilder.TeleportPad("To surf_vertex", new Vector3(-8f, 0f, 4f), CombatSurfMap.RedSpawn, CombatSurfMap.Zone, new Color(0.75f, 0.4f, 1f))
+                .GetComponent<Teleporter>()!.ToRandomSpawn = true;
+
+            // Bounce pads: the yellow one behind the spawn throws you straight up, and the green one past the cyan pad
+            // throws you forward the way you face, just far enough to reach the lookout in the far corner.
+            MapBuilder.BouncePad("Bounce Pad", new Vector3(-3f, 0f, 12f), new Color(1f, 0.8f, 0.2f), height: 10f);
+            var lookout = new Vector3(12f, 6f, -12f);
+            MapBuilder.Block("Lookout", lookout - new Vector3(0f, 3f, 0f), new Vector3(5f, 6f, 5f), new Color(0.6f, 0.62f, 0.66f),
+                MapBuilder.Checker(new Color(0.62f, 0.62f, 0.6f), new Color(0.52f, 0.52f, 0.5f)));
+            MapBuilder.Glow("Lookout Edge", lookout + new Vector3(0f, -0.3f, 0f), new Vector3(5.1f, 0.2f, 5.1f), new Color(0.3f, 1f, 0.45f));
+            var lookoutPad = new Vector3(10f, 0f, -1f);
+            MapBuilder.BouncePad("Lookout Pad", lookoutPad, new Color(0.3f, 1f, 0.45f), height: 13f,
+                reach: Vector2.Distance(new Vector2(lookoutPad.X, lookoutPad.Z), new Vector2(lookout.X, lookout.Z)), landingRise: lookout.Y - lookoutPad.Y);
         }
 
         private static GameObject CreateCrate(Vector3 position, Vector3 eulerAngles)

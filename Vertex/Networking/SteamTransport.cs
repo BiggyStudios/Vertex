@@ -30,6 +30,7 @@ namespace Vertex.Networking
         public PeerId LocalPeer { get; }
         public bool InSession => _lobby != CSteamID.Nil;
         public IReadOnlyCollection<PeerId> Peers => _peers;
+        public PeerId HostPeer => InSession ? new PeerId(SteamMatchmaking.GetLobbyOwner(_lobby).m_SteamID) : LocalPeer;
 
         /// <summary>The current lobby's ID, or 0. Others can join it with <see cref="JoinLobby"/>.</summary>
         public ulong LobbyId => _lobby.m_SteamID;

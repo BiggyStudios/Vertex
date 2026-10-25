@@ -505,7 +505,17 @@ namespace Vertex.Physics
                 if (!contact.HadCollision || contact.IsSensorB) continue;
 
                 float into = Vector3.Dot(velocity, contact.ContactNormal);
-                if (into < 0f) velocity -= contact.ContactNormal * into;
+                if (into >= 0f) continue;
+
+                if (contact.MotionTypeB == MotionType.Dynamic)
+                {
+                    // Loose props (crates, balls) get shoved out of the way rather than stopping the character dead, so
+                    // brushing one at speed doesn't cost all the speed going into it. Landing on one still stops the fall.
+                    if (contact.ContactNormal.Y > 0f && velocity.Y < 0f) velocity.Y = 0f;
+                    continue;
+                }
+
+                velocity -= contact.ContactNormal * into;
             }
 
             controller.Velocity = velocity;

@@ -32,6 +32,12 @@ namespace Vertex.Networking
         /// <summary>Everyone else in the session.</summary>
         IReadOnlyCollection<PeerId> Peers { get; }
 
+        /// <summary>
+        /// Who's in charge of the session's shared settings: whoever hosted it, or on Steam the lobby owner,
+        /// which passes to someone else if they leave.
+        /// </summary>
+        PeerId HostPeer { get; }
+
         /// <summary>A display name for a peer, such as their Steam name.</summary>
         string GetName(PeerId peer);
 

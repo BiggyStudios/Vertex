@@ -49,7 +49,13 @@ namespace Vertex.Rendering
             _frame.Clear();
             _frame.Width = Width;
             _frame.Height = Height;
-            _frame.AmbientLight = scene.AmbientLight;
+            _frame.CanvasQuadList.AddRange(UI.Canvas.ReadyQuads);
+
+            Lighting lighting = scene.Lighting;
+            _frame.Environment = new EnvironmentData(lighting.SkyColor, lighting.HorizonColor, lighting.GroundColor,
+                lighting.AmbientIntensity, lighting.FogDensity, lighting.Exposure, lighting.DrawSky);
+            _frame.ShadowDistance = lighting.ShadowDistance;
+            _frame.ShadowLightIndex = -1;
 
             Camera? camera = Camera.Main;
             _frame.ClearColor = camera?.ClearColor ?? Color.Black;
@@ -59,22 +65,29 @@ namespace Vertex.Rendering
             _frame.ViewMatrix = camera.ViewMatrix;
             _frame.ProjectionMatrix = camera.GetProjectionMatrix((float)Width / Height);
             _frame.CameraPosition = camera.Transform.WorldPosition;
+            _frame.CameraForward = camera.Transform.Forward;
 
             foreach (Light light in scene.FindComponents<Light>())
             {
                 Color color = light.Color * light.Intensity;
 
                 if (light.Type == LightType.Directional)
+                {
+                    if (light.CastShadows && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
                     _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color));
+                }
                 else
+                {
                     _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range));
+                }
             }
 
             foreach (MeshRenderer meshRenderer in scene.FindComponents<MeshRenderer>())
             {
                 if (meshRenderer.Mesh == null) continue;
 
-                _frame.DrawCallList.Add(new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix));
+                bool castShadows = meshRenderer.CastShadows && meshRenderer.Material.Shading == ShadingModel.Lit;
+                _frame.DrawCallList.Add(new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, castShadows));
             }
         }
 

@@ -37,6 +37,7 @@ namespace Vertex.Rendering.OpenGL
         public void SetInt(string name, int value) => _gl.Uniform1(GetLocation(name), value);
         public void SetBool(string name, bool value) => _gl.Uniform1(GetLocation(name), value ? 1 : 0);
         public void SetFloat(string name, float value) => _gl.Uniform1(GetLocation(name), value);
+        public void SetVector2(string name, Vector2 value) => _gl.Uniform2(GetLocation(name), value.X, value.Y);
         public void SetVector3(string name, Vector3 value) => _gl.Uniform3(GetLocation(name), value.X, value.Y, value.Z);
         public void SetColor(string name, Color value) => _gl.Uniform4(GetLocation(name), value.R, value.G, value.B, value.A);
         public void SetColor3(string name, Color value) => _gl.Uniform3(GetLocation(name), value.R, value.G, value.B);

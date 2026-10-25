@@ -1,4 +1,5 @@
 using Vertex.Physics;
+using Vertex.Rendering;
 
 namespace Vertex
 {
@@ -15,7 +16,8 @@ namespace Vertex
         private readonly List<GameObject> _toDestroy = new();
         private PhysicsWorld? _physics;
 
-        public Color AmbientLight { get; set; } = new Color(0.15f, 0.15f, 0.18f);
+        /// <summary>The sky, the soft light it gives, fog and shadow settings.</summary>
+        public Lighting Lighting { get; } = new();
 
         /// <summary>This scene's physics simulation. Created the first time it is used, or when the scene first has a collider.</summary>
         public PhysicsWorld Physics => _physics ??= new PhysicsWorld(this);

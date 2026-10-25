@@ -53,6 +53,7 @@ namespace Vertex.Networking
         public PeerId LocalPeer { get; private set; }
         public bool InSession { get; private set; }
         public IReadOnlyCollection<PeerId> Peers => _peers;
+        public PeerId HostPeer => _hostId;
 
         public event Action<PeerId>? PeerJoined;
         public event Action<PeerId>? PeerLeft;
@@ -159,7 +160,8 @@ namespace Vertex.Networking
         {
             if (type == Packet.Join)
             {
-                if (!_peersByEndPoint.TryGetValue(from, out PeerId joined))
+                bool isNew = !_peersByEndPoint.TryGetValue(from, out PeerId joined);
+                if (isNew)
                 {
                     joined = new PeerId(_nextPeerId++);
                     _endPoints[joined] = from;
@@ -167,12 +169,15 @@ namespace Vertex.Networking
 
                     foreach (PeerId other in _peers) SendPacket(_endPoints[other], Packet.PeerJoined, ReadOnlySpan<byte>.Empty, joined.Value);
                     _peers.Add(joined);
-                    PeerJoined?.Invoke(joined);
                 }
 
                 // Sent again if the client asks again, in case the first welcome was lost.
                 _lastHeard[joined] = Now;
                 SendWelcome(joined);
+
+                // Only after the welcome: the game may send them something straight away, and they'd drop it
+                // if it arrived before they knew they were in.
+                if (isNew) PeerJoined?.Invoke(joined);
                 return;
             }
 

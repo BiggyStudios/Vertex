@@ -7,15 +7,22 @@ using Silk.NET.Windowing;
 namespace Vertex.Rendering.OpenGL
 {
     /// <summary>
-    /// OpenGL 3.3 implementation of <see cref="IRenderBackend"/>. Forward rendering with Blinn-Phong lighting,
-    /// up to <see cref="GLShaderSources.MaxDirectionalLights"/> directional and
-    /// <see cref="GLShaderSources.MaxPointLights"/> point lights.
+    /// OpenGL 3.3 implementation of <see cref="IRenderBackend"/>. Each frame: the sun's shadow map, a gradient sky,
+    /// then forward rendering with Blinn-Phong lighting (up to <see cref="GLShaderSources.MaxDirectionalLights"/>
+    /// directional and <see cref="GLShaderSources.MaxPointLights"/> point lights, plus sky light and fog), done in
+    /// linear colour with filmic tone mapping. Then the 2D canvas on top.
     /// </summary>
     public class GLRenderBackend : IRenderBackend
     {
         private GL _gl = null!;
         private GLShader _litShader = null!;
         private GLShader _unlitShader = null!;
+        private GLShader _skyShader = null!;
+        private GLShadowMap _shadowMap = null!;
+        private GLCanvas _canvas = null!;
+
+        // The sky's triangle is made in its vertex shader, but OpenGL still wants a vertex array bound to draw.
+        private uint _emptyVertexArray;
 
         // GPU copies of meshes/textures. Weak keys, so dropping a Mesh doesn't keep it alive here.
         private readonly ConditionalWeakTable<Mesh, GLMesh> _meshes = new();
@@ -46,6 +53,10 @@ namespace Vertex.Rendering.OpenGL
 
             _litShader = new GLShader(_gl, GLShaderSources.LitVertex, GLShaderSources.LitFragment);
             _unlitShader = new GLShader(_gl, GLShaderSources.LitVertex, GLShaderSources.UnlitFragment);
+            _skyShader = new GLShader(_gl, GLShaderSources.SkyVertex, GLShaderSources.SkyFragment);
+            _shadowMap = new GLShadowMap(_gl);
+            _canvas = new GLCanvas(_gl);
+            _emptyVertexArray = _gl.GenVertexArray();
         }
 
         public void Resize(int width, int height)
@@ -55,13 +66,59 @@ namespace Vertex.Rendering.OpenGL
 
         public void Render(RenderFrame frame)
         {
-            Color clear = frame.ClearColor;
+            // Shadows first: they're drawn into their own texture.
+            bool shadows = frame.HasCamera && frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < GLShaderSources.MaxDirectionalLights;
+            if (shadows) _shadowMap.Draw(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction), GetMesh);
+
+            bool sky = frame.HasCamera && frame.Environment.DrawSky;
+            Color clear = sky ? frame.Environment.HorizonColor : frame.ClearColor;
             _gl.ClearColor(clear.R, clear.G, clear.B, clear.A);
             _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-            if (!frame.HasCamera) return;
+            if (frame.HasCamera)
+            {
+                if (sky) DrawSky(frame);
+                DrawScene(frame, shadows);
+            }
 
+            // The 2D layer goes on top, camera or not.
+            _canvas.Draw(frame.CanvasQuads, frame.Width, frame.Height, GetTexture);
+        }
+
+        private void DrawSky(RenderFrame frame)
+        {
+            EnvironmentData environment = frame.Environment;
+            Matrix4x4.Invert(frame.ViewMatrix * frame.ProjectionMatrix, out Matrix4x4 inverseViewProjection);
+
+            _skyShader.Use();
+            _skyShader.SetMatrix4("uInverseViewProjection", inverseViewProjection);
+            _skyShader.SetColor3("uSkyColor", environment.SkyColor);
+            _skyShader.SetColor3("uHorizonColor", environment.HorizonColor);
+            _skyShader.SetColor3("uGroundColor", environment.GroundColor);
+
+            // The sun is drawn where the shadow-casting light (or else the first directional light) comes from.
+            int sun = frame.ShadowLightIndex >= 0 ? frame.ShadowLightIndex : 0;
+            _skyShader.SetBool("uHasSun", frame.DirectionalLights.Count > sun);
+            if (frame.DirectionalLights.Count > sun)
+            {
+                DirectionalLightData light = frame.DirectionalLights[sun];
+                _skyShader.SetVector3("uSunDirection", -Vector3.Normalize(light.Direction));
+                _skyShader.SetColor3("uSunColor", light.Color);
+            }
+
+            // Behind everything: drawn without depth, and everything else is drawn over it.
+            _gl.Disable(EnableCap.DepthTest);
+            _gl.DepthMask(false);
+            _gl.BindVertexArray(_emptyVertexArray);
+            _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            _gl.DepthMask(true);
+            _gl.Enable(EnableCap.DepthTest);
+        }
+
+        private void DrawScene(RenderFrame frame, bool shadows)
+        {
             GLShader? currentShader = null;
+            _shadowMap.Bind(1);
 
             foreach (DrawCall draw in frame.DrawCalls)
             {
@@ -71,7 +128,7 @@ namespace Vertex.Rendering.OpenGL
                 if (shader != currentShader)
                 {
                     shader.Use();
-                    SetFrameUniforms(shader, frame);
+                    SetFrameUniforms(shader, frame, shadows);
                     currentShader = shader;
                 }
 
@@ -94,12 +151,26 @@ namespace Vertex.Rendering.OpenGL
             }
         }
 
-        private void SetFrameUniforms(GLShader shader, RenderFrame frame)
+        private void SetFrameUniforms(GLShader shader, RenderFrame frame, bool shadows)
         {
             shader.SetMatrix4("uView", frame.ViewMatrix);
             shader.SetMatrix4("uProjection", frame.ProjectionMatrix);
             shader.SetVector3("uCameraPosition", frame.CameraPosition);
-            shader.SetColor3("uAmbientLight", frame.AmbientLight);
+
+            EnvironmentData environment = frame.Environment;
+            shader.SetColor3("uSkyColor", environment.SkyColor);
+            shader.SetColor3("uHorizonColor", environment.HorizonColor);
+            shader.SetColor3("uGroundColor", environment.GroundColor);
+            shader.SetFloat("uAmbientIntensity", environment.AmbientIntensity);
+            shader.SetColor3("uFogColor", environment.DrawSky ? environment.HorizonColor : frame.ClearColor);
+            shader.SetFloat("uFogDensity", environment.FogDensity);
+            shader.SetFloat("uExposure", environment.Exposure);
+
+            shader.SetInt("uShadowLightIndex", shadows ? frame.ShadowLightIndex : -1);
+            shader.SetMatrix4("uLightSpace", _shadowMap.LightSpace);
+            shader.SetInt("uShadowMap", 1);
+            shader.SetFloat("uShadowTexelSize", 1f / GLShadowMap.Size);
+            shader.SetFloat("uShadowNormalOffset", _shadowMap.TexelWorldSize * 1.5f);
 
             int directionalCount = Math.Min(frame.DirectionalLights.Count, GLShaderSources.MaxDirectionalLights);
             shader.SetInt("uDirectionalLightCount", directionalCount);
@@ -141,6 +212,11 @@ namespace Vertex.Rendering.OpenGL
                 _textures.Add(texture, glTexture);
                 texture.Disposed += OnTextureDisposed;
             }
+            else if (glTexture.Version != texture.Version)
+            {
+                // Changed since it was uploaded (a font atlas that gained new letters, say).
+                glTexture.Upload(texture);
+            }
 
             return glTexture;
         }
@@ -172,6 +248,10 @@ namespace Vertex.Rendering.OpenGL
 
             _litShader.Dispose();
             _unlitShader.Dispose();
+            _skyShader.Dispose();
+            _shadowMap.Dispose();
+            _canvas.Dispose();
+            _gl.DeleteVertexArray(_emptyVertexArray);
         }
 
         private static string[] UniformNames(string array, string field, int count)

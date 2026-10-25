@@ -15,6 +15,12 @@ namespace Vertex.Networking
 
         public static IReadOnlyCollection<PeerId> Peers => Transport?.Peers ?? [];
 
+        /// <summary>Who's in charge of the session's shared settings. See <see cref="INetworkTransport.HostPeer"/>.</summary>
+        public static PeerId HostPeer => Transport?.HostPeer ?? default;
+
+        /// <summary>True when this machine is the host, or isn't in a session (playing alone, you're in charge).</summary>
+        public static bool IsHost => !InSession || LocalPeer == HostPeer;
+
         public static event Action<PeerId>? PeerJoined;
         public static event Action<PeerId>? PeerLeft;
         public static event MessageHandler? MessageReceived;

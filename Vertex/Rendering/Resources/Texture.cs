@@ -16,6 +16,9 @@ namespace Vertex.Rendering
         /// <summary>Raised by <see cref="Dispose"/> so renderers can free their GPU copy.</summary>
         public event Action<Texture>? Disposed;
 
+        /// <summary>Bumped by <see cref="SetPixels"/>, so renderers know to upload their copy again.</summary>
+        public int Version { get; private set; }
+
         /// <param name="rgbaPixels">Width * Height * 4 bytes, top row first.</param>
         public Texture(int width, int height, byte[] rgbaPixels)
         {
@@ -62,6 +65,24 @@ namespace Vertex.Rendering
             }
 
             return new Texture(size, size, pixels);
+        }
+
+        /// <summary>
+        /// Replaces a rectangle of pixels (RGBA, top row first). The renderer re-uploads the texture before it's next drawn.
+        /// </summary>
+        public void SetPixels(int x, int y, int width, int height, ReadOnlySpan<byte> rgbaPixels)
+        {
+            if (x < 0 || y < 0 || x + width > Width || y + height > Height)
+                throw new ArgumentOutOfRangeException(nameof(x), "The rectangle must fit inside the texture.");
+            if (rgbaPixels.Length != width * height * 4)
+                throw new ArgumentException("Pixel data must be width * height * 4 bytes.", nameof(rgbaPixels));
+
+            for (int row = 0; row < height; row++)
+            {
+                rgbaPixels.Slice(row * width * 4, width * 4).CopyTo(Pixels.AsSpan(((y + row) * Width + x) * 4));
+            }
+
+            Version++;
         }
 
         /// <summary>Frees the GPU copy. The texture is uploaded again if it is used afterwards.</summary>
