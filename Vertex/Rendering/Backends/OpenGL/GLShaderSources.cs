@@ -59,6 +59,8 @@ namespace Vertex.Rendering.OpenGL
             uniform bool uHasTexture;
             uniform float uSpecular;
             uniform float uShininess;
+            uniform vec3 uEmission;
+            uniform float uEmissionStrength;
 
             uniform vec3 uCameraPosition;
             uniform int uDirectionalLightCount;
@@ -82,7 +84,9 @@ namespace Vertex.Rendering.OpenGL
             uniform float uShadowTexelSize;
             uniform float uShadowNormalOffset;
 
-            out vec4 FragColor;
+            layout (location = 0) out vec4 FragColor;
+            // What glows, in linear light, for bloom. Everything drawn into the scene writes it, so nearer things hide glow behind them.
+            layout (location = 1) out vec4 GlowColor;
 
             vec3 diffuseLight;
             vec3 specularLight;
@@ -166,12 +170,15 @@ namespace Vertex.Rendering.OpenGL
                     addLight(N, V, toLight / distance, uPointLights[i].color * falloff * falloff);
                 }
 
-                vec3 color = toScreen(toneMap((baseColor * diffuseLight + specularLight) * uExposure));
+                // Emission shines whatever the lighting, and also glows out as bloom.
+                vec3 emission = toLinear(uEmission) * uEmissionStrength;
+                vec3 color = toScreen(toneMap((baseColor * diffuseLight + specularLight + emission) * uExposure));
 
                 // Fade into the horizon with distance. Done last, so far-off things match the sky exactly.
                 float distance = length(uCameraPosition - vWorldPosition);
                 float fog = 1.0 - exp(-pow(uFogDensity * distance, 2.0));
                 FragColor = vec4(mix(color, uFogColor, fog), albedo.a);
+                GlowColor = vec4(emission * (1.0 - fog), 1.0);
             }
             """;
 
@@ -225,7 +232,8 @@ namespace Vertex.Rendering.OpenGL
             uniform vec3 uSunColor;
             uniform bool uHasSun;
 
-            out vec4 FragColor;
+            layout (location = 0) out vec4 FragColor;
+            layout (location = 1) out vec4 GlowColor;
 
             void main()
             {
@@ -239,14 +247,18 @@ namespace Vertex.Rendering.OpenGL
                     ? mix(uHorizonColor, uSkyColor, pow(height, 0.55))
                     : mix(uHorizonColor, mix(uHorizonColor, uGroundColor, 0.6), clamp(-height * 4.0, 0.0, 1.0));
 
-                // The sun: a bright disc and a soft glow around it.
+                // The sun: a bright disc and a soft glow around it. The disc blooms a little too.
+                vec3 glow = vec3(0.0);
                 if (uHasSun)
                 {
                     float towardsSun = max(dot(direction, uSunDirection), 0.0);
-                    color += uSunColor * (pow(towardsSun, 900.0) * 3.0 + pow(towardsSun, 12.0) * 0.18);
+                    float disc = pow(towardsSun, 900.0) * 3.0;
+                    color += uSunColor * (disc + pow(towardsSun, 12.0) * 0.18);
+                    glow = uSunColor * disc * 0.15;
                 }
 
                 FragColor = vec4(color, 1.0);
+                GlowColor = vec4(glow, 1.0);
             }
             """;
 
@@ -258,14 +270,18 @@ namespace Vertex.Rendering.OpenGL
             uniform vec4 uColor;
             uniform sampler2D uTexture;
             uniform bool uHasTexture;
+            uniform vec3 uEmission;
+            uniform float uEmissionStrength;
 
-            out vec4 FragColor;
+            layout (location = 0) out vec4 FragColor;
+            layout (location = 1) out vec4 GlowColor;
 
             void main()
             {
                 vec4 color = uColor;
                 if (uHasTexture) color *= texture(uTexture, vUV);
                 FragColor = color;
+                GlowColor = vec4(pow(uEmission, vec3(2.2)) * uEmissionStrength, 1.0);
             }
             """;
 
@@ -304,6 +320,153 @@ namespace Vertex.Rendering.OpenGL
             void main()
             {
                 FragColor = texture(uTexture, vUV) * vColor;
+            }
+            """;
+
+        // Particles: camera-facing quads made on the CPU, with straight (not premultiplied) colours.
+        public const string ParticleVertex = """
+            #version 330 core
+
+            layout (location = 0) in vec3 aPosition;
+            layout (location = 1) in vec2 aCorner;
+            layout (location = 2) in vec4 aColor;
+            layout (location = 3) in float aGlow;
+            layout (location = 4) in float aAdditive;
+
+            uniform mat4 uView;
+            uniform mat4 uProjection;
+            uniform vec3 uCameraPosition;
+            uniform float uFogDensity;
+
+            out vec2 vCorner;
+            out vec4 vColor;
+            out float vGlow;
+            out float vAdditive;
+            out float vFog;
+
+            void main()
+            {
+                vCorner = aCorner;
+                vColor = aColor;
+                vGlow = aGlow;
+                vAdditive = aAdditive;
+                vFog = 1.0 - exp(-pow(uFogDensity * length(uCameraPosition - aPosition), 2.0));
+                gl_Position = uProjection * uView * vec4(aPosition, 1.0);
+            }
+            """;
+
+        // A soft round dot, blended with premultiplied alpha: an alpha of 0 adds light, anything else covers what's behind.
+        public const string ParticleFragment = """
+            #version 330 core
+
+            in vec2 vCorner;
+            in vec4 vColor;
+            in float vGlow;
+            in float vAdditive;
+            in float vFog;
+
+            uniform vec3 uFogColor;
+
+            layout (location = 0) out vec4 FragColor;
+            layout (location = 1) out vec4 GlowColor;
+
+            void main()
+            {
+                float r2 = dot(vCorner, vCorner);
+                if (r2 >= 1.0) discard;
+
+                float shape = (1.0 - r2) * (1.0 - r2);
+                float alpha = vColor.a * shape;
+                float covers = alpha * (1.0 - vAdditive);
+
+                // In the distance, dust fades into the fog and glowing things fade out.
+                vec3 color = mix(vColor.rgb, uFogColor, vFog * (1.0 - vAdditive)) * mix(1.0, 1.0 - vFog, vAdditive);
+                FragColor = vec4(color * alpha, covers);
+                GlowColor = vec4(pow(vColor.rgb, vec3(2.2)) * vGlow * alpha * (1.0 - vFog), covers);
+            }
+            """;
+
+        // One triangle covering the screen, for the passes that work on whole images.
+        public const string FullscreenVertex = """
+            #version 330 core
+
+            out vec2 vUV;
+
+            void main()
+            {
+                vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
+                vUV = corner * 0.5 + 0.5;
+                gl_Position = vec4(corner, 0.0, 1.0);
+            }
+            """;
+
+        // Halves the glow image, averaging 13 nearby samples (Jimenez's filter from Call of Duty: Advanced Warfare),
+        // which blurs it smoothly without flickering as things move.
+        public const string BloomDownsampleFragment = """
+            #version 330 core
+
+            in vec2 vUV;
+
+            uniform sampler2D uSource;
+            uniform vec2 uTexelSize;
+
+            out vec4 FragColor;
+
+            vec3 tap(float x, float y) { return texture(uSource, vUV + vec2(x, y) * uTexelSize).rgb; }
+
+            void main()
+            {
+                vec3 a = tap(-2.0, 2.0), b = tap(0.0, 2.0), c = tap(2.0, 2.0);
+                vec3 d = tap(-2.0, 0.0), e = tap(0.0, 0.0), f = tap(2.0, 0.0);
+                vec3 g = tap(-2.0, -2.0), h = tap(0.0, -2.0), i = tap(2.0, -2.0);
+                vec3 j = tap(-1.0, 1.0), k = tap(1.0, 1.0), l = tap(-1.0, -1.0), m = tap(1.0, -1.0);
+
+                vec3 color = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
+                FragColor = vec4(max(color, vec3(0.0)), 1.0);
+            }
+            """;
+
+        // Doubles a blurred glow image back up with a 3x3 tent filter, added onto the next size up.
+        public const string BloomUpsampleFragment = """
+            #version 330 core
+
+            in vec2 vUV;
+
+            uniform sampler2D uSource;
+            uniform vec2 uTexelSize;
+
+            out vec4 FragColor;
+
+            vec3 tap(float x, float y) { return texture(uSource, vUV + vec2(x, y) * uTexelSize).rgb; }
+
+            void main()
+            {
+                vec3 color = tap(0.0, 0.0) * 4.0
+                    + (tap(-1.0, 0.0) + tap(1.0, 0.0) + tap(0.0, -1.0) + tap(0.0, 1.0)) * 2.0
+                    + tap(-1.0, -1.0) + tap(1.0, -1.0) + tap(-1.0, 1.0) + tap(1.0, 1.0);
+                FragColor = vec4(color / 16.0, 1.0);
+            }
+            """;
+
+        // The finished scene with the bloom on top, blended like light on a lens: it brightens towards white but never
+        // past it, so the scene underneath keeps its colours.
+        public const string CompositeFragment = """
+            #version 330 core
+
+            in vec2 vUV;
+
+            uniform sampler2D uScene;
+            uniform sampler2D uBloom;
+            uniform float uBloomStrength;
+
+            out vec4 FragColor;
+
+            void main()
+            {
+                vec3 scene = pow(texture(uScene, vUV).rgb, vec3(2.2));
+                vec3 bloom = 1.0 - exp(-texture(uBloom, vUV).rgb * uBloomStrength);
+                vec3 color = 1.0 - (1.0 - scene) * (1.0 - bloom);
+                FragColor = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
             }
             """;
     }

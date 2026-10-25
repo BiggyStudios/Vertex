@@ -11,6 +11,7 @@ namespace SampleGame
         private const int _sampleRate = 44100;
 
         public static AudioClip Gunshot { get; } = CreateGunshot();
+        public static AudioClip DeagleShot { get; } = CreateDeagleShot();
         public static AudioClip SniperShot { get; } = CreateSniperShot();
         public static AudioClip Bolt { get; } = CreateBolt();
         public static AudioClip ShotgunShot { get; } = CreateShotgunShot();
@@ -22,6 +23,9 @@ namespace SampleGame
         public static AudioClip KnifeSwing { get; } = CreateKnifeSwing();
         public static AudioClip KnifeHitWall { get; } = CreateKnifeHitWall();
         public static AudioClip KnifeDraw { get; } = CreateKnifeDraw();
+        public static AudioClip RocketLaunch { get; } = CreateRocketLaunch();
+        public static AudioClip Explosion { get; } = CreateExplosion();
+        public static AudioClip GrappleShot { get; } = CreateGrappleShot();
 
         /// <summary>Bounce pads. Recorded rather than made here: Assets/Sounds/Bouncepad.wav.</summary>
         public static AudioClip Bounce { get; } = AudioClip.Load(Path.Combine(AppContext.BaseDirectory, "Assets", "Sounds", "Bouncepad.wav"));
@@ -67,6 +71,44 @@ namespace SampleGame
 
             FadeOut(samples);
             Normalize(samples, peak: 0.9f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>
+        /// The Deagle: the rifle's layers, but a harder crack, a heavier boom and a deeper thump, for a big handgun round.
+        /// </summary>
+        private static AudioClip CreateDeagleShot()
+        {
+            const float duration = 0.85f;
+            var samples = new float[(int)(_sampleRate * duration)];
+
+            var random = new Random(4321);
+            float muffled = 0f;
+            float dull = 0f;
+            float phase = 0f;
+
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                float crack = noise * MathF.Exp(-t / 0.005f);
+
+                muffled += (noise - muffled) * 0.1f;
+                float bang = muffled * 2.8f * MathF.Exp(-t / 0.08f);
+
+                float pitch = 45f + 110f * MathF.Exp(-t / 0.035f);
+                phase += 2f * MathF.PI * pitch / _sampleRate;
+                float thump = MathF.Sin(phase) * MathF.Exp(-t / 0.12f);
+
+                dull += (noise - dull) * 0.03f;
+                float tail = dull * 2.5f * MathF.Exp(-t / 0.32f);
+
+                samples[i] = MathF.Tanh((crack + bang * 0.9f + thump * 1.1f + tail * 0.55f) * 1.8f);
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.92f);
             return AudioClip.FromSamples(samples, _sampleRate);
         }
 
@@ -373,6 +415,107 @@ namespace SampleGame
         /// times the pitch, as on struck metal) that fades quickly and makes it sound metallic.
         /// <paramref name="ring"/> is how long it rings, in seconds, until it's down to about a third.
         /// </summary>
+        /// <summary>A rocket leaving the tube: a hollow "foomp" as it's pushed out, then a hiss as its motor lights.</summary>
+        private static AudioClip CreateRocketLaunch()
+        {
+            const float duration = 0.9f;
+            var samples = new float[(int)(_sampleRate * duration)];
+
+            var random = new Random(4242);
+            float muffled = 0f;
+            float hissFilter = 0f;
+            float phase = 0f;
+
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                // The tube: a low tone dropping in pitch, with a puff of muffled noise.
+                float pitch = 70f + 110f * MathF.Exp(-t / 0.05f);
+                phase += 2f * MathF.PI * pitch / _sampleRate;
+                float foomp = MathF.Sin(phase) * MathF.Exp(-t / 0.1f);
+                muffled += (noise - muffled) * 0.08f;
+                float puff = muffled * 2.5f * MathF.Exp(-t / 0.06f);
+
+                // The motor: bright noise that swells in after the push and trails off.
+                hissFilter += (noise - hissFilter) * 0.5f;
+                float hiss = (noise - hissFilter) * MathF.Min(t / 0.08f, 1f) * MathF.Exp(-t / 0.35f);
+
+                samples[i] = MathF.Tanh((foomp * 1.2f + puff + hiss * 0.6f) * 1.5f);
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.9f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>An explosion: a hard crack, a deep boom that drops away, and a long rumble.</summary>
+        private static AudioClip CreateExplosion()
+        {
+            const float duration = 1.8f;
+            var samples = new float[(int)(_sampleRate * duration)];
+
+            var random = new Random(9001);
+            float muffled = 0f;
+            float rumble = 0f;
+            float phase = 0f;
+
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                float crack = noise * MathF.Exp(-t / 0.01f);
+
+                muffled += (noise - muffled) * 0.06f;
+                float blast = muffled * 4f * MathF.Exp(-t / 0.18f);
+
+                float pitch = 32f + 80f * MathF.Exp(-t / 0.08f);
+                phase += 2f * MathF.PI * pitch / _sampleRate;
+                float boom = MathF.Sin(phase) * MathF.Exp(-t / 0.35f);
+
+                rumble += (noise - rumble) * 0.015f;
+                float tail = rumble * 4f * MathF.Exp(-t / 0.6f);
+
+                samples[i] = MathF.Tanh((crack * 0.6f + blast + boom * 1.4f + tail * 0.8f) * 2f);
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.95f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
+        /// <summary>The grapple firing: a soft hiss as the line flies out, ending in a clack as it catches.</summary>
+        private static AudioClip CreateGrappleShot()
+        {
+            const float duration = 0.22f;
+            const float flight = 0.16f;
+            var samples = new float[(int)(_sampleRate * duration)];
+
+            var random = new Random(53);
+            float hiss = 0f;
+
+            for (int i = 0; i < samples.Length; i++)
+            {
+                float t = i / (float)_sampleRate;
+                float noise = random.NextSingle() * 2f - 1f;
+
+                // A hiss swelling and fading while the line is in flight.
+                hiss += (noise - hiss) * 0.25f;
+                float zip = hiss * 0.6f * MathF.Sin(MathF.PI * MathF.Min(t / flight, 1f));
+
+                float since = t - flight;
+                float click = since >= 0f ? noise * MathF.Exp(-since / 0.006f) : 0f;
+
+                samples[i] = zip * 0.6f + click;
+            }
+
+            FadeOut(samples);
+            Normalize(samples, peak: 0.6f);
+            return AudioClip.FromSamples(samples, _sampleRate);
+        }
+
         private static void AddDing(float[] samples, float start, float pitch, float ring, float loudness)
         {
             int first = (int)(start * _sampleRate);

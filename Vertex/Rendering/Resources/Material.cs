@@ -26,6 +26,15 @@ namespace Vertex.Rendering
         /// <summary>Higher values give smaller, sharper highlights.</summary>
         public float Shininess { get; set; } = 32f;
 
+        /// <summary>
+        /// Light the surface gives off itself, whatever lights it: black for none. It shines out onto the space around
+        /// it as bloom (see <see cref="Lighting.Bloom"/>), more the brighter it is.
+        /// </summary>
+        public Color Emission { get; set; } = Color.Black;
+
+        /// <summary>How bright <see cref="Emission"/> is. Above 1 it's brighter than any colour can show, and glows more.</summary>
+        public float EmissionStrength { get; set; } = 1f;
+
         public Material() {}
 
         public Material(Color color)

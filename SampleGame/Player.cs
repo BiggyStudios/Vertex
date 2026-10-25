@@ -22,7 +22,8 @@ namespace SampleGame
     /// First-person player with Quake / Source style movement, ported from Source's gamemovement.cpp:
     /// ground friction and acceleration, air control that allows air strafing, and bunny hopping.
     /// Mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot, hold right mouse to scope (sniper rifle)
-    /// or stab (knife), 1 for the knife and 2 for the gun, F to inspect, V to toggle noclip.
+    /// or stab (knife), 1 for the knife and 2 for the gun, F to inspect, and aim at a grapple point and hold Shift to swing
+    /// from it. With sv_cheats 1, the noclip command flies.
     /// </summary>
     public class Player : GameObject
     {
@@ -83,9 +84,40 @@ namespace SampleGame
         public float RunSpeed => MathF.Min(MaxSpeed, Gun.MoveSpeed);
 
         /// <summary>Their class, chosen from the class menu, which decides their weapon.</summary>
-        public PlayerClass Class { get; private set; } = PlayerClass.Rifleman;
+        public PlayerClass Class { get; private set; } = PlayerClass.Pistol;
 
         public float NoclipSpeed { get; set; } = 10f;
+
+        /// <summary>sv_cheats: whether cheat commands like noclip work. Turning it off takes noclip away.</summary>
+        public bool CheatsAllowed
+        {
+            get => _cheatsAllowed;
+            set
+            {
+                _cheatsAllowed = value;
+                if (!value) Noclip = false;
+            }
+        }
+
+        /// <summary>
+        /// Flying through everything, like Source's noclip: WASD where you look, Shift to go faster, E and Q for up and
+        /// down. Turned on and off by the noclip console command, which needs sv_cheats 1.
+        /// </summary>
+        public bool Noclip
+        {
+            get => _noclip;
+            set
+            {
+                if (_noclip == value) return;
+
+                _noclip = value;
+                Grapple.Release();
+                // Disabled, the controller leaves the physics world, so nothing bumps into where the player was.
+                _controller.Enabled = !value;
+                _padFlight = false;
+                _controller.Velocity = Vector3.Zero;
+            }
+        }
 
         public const int MaxHealth = 100;
         private const float _respawnDelay = 3f;
@@ -104,6 +136,7 @@ namespace SampleGame
         public float Pitch => _pitch;
         public Gun Gun { get; }
         public Hud Hud { get; }
+        public Grapple Grapple { get; }
 
         /// <summary>Seconds until respawning, while dead.</summary>
         public float RespawnIn => IsDead ? MathF.Max(_respawnTimer, 0f) : 0f;
@@ -121,7 +154,10 @@ namespace SampleGame
         private bool _jumpHeld;
         private bool _scrollJumpQueued;
         private bool _noclip;
+        private bool _cheatsAllowed;
+        private Collider? _standingOn;
         private float _respawnTimer;
+        private Vector2 _viewPunch;
 
         public static Vector3 SpawnPosition { get; } = new(0f, 0f, 6f);
 
@@ -156,6 +192,8 @@ namespace SampleGame
             Gun.Attach(this, _eye);
             Hud = AddComponent<Hud>();
             Hud.Attach(this);
+            Grapple = AddComponent<Grapple>();
+            Grapple.Attach(this);
         }
 
         /// <summary>
@@ -186,7 +224,7 @@ namespace SampleGame
             }
 
             Class = playerClass;
-            Gun.SetPrimary(playerClass.Weapon);
+            Gun.SetLoadout(playerClass.Weapon, playerClass.Secondary);
         }
 
         /// <summary>
@@ -204,6 +242,15 @@ namespace SampleGame
         }
 
         /// <summary>
+        /// Kicks the view up by <paramref name="degrees"/>, and a little to one side or the other, like a heavy gun's recoil. It
+        /// settles back by itself in a fraction of a second. Shots fired before then go where the view is kicked to.
+        /// </summary>
+        public void PunchView(float degrees)
+        {
+            _viewPunch += new Vector2(degrees, (Random.Shared.NextSingle() * 2f - 1f) * degrees * 0.25f);
+        }
+
+        /// <summary>
         /// Dies straight away, credited to nobody: the console's kill command, or a kill trigger
         /// (<paramref name="fell"/>, shown as "fell to their death").
         /// </summary>
@@ -215,6 +262,7 @@ namespace SampleGame
         private void Die(Death death)
         {
             IsDead = true;
+            Grapple.Release();
             _respawnTimer = _respawnDelay;
             Died?.Invoke(death);
         }
@@ -261,10 +309,12 @@ namespace SampleGame
             _pitch = 0f;
             Transform.EulerAngles = new Vector3(0f, _yaw, 0f);
             _eye.Transform.EulerAngles = Vector3.Zero;
+            _viewPunch = Vector2.Zero;
 
             _controller.Velocity = velocity;
             _onGround = false;
             _padFlight = false;
+            Grapple.Release();
         }
 
         protected override void Update()
@@ -280,7 +330,8 @@ namespace SampleGame
             float halfAngle = MathF.Atan(MathF.Tan(MathHelper.ToRadians(FieldOfView) * 0.5f) / Gun.Zoom);
             Camera.FieldOfView = MathHelper.ToDegrees(halfAngle) * 2f;
             Transform.EulerAngles = new Vector3(0f, _yaw, 0f);
-            _eye.Transform.EulerAngles = new Vector3(_pitch, 0f, IsDead ? 40f : 0f);
+            _viewPunch *= MathF.Exp(-9f * Time.DeltaTime);
+            _eye.Transform.EulerAngles = new Vector3(MathF.Min(_pitch + _viewPunch.X, 89f), _viewPunch.Y, IsDead ? 40f : 0f);
 
             if (IsDead)
             {
@@ -295,15 +346,6 @@ namespace SampleGame
 
             // The wheel only reports for one frame, so remember it until the next physics step.
             if (InputSystem.ScrollDelta != 0f) _scrollJumpQueued = true;
-
-            if (InputSystem.GetKeyDown(Key.V) && !GameInput.Blocked)
-            {
-                _noclip = !_noclip;
-                // Disabled, the controller leaves the physics world, so nothing bumps into where the player was.
-                _controller.Enabled = !_noclip;
-                _padFlight = false;
-                _controller.Velocity = Vector3.Zero;
-            }
 
             if (_noclip && !GameInput.Blocked) NoclipMove(Time.DeltaTime);
         }
@@ -330,6 +372,10 @@ namespace SampleGame
             _jumpHeld = jumpDown;
             _scrollJumpQueued = false;
 
+            // Standing on something moving (riding a rocket), running and friction are worked out relative to it, like
+            // Source's base velocity, and its speed carries on when you jump off: jump on a rocket and you land back on it.
+            Vector3 ground = _onGround ? _controller.GroundVelocity : Vector3.Zero;
+
             if (_onGround && jump)
             {
                 // Added on top of the half-step of gravity above, like Source, so the jump peaks at exactly JumpHeight.
@@ -340,10 +386,12 @@ namespace SampleGame
 
             if (_onGround)
             {
+                velocity -= ground;
                 velocity.Y = 0f;
                 ApplyFriction(ref velocity, dt);
                 Accelerate(ref velocity, wishDir, wishSpeed, Acceleration, dt);
                 velocity.Y = 0f;
+                velocity += ground;
             }
             else
             {
@@ -352,14 +400,28 @@ namespace SampleGame
                 if (_padFlight) SoftenSpeedLoss(ref velocity, before);
             }
 
+            // The grapple's rope last: it only bends the move the player was about to make, so it never stops them dead.
+            Grapple.Pull(ref velocity, dt);
+
+            bool airborne = !_onGround;
+            float fallSpeed = -velocity.Y;
+
             _controller.Velocity = Vector3.Clamp(velocity, new Vector3(-_maxVelocity), new Vector3(_maxVelocity));
             _controller.Move(dt);
             velocity = _controller.Velocity;
 
-            _onGround = _controller.IsGrounded && velocity.Y <= _nonJumpVelocity;
-            if (_onGround) _padFlight = false;
+            ground = _controller.GroundVelocity;
+            _onGround = _controller.IsGrounded && velocity.Y - ground.Y <= _nonJumpVelocity;
 
-            if (_onGround) velocity.Y = 0f;
+            // Stepping or landing onto something moving, you're carried along with it straight away: a rocket passing
+            // under you takes you with it rather than sliding out from under your feet.
+            Collider? standingOn = _onGround ? _controller.GroundCollider : null;
+            if (standingOn != null && standingOn != _standingOn && ground != Vector3.Zero) velocity = velocity with { X = ground.X, Z = ground.Z };
+            _standingOn = standingOn;
+            if (_onGround) _padFlight = false;
+            if (_onGround && airborne) Effects.Landing(Transform.WorldPosition, fallSpeed + ground.Y);
+
+            if (_onGround) velocity.Y = ground.Y;
             else velocity.Y -= Gravity * 0.5f * dt;
 
             _controller.Velocity = velocity;

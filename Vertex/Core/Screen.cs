@@ -8,7 +8,8 @@ namespace Vertex
 {
     /// <summary>
     /// The game's window as the game sees it. Fullscreen is borderless: the window loses its frame and covers the
-    /// whole monitor it's on, so Alt+Tab is instant and the desktop resolution is kept.
+    /// whole monitor it's on, so Alt+Tab is instant, the desktop resolution is kept, and recording software can capture
+    /// the window.
     /// </summary>
     public static class Screen
     {
@@ -54,8 +55,11 @@ namespace Vertex
                 _windowedSize = _window.Size;
 
                 // The video mode is the whole screen; Silk's Bounds is only the part the taskbar leaves free.
+                // One pixel taller than the screen, hanging off the bottom: a window that exactly covers the monitor gets
+                // flipped straight to the screen by some graphics drivers (NVIDIA's OpenGL driver especially), skipping the
+                // desktop compositor, and then window capture (OBS's Window Capture, Discord streaming) only sees black.
                 _window.WindowBorder = WindowBorder.Hidden;
-                _window.Size = monitor.VideoMode.Resolution ?? monitor.Bounds.Size;
+                _window.Size = (monitor.VideoMode.Resolution ?? monitor.Bounds.Size) + new Vector2D<int>(0, 1);
                 _window.Position = MonitorOrigin(monitor);
             }
             else

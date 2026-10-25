@@ -236,12 +236,13 @@ namespace SampleGame
             Canvas.DrawText(Fonts.Bold, gun.Weapon.Name, new Vector2(corner.X - nameWidth, corner.Y - 32f), Color.White, 24f, shadow: true);
 
             var dim = new Color(1f, 1f, 1f, 0.55f);
-            (string Text, Color Color)[] parts =
-            [
+            var parts = new List<(string Text, Color Color)>
+            {
                 ($"1 {Weapon.Knife.Name}", gun.Weapon == Weapon.Knife ? Color.White : dim),
-                ($"    2 {gun.Primary.Name}", gun.Weapon == gun.Primary ? Color.White : dim),
-                ("    ·    B to change class", dim)
-            ];
+                ($"    2 {gun.Primary.Name}", gun.Weapon == gun.Primary ? Color.White : dim)
+            };
+            if (gun.Secondary is { } secondary) parts.Add(($"    3 {secondary.Name}", gun.Weapon == secondary ? Color.White : dim));
+            parts.Add(("    ·    B to change class", dim));
 
             const float size = 14f;
             float x = corner.X - parts.Sum(part => Canvas.MeasureText(Fonts.Regular, part.Text, size).X);

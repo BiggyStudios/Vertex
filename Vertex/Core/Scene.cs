@@ -78,7 +78,11 @@ namespace Vertex
         internal void BeginFixedSteps() => _physics?.RestorePoses();
 
         /// <summary>Called after a frame's fixed steps: draws physics objects <paramref name="alpha"/> of the way between their last two steps.</summary>
-        internal void InterpolatePhysics(float alpha) => _physics?.Interpolate(alpha);
+        internal void InterpolatePhysics(float alpha)
+        {
+            Time.FixedAlpha = alpha;
+            _physics?.Interpolate(alpha);
+        }
 
         /// <summary>Frees the physics simulation. Called when the window closes.</summary>
         internal void Shutdown()

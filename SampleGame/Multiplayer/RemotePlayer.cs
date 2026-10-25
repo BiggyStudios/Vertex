@@ -43,9 +43,12 @@ namespace SampleGame
         private readonly Dictionary<WeaponId, (GameObject Model, GameObject Muzzle)> _guns = new();
         private readonly GameObject _flash;
         private readonly GameObject _healthFill;
-        private WeaponId _weapon = WeaponId.Rifle;
+        private readonly Rope _rope;
+        private Vector3? _grapple;
+        private WeaponId _weapon = WeaponId.Deagle;
         private float _gunKick;
         private float _flashTime;
+        private float _fallSpeed;
 
         public RemotePlayer(PeerId peer, string name, Color color) : base(name)
         {
@@ -87,16 +90,31 @@ namespace SampleGame
             AddShape(shotgun, "Barrel", Primitives.Cube, new Vector3(0f, 0.01f, -0.4f), new Vector3(0.05f, 0.05f, 0.4f), new Color(0.18f, 0.18f, 0.2f));
             AddShape(shotgun, "Pump", Primitives.Cube, new Vector3(0f, -0.03f, -0.35f), new Vector3(0.06f, 0.05f, 0.14f), new Color(0.36f, 0.21f, 0.11f));
 
+            GameObject launcher = AddGun(WeaponId.RocketLauncher, "Rocket Launcher", new Vector3(0f, 0.03f, -0.62f));
+            AddShape(launcher, "Tube", Primitives.Cube, new Vector3(0f, 0.03f, -0.2f), new Vector3(0.13f, 0.13f, 0.85f), new Color(0.36f, 0.4f, 0.26f));
+            AddShape(launcher, "Grip", Primitives.Cube, new Vector3(0f, -0.06f, -0.05f), new Vector3(0.04f, 0.1f, 0.05f), new Color(0.1f, 0.1f, 0.11f));
+
+            GameObject deagle = AddGun(WeaponId.Deagle, "Deagle", new Vector3(0f, 0.025f, -0.22f));
+            AddShape(deagle, "Barrel", Primitives.Cube, new Vector3(0f, 0.027f, -0.16f), new Vector3(0.05f, 0.055f, 0.12f), new Color(0.64f, 0.65f, 0.68f));
+            AddShape(deagle, "Slide", Primitives.Cube, new Vector3(0f, 0.025f, -0.04f), new Vector3(0.045f, 0.048f, 0.14f), new Color(0.64f, 0.65f, 0.68f));
+            AddShape(deagle, "Frame", Primitives.Cube, new Vector3(0f, -0.008f, -0.09f), new Vector3(0.04f, 0.022f, 0.2f), new Color(0.09f, 0.09f, 0.1f));
+            AddShape(deagle, "Grip", Primitives.Cube, new Vector3(0f, -0.06f, 0.01f), new Vector3(0.045f, 0.11f, 0.06f), new Color(0.09f, 0.09f, 0.1f));
+
             GameObject knife = AddGun(WeaponId.Knife, "Knife", new Vector3(0f, 0f, -0.3f));
             AddShape(knife, "Handle", Primitives.Cube, new Vector3(0f, 0f, 0f), new Vector3(0.035f, 0.04f, 0.12f), new Color(0.1f, 0.1f, 0.11f));
             AddShape(knife, "Blade", Primitives.Cube, new Vector3(0f, 0.005f, -0.15f), new Vector3(0.01f, 0.04f, 0.18f), new Color(0.62f, 0.64f, 0.68f));
 
             // Moved to the tip of whichever gun they're holding.
-            _flash = AddShape(_guns[WeaponId.Rifle].Muzzle, "Muzzle Flash", Primitives.Sphere, Vector3.Zero, new Vector3(0.1f), new Color(1f, 0.9f, 0.5f), unlit: true);
+            _flash = AddShape(_guns[WeaponId.Deagle].Muzzle, "Muzzle Flash", Primitives.Sphere, Vector3.Zero, new Vector3(0.1f), new Color(1f, 0.9f, 0.5f), unlit: true);
+            MeshRenderer flashRenderer = _flash.GetComponent<MeshRenderer>()!;
+            flashRenderer.Material.Emission = new Color(1f, 0.75f, 0.35f);
+            flashRenderer.Material.EmissionStrength = 2.5f;
             _flash.Active = false;
 
             AddShape(_model, "Health Bar Background", Primitives.Cube, new Vector3(0f, 2.05f, 0f), new Vector3(0.62f, 0.07f, 0.02f), new Color(0.05f, 0.05f, 0.05f), unlit: true);
             _healthFill = AddShape(_model, "Health Bar", Primitives.Cube, new Vector3(0f, 2.05f, 0f), new Vector3(0.6f, 0.05f, 0.03f), Color.White, unlit: true);
+
+            _rope = new Rope("Grapple Rope", GrapplePoint.DefaultColor, Transform);
         }
 
         internal void AddState(in PlayerState state)
@@ -127,7 +145,16 @@ namespace SampleGame
         {
             ShowWeapon(weapon.Id);
             Vector3 muzzle = _guns[_weapon].Muzzle.Transform.WorldPosition;
-            foreach (Vector3 end in ends) Effects.Tracer(muzzle, end);
+            foreach (Vector3 end in ends)
+            {
+                Effects.Tracer(muzzle, end);
+
+                // The shot only says where each pellet ended, so look along it again here for what it hit there.
+                Vector3 path = end - muzzle;
+                float length = path.Length();
+                if (length > 0.01f && Scene.Physics.Raycast(muzzle, path, length + 0.1f, out RaycastHit hit, ignore: _collider) && hit.Distance > length - 0.25f)
+                    Effects.Impact(hit);
+            }
 
             // Full volume within a few metres, then quieter with distance; it comes from their direction as you turn.
             // The sniper rifle is louder, so it carries further.
@@ -135,6 +162,41 @@ namespace SampleGame
 
             _gunKick = 1f;
             if (!weapon.Melee) _flashTime = 0.05f;
+        }
+
+        /// <summary>
+        /// Dust at their feet when they land: they were falling, and now they've stopped (or jumped straight off again)
+        /// with the ground right under them. The ground check keeps a surfer leaving a ramp from counting.
+        /// </summary>
+        private void ShowLanding(in PlayerState shown)
+        {
+            float verticalSpeed = shown.Velocity.Y;
+            if (!Alive || verticalSpeed < -0.5f)
+            {
+                _fallSpeed = Alive ? MathF.Max(_fallSpeed, -verticalSpeed) : 0f;
+                return;
+            }
+
+            if (_fallSpeed > 0f && Scene.Physics.Raycast(shown.Position + new Vector3(0f, 0.2f, 0f), -Vector3.UnitY, 0.5f, out _, ignore: _collider))
+                Effects.Landing(shown.Position, _fallSpeed);
+            _fallSpeed = 0f;
+        }
+
+        /// <summary>Their grapple rope, from their hand to the point it's caught on, with a zip when it catches.</summary>
+        private void ShowGrapple(in PlayerState shown)
+        {
+            Vector3? grapple = Alive ? shown.Grapple : null;
+            if (grapple is Vector3 anchor)
+            {
+                if (_grapple != anchor) Sound.PlayAt(Sounds.GrappleShot, _gunPivot.Transform.WorldPosition, volume: 0.6f);
+                _rope.Show(_gunPivot.Transform.WorldPosition, anchor);
+            }
+            else
+            {
+                _rope.Hide();
+            }
+
+            _grapple = grapple;
         }
 
         /// <summary>Called when they announce their death, so they go down straight away rather than at their next update.</summary>
@@ -167,6 +229,9 @@ namespace SampleGame
 
             _model.Active = Alive;
             _collider.Enabled = Alive;
+
+            ShowLanding(shown);
+            ShowGrapple(shown);
 
             _gunKick *= MathF.Exp(-14f * Time.DeltaTime);
             ShowWeapon(newest.Weapon);
@@ -218,12 +283,12 @@ namespace SampleGame
         /// <summary>The shortest turn from one angle to another, in degrees: from 350 to 10 is +20, not -340.</summary>
         private static float DeltaAngle(float from, float to) => ((to - from) % 360f + 540f) % 360f - 180f;
 
-        /// <summary>One weapon's model, held on the gun pivot, with a muzzle at <paramref name="muzzle"/>. Only the rifle starts shown.</summary>
+        /// <summary>One weapon's model, held on the gun pivot, with a muzzle at <paramref name="muzzle"/>. Only the Deagle starts shown.</summary>
         private GameObject AddGun(WeaponId id, string name, Vector3 muzzle)
         {
             var gun = new GameObject(name);
             gun.Transform.Parent = _gunPivot.Transform;
-            gun.Active = id == WeaponId.Rifle;
+            gun.Active = id == WeaponId.Deagle;
             _guns[id] = (gun, AddShape(gun, "Muzzle", null, muzzle, Vector3.One, default));
             return gun;
         }

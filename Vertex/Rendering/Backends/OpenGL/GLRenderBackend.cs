@@ -10,7 +10,8 @@ namespace Vertex.Rendering.OpenGL
     /// OpenGL 3.3 implementation of <see cref="IRenderBackend"/>. Each frame: the sun's shadow map, a gradient sky,
     /// then forward rendering with Blinn-Phong lighting (up to <see cref="GLShaderSources.MaxDirectionalLights"/>
     /// directional and <see cref="GLShaderSources.MaxPointLights"/> point lights, plus sky light and fog), done in
-    /// linear colour with filmic tone mapping. Then the 2D canvas on top.
+    /// linear colour with filmic tone mapping, then particles. Glowing things bloom (see <see cref="GLBloom"/>). Then the
+    /// 2D canvas on top.
     /// </summary>
     public class GLRenderBackend : IRenderBackend
     {
@@ -20,6 +21,8 @@ namespace Vertex.Rendering.OpenGL
         private GLShader _skyShader = null!;
         private GLShadowMap _shadowMap = null!;
         private GLCanvas _canvas = null!;
+        private GLBloom _bloom = null!;
+        private GLParticles _particles = null!;
 
         // The sky's triangle is made in its vertex shader, but OpenGL still wants a vertex array bound to draw.
         private uint _emptyVertexArray;
@@ -57,11 +60,14 @@ namespace Vertex.Rendering.OpenGL
             _shadowMap = new GLShadowMap(_gl);
             _canvas = new GLCanvas(_gl);
             _emptyVertexArray = _gl.GenVertexArray();
+            _bloom = new GLBloom(_gl, _emptyVertexArray);
+            _particles = new GLParticles(_gl);
         }
 
         public void Resize(int width, int height)
         {
             _gl.Viewport(0, 0, (uint)width, (uint)height);
+            _bloom.Resize(width, height);
         }
 
         public void Render(RenderFrame frame)
@@ -70,15 +76,23 @@ namespace Vertex.Rendering.OpenGL
             bool shadows = frame.HasCamera && frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < GLShaderSources.MaxDirectionalLights;
             if (shadows) _shadowMap.Draw(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction), GetMesh);
 
-            bool sky = frame.HasCamera && frame.Environment.DrawSky;
-            Color clear = sky ? frame.Environment.HorizonColor : frame.ClearColor;
-            _gl.ClearColor(clear.R, clear.G, clear.B, clear.A);
-            _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
-
             if (frame.HasCamera)
             {
+                // The scene goes into the bloom's images first, then onto the screen with its glow.
+                bool sky = frame.Environment.DrawSky;
+                _bloom.Resize(frame.Width, frame.Height);
+                _bloom.BeginScene(sky ? frame.Environment.HorizonColor : frame.ClearColor);
                 if (sky) DrawSky(frame);
                 DrawScene(frame, shadows);
+                _particles.Draw(frame);
+                _bloom.Finish(frame.Bloom);
+            }
+            else
+            {
+                Color clear = frame.ClearColor;
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                _gl.ClearColor(clear.R, clear.G, clear.B, clear.A);
+                _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             }
 
             // The 2D layer goes on top, camera or not.
@@ -139,6 +153,8 @@ namespace Vertex.Rendering.OpenGL
                 shader.SetColor("uColor", material.Color);
                 shader.SetFloat("uSpecular", material.Specular);
                 shader.SetFloat("uShininess", material.Shininess);
+                shader.SetColor3("uEmission", material.Emission);
+                shader.SetFloat("uEmissionStrength", material.EmissionStrength);
                 shader.SetBool("uHasTexture", material.Texture != null);
 
                 if (material.Texture != null)
@@ -251,6 +267,8 @@ namespace Vertex.Rendering.OpenGL
             _skyShader.Dispose();
             _shadowMap.Dispose();
             _canvas.Dispose();
+            _bloom.Dispose();
+            _particles.Dispose();
             _gl.DeleteVertexArray(_emptyVertexArray);
         }
 

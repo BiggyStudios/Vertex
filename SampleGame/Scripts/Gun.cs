@@ -5,6 +5,7 @@ using Silk.NET.Input;
 using Vertex;
 using Vertex.Audio;
 using Vertex.Input;
+using Vertex.Networking;
 using Vertex.Physics;
 using Vertex.Rendering;
 
@@ -86,10 +87,17 @@ namespace SampleGame
         private const float _pumpStart = 0.22f;
         private const float _pumpEnd = 0.58f;
 
-        public Weapon Weapon { get; private set; } = Weapon.Rifle;
+        // A rocket fired at anything closer than this goes off against it at once. Far enough to reach the floor looking
+        // straight down, so a rocket into your own feet is caught here.
+        private const float _pointBlank = 2f;
+
+        public Weapon Weapon { get; private set; } = Weapon.Deagle;
 
         /// <summary>The class's gun, on 2. The knife is always on 1.</summary>
-        public Weapon Primary { get; private set; } = Weapon.Rifle;
+        public Weapon Primary { get; private set; } = Weapon.Deagle;
+
+        /// <summary>Some classes' second gun, on 3 (the Shotgunner's rocket launcher). Null for the rest.</summary>
+        public Weapon? Secondary { get; private set; }
 
         /// <summary>Showing the weapon off, after pressing F.</summary>
         public bool IsInspecting => _inspectTime >= 0f;
@@ -115,16 +123,26 @@ namespace SampleGame
         /// </summary>
         public event Action<Weapon, Vector3, IReadOnlyList<Pellet>, bool>? Fired;
 
+        /// <summary>Raised for every rocket fired, once it's on its way.</summary>
+        public event Action<Rocket>? RocketFired;
+
         /// <summary>Raised for every knife swing: the weapon, where the blade was, what it hit (if anything), and whether it was a stab.</summary>
         public event Action<Weapon, Vector3, RaycastHit?, bool>? Struck;
 
         /// <summary>One weapon's model in view.</summary>
-        private sealed class ViewModel(GameObject root, Vector3 restPosition, float recoilDistance, float recoilPitch)
+        private sealed class ViewModel(GameObject root, Vector3 restPosition, float recoilDistance, float recoilPitch, float recoilRecovery = 14f)
         {
             public GameObject Root { get; } = root;
             public Vector3 RestPosition { get; } = restPosition;
             public float RecoilDistance { get; } = recoilDistance;
             public float RecoilPitch { get; } = recoilPitch;
+
+            /// <summary>How quickly it settles back after a shot: lower is a slower, heavier recovery.</summary>
+            public float RecoilRecovery { get; } = recoilRecovery;
+
+            /// <summary>A pistol's slide, which slams back when it fires and springs forward again.</summary>
+            public GameObject? Slide { get; set; }
+            public Vector3 SlideRest { get; set; }
             public GameObject Muzzle { get; set; } = null!;
             public GameObject Flash { get; set; } = null!;
 
@@ -183,14 +201,17 @@ namespace SampleGame
             _models[WeaponId.Sniper] = BuildSniper();
             _models[WeaponId.Shotgun] = BuildShotgun();
             _models[WeaponId.Knife] = BuildKnife();
-            Equip(Weapon.Rifle, deploy: false);
+            _models[WeaponId.RocketLauncher] = BuildRocketLauncher();
+            _models[WeaponId.Deagle] = BuildDeagle();
+            Equip(Weapon.Deagle, deploy: false);
         }
 
-        /// <summary>Gives the player a new gun for slot 2, from their class, and switches to it.</summary>
-        public void SetPrimary(Weapon weapon)
+        /// <summary>Gives the player their class's guns, for slot 2 and (if it has one) slot 3, and switches to slot 2's.</summary>
+        public void SetLoadout(Weapon primary, Weapon? secondary)
         {
-            Primary = weapon;
-            Equip(weapon);
+            Primary = primary;
+            Secondary = secondary;
+            Equip(primary);
         }
 
         /// <summary>
@@ -233,6 +254,7 @@ namespace SampleGame
                 // Switching to what's already in hand does nothing, as in CS.
                 if (InputSystem.GetKeyDown(Key.Number1) && Weapon != Weapon.Knife) Equip(Weapon.Knife);
                 else if (InputSystem.GetKeyDown(Key.Number2) && Weapon != Primary) Equip(Primary);
+                else if (InputSystem.GetKeyDown(Key.Number3) && Secondary != null && Weapon != Secondary) Equip(Secondary);
 
                 // Pressing it again starts over. Not while the gun is busy: being brought up, or working its bolt or pump.
                 if (InputSystem.GetKeyDown(Key.F) && _cooldown <= 0f && !IsScoped) _inspectTime = 0f;
@@ -307,6 +329,12 @@ namespace SampleGame
         /// </summary>
         public void Fire()
         {
+            if (Weapon.IsProjectile)
+            {
+                FireRocket();
+                return;
+            }
+
             Vector3 origin = _eye.Transform.WorldPosition;
             Vector3 aim = _eye.Transform.Forward;
             Vector3 muzzle = Model.Muzzle.Transform.WorldPosition;
@@ -326,7 +354,7 @@ namespace SampleGame
                 {
                     hit = result;
                     end = result.Point;
-                    Effects.Impact(end);
+                    Effects.Impact(result);
                     result.Collider.GetComponent<Rigidbody>()?.AddImpulse(direction * (Weapon.ImpactForce / pellets.Length));
                 }
 
@@ -344,6 +372,7 @@ namespace SampleGame
             _flashTime = 0.05f;
             _sinceShot = 0f;
             _inspectTime = -1f;
+            if (Weapon.ViewKick > 0f) _owner.PunchView(Weapon.ViewKick);
 
             // A bolt or pump has to be worked after every shot, which takes you out of the scope until it's done.
             if (!Weapon.Automatic)
@@ -353,6 +382,37 @@ namespace SampleGame
             }
 
             Fired?.Invoke(Weapon, muzzle, pellets, noScope);
+        }
+
+        /// <summary>
+        /// Fires a rocket from in front of the eye along the crosshair. It starts a metre out, clear of the player. With
+        /// something closer than <see cref="_pointBlank"/>, it goes off against it straight away instead; if that's the
+        /// ground under your own feet, it's a direct hit on yourself. Once it's flying, your own rocket never hits you, so
+        /// surfing faster than it can't catch it up and blow yourself up.
+        /// </summary>
+        private void FireRocket()
+        {
+            Vector3 eye = _eye.Transform.WorldPosition;
+            Vector3 aim = _eye.Transform.Forward;
+
+            bool blocked = GameObject.Scene.Physics.Raycast(eye, aim, _pointBlank, out RaycastHit wall, ignore: _owner.Controller);
+            Vector3 start = blocked ? wall.Point - aim * 0.1f : eye + aim;
+            Rocket rocket = Rocket.Spawn(_owner, Network.LocalPeer, mine: true, start, aim);
+            Sound.Play(Weapon.Sound, Weapon.SoundVolume, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f);
+
+            _recoil = 1f;
+            _flashTime = 0.05f;
+            _sinceShot = 0f;
+            _inspectTime = -1f;
+
+            RocketFired?.Invoke(rocket);
+
+            if (blocked)
+            {
+                Vector3 feet = _owner.Transform.WorldPosition;
+                bool underFeet = Vector2.Distance(new Vector2(wall.Point.X, wall.Point.Z), new Vector2(feet.X, feet.Z)) < 0.6f && wall.Point.Y < feet.Y + 0.5f;
+                rocket.Explode(start, decidedHere: true, underFeet ? Network.LocalPeer : null);
+            }
         }
 
         /// <summary>
@@ -371,7 +431,7 @@ namespace SampleGame
                 result.Collider.GetComponent<Rigidbody>()?.AddImpulse(aim * Weapon.ImpactForce);
                 if (result.GameObject is not RemotePlayer)
                 {
-                    Effects.Impact(result.Point);
+                    Effects.Impact(result);
                     Sound.Play(Sounds.KnifeHitWall, volume: 0.6f, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f);
                 }
             }
@@ -427,8 +487,8 @@ namespace SampleGame
         {
             ViewModel model = Model;
 
-            // Recoil springs back quickly; the flash only lasts a couple of frames.
-            _recoil *= MathF.Exp(-14f * dt);
+            // Recoil springs back, quickly for most guns; the flash only lasts a couple of frames.
+            _recoil *= MathF.Exp(-model.RecoilRecovery * dt);
             _flashTime -= dt;
             model.Flash.Active = _flashTime > 0f;
             if (model.Flash.Active) model.Flash.Transform.EulerAngles = new Vector3(0f, 0f, Random.Shared.NextSingle() * 360f);
@@ -462,6 +522,7 @@ namespace SampleGame
 
             float roll = AnimateBolt(model);
             float tilt = AnimatePump(model);
+            AnimateSlide(model);
             (Vector3 swingOffset, Vector3 swingAngles) = AnimateSwing();
             (Vector3 inspectOffset, Vector3 inspectAngles) = AnimateInspect(dt);
 
@@ -469,6 +530,16 @@ namespace SampleGame
                 + new Vector3(_sway.X, _sway.Y - lowered * 0.25f - roll * 0.002f, _recoil * model.RecoilDistance);
             model.Root.Transform.EulerAngles = swingAngles + inspectAngles
                 + new Vector3(_recoil * model.RecoilPitch - lowered * 40f + tilt, 0f, roll);
+        }
+
+        /// <summary>The slide, if it has one: slammed straight back by the shot, then sprung forward again.</summary>
+        private void AnimateSlide(ViewModel model)
+        {
+            if (model.Slide == null) return;
+
+            const float slam = 0.025f;
+            float back = _sinceShot < slam ? _sinceShot / slam : MathF.Exp(-(_sinceShot - slam) * 22f);
+            model.Slide.Transform.Position = model.SlideRest + new Vector3(0f, 0f, back * 0.045f);
         }
 
         /// <summary>The knife's slash or stab, played out after a swing. Slashes go alternately one way, then the other.</summary>
@@ -605,6 +676,56 @@ namespace SampleGame
             return model;
         }
 
+        /// <summary>
+        /// A Desert Eagle held out in the right hand. Brushed stainless: a fat, square barrel block at the front with a rib
+        /// along the top and a big square muzzle, and behind it a long, tall slide with grip lines cut in its back end, which
+        /// slams back every shot. A black frame underneath, a squared-off trigger guard, a big hammer, and a thick grip.
+        /// It kicks hard and settles slowly.
+        /// </summary>
+        private ViewModel BuildDeagle()
+        {
+            var model = new ViewModel(new GameObject("Deagle"), new Vector3(0.13f, -0.125f, -0.44f), recoilDistance: 0.05f, recoilPitch: 26f, recoilRecovery: 8f);
+            GameObject root = model.Root;
+            root.Transform.Parent = _eye.Transform;
+
+            var stainless = new Color(0.64f, 0.65f, 0.68f);
+            var darkSteel = new Color(0.28f, 0.28f, 0.3f);
+            var black = new Color(0.09f, 0.09f, 0.1f);
+            var rubber = new Color(0.16f, 0.16f, 0.17f);
+
+            // The barrel stays put: a block taller and wider than the slide, with the rib and front sight on top.
+            AddPart(root, "Barrel", new Vector3(0.056f, 0.062f, 0.14f), new Vector3(0f, 0.031f, -0.13f), 0f, stainless, metallic: true);
+            AddPart(root, "Rib", new Vector3(0.02f, 0.008f, 0.14f), new Vector3(0f, 0.066f, -0.13f), 0f, darkSteel, metallic: true);
+            AddPart(root, "Front Sight", new Vector3(0.008f, 0.016f, 0.014f), new Vector3(0f, 0.077f, -0.19f), 0f, black, metallic: true);
+            AddPart(root, "Muzzle Face", new Vector3(0.034f, 0.034f, 0.004f), new Vector3(0f, 0.032f, -0.2015f), 0f, black, metallic: true);
+            AddPart(root, "Dust Cover", new Vector3(0.048f, 0.026f, 0.14f), new Vector3(0f, -0.012f, -0.12f), 0f, black, metallic: false);
+
+            // The slide, which moves.
+            var slide = new GameObject("Slide");
+            slide.Transform.Parent = root.Transform;
+            model.SlideRest = Vector3.Zero;
+            AddPart(slide, "Slide Body", new Vector3(0.05f, 0.054f, 0.2f), new Vector3(0f, 0.028f, 0.04f), 0f, stainless, metallic: true);
+            for (int i = 0; i < 5; i++)
+            {
+                AddPart(slide, "Serration", new Vector3(0.053f, 0.042f, 0.004f), new Vector3(0f, 0.026f, 0.085f + i * 0.011f), 0f, black, metallic: true);
+            }
+            AddPart(slide, "Rear Sight", new Vector3(0.036f, 0.014f, 0.014f), new Vector3(0f, 0.061f, 0.125f), 0f, black, metallic: true);
+            model.Slide = slide;
+
+            AddPart(root, "Frame", new Vector3(0.046f, 0.026f, 0.13f), new Vector3(0f, -0.012f, 0f), 0f, black, metallic: false);
+            AddPart(root, "Hammer", new Vector3(0.018f, 0.03f, 0.02f), new Vector3(0f, 0.045f, 0.152f), -30f, darkSteel, metallic: true);
+            AddPart(root, "Beavertail", new Vector3(0.04f, 0.012f, 0.04f), new Vector3(0f, -0.02f, 0.135f), 0f, black, metallic: false);
+            AddPart(root, "Trigger Guard", new Vector3(0.014f, 0.008f, 0.08f), new Vector3(0f, -0.068f, -0.035f), 0f, black, metallic: false);
+            AddPart(root, "Trigger Guard Front", new Vector3(0.014f, 0.052f, 0.01f), new Vector3(0f, -0.044f, -0.075f), -10f, black, metallic: false);
+            AddPart(root, "Trigger", new Vector3(0.008f, 0.03f, 0.01f), new Vector3(0f, -0.04f, -0.02f), 15f, darkSteel, metallic: true);
+            AddPart(root, "Grip", new Vector3(0.052f, 0.135f, 0.072f), new Vector3(0f, -0.085f, 0.085f), -16f, black, metallic: false);
+            AddPart(root, "Grip Panel", new Vector3(0.056f, 0.1f, 0.052f), new Vector3(0f, -0.09f, 0.087f), -16f, rubber, metallic: false);
+            AddPart(root, "Magazine Base", new Vector3(0.046f, 0.012f, 0.066f), new Vector3(0f, -0.156f, 0.106f), -16f, darkSteel, metallic: true);
+
+            AddMuzzle(model, new Vector3(0f, 0.032f, -0.21f), flashSize: 0.12f);
+            return model;
+        }
+
         /// <summary>A long bolt-action rifle in olive green, with a big scope on top and a stock that runs back out of view.</summary>
         private ViewModel BuildSniper()
         {
@@ -675,6 +796,28 @@ namespace SampleGame
             return model;
         }
 
+        /// <summary>A fat olive tube over the shoulder, with a grip under it, another further forward, and a sight off to the side.</summary>
+        private ViewModel BuildRocketLauncher()
+        {
+            var model = new ViewModel(new GameObject("Rocket Launcher"), new Vector3(0.19f, -0.18f, -0.5f), recoilDistance: 0.1f, recoilPitch: 8f);
+            GameObject root = model.Root;
+            root.Transform.Parent = _eye.Transform;
+
+            var olive = new Color(0.36f, 0.4f, 0.26f);
+            var darkOlive = new Color(0.25f, 0.28f, 0.18f);
+            var black = new Color(0.1f, 0.1f, 0.11f);
+
+            AddPart(root, "Tube", new Vector3(0.1f, 0.1f, 0.7f), new Vector3(0f, 0.03f, -0.2f), 0f, olive, metallic: false);
+            AddPart(root, "Muzzle Ring", new Vector3(0.12f, 0.12f, 0.05f), new Vector3(0f, 0.03f, -0.54f), 0f, darkOlive, metallic: true);
+            AddPart(root, "Back Ring", new Vector3(0.12f, 0.12f, 0.05f), new Vector3(0f, 0.03f, 0.13f), 0f, darkOlive, metallic: true);
+            AddPart(root, "Grip", new Vector3(0.03f, 0.1f, 0.04f), new Vector3(0f, -0.07f, 0f), 12f, black, metallic: false);
+            AddPart(root, "Front Grip", new Vector3(0.03f, 0.08f, 0.04f), new Vector3(0f, -0.06f, -0.3f), 0f, black, metallic: false);
+            AddPart(root, "Sight", new Vector3(0.02f, 0.05f, 0.06f), new Vector3(-0.06f, 0.08f, -0.25f), 0f, black, metallic: true);
+
+            AddMuzzle(model, new Vector3(0f, 0.03f, -0.58f), flashSize: 0.2f);
+            return model;
+        }
+
         /// <summary>
         /// A combat knife held point-forward in the right hand, angled in towards the middle of the view: a black grip, a
         /// steel guard and pommel, and a long bright blade with a clipped point.
@@ -718,6 +861,8 @@ namespace SampleGame
             flashRenderer.Mesh = Primitives.Sphere;
             flashRenderer.Material.Shading = ShadingModel.Unlit;
             flashRenderer.Material.Color = new Color(1f, 0.9f, 0.5f);
+            flashRenderer.Material.Emission = new Color(1f, 0.75f, 0.35f);
+            flashRenderer.Material.EmissionStrength = 2.5f;
             flashRenderer.CastShadows = false;
             flash.Active = false;
 

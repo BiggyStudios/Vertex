@@ -138,7 +138,10 @@ namespace SampleGame
 
             Canvas.DrawText(Fonts.Bold, playerClass.Name, new Vector2(left, y - 4f), Color.White, 30f);
             y += 40f;
-            Canvas.DrawText(Fonts.Regular, current ? $"{weapon.Name} · current" : weapon.Name, new Vector2(left, y), Gui.AccentColor, 17f);
+            // Both weapons for a class with two, and "current" too if there's room for it.
+            string weapons = playerClass.Secondary is { } secondary ? $"{weapon.Name} + {secondary.Name}" : weapon.Name;
+            string weaponLine = current && Canvas.MeasureText(Fonts.Regular, $"{weapons} · current", 17f).X <= right - left ? $"{weapons} · current" : weapons;
+            Canvas.DrawText(Fonts.Regular, weaponLine, new Vector2(left, y), Gui.AccentColor, 17f);
             y += 30f;
 
             foreach (string line in Wrap(Fonts.Regular, playerClass.Description, 16f, right - left))

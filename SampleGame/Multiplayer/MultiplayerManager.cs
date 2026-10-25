@@ -90,6 +90,9 @@ namespace SampleGame
             LocalPlayer.Died += OnLocalPlayerDied;
             LocalPlayer.Gun.Fired += OnShotFired;
             LocalPlayer.Gun.Struck += OnStruck;
+            LocalPlayer.Gun.RocketFired += OnRocketFired;
+            Rocket.Exploded += OnRocketExploded;
+            Rocket.Detonated += OnRocketDetonated;
 
             Announce("F1 host a Steam lobby, F2 join one, F3/F4 host/join on this PC, F5 leave. Enter to chat, Tab for scores.");
 
@@ -113,6 +116,8 @@ namespace SampleGame
             Network.PeerLeft -= OnPeerLeft;
             Network.SessionEnded -= OnSessionEnded;
             Network.MessageReceived -= OnMessage;
+            Rocket.Exploded -= OnRocketExploded;
+            Rocket.Detonated -= OnRocketDetonated;
         }
 
         protected override void Update()
@@ -251,7 +256,8 @@ namespace SampleGame
                 !LocalPlayer.IsDead,
                 (ushort)Math.Min(Kills, ushort.MaxValue),
                 (ushort)Math.Min(Deaths, ushort.MaxValue),
-                LocalPlayer.Gun.Weapon.Id);
+                LocalPlayer.Gun.Weapon.Id,
+                LocalPlayer.Grapple.Anchor?.Position);
 
             var message = new MessageWriter(stackalloc byte[64], MessageType.State);
             message.Write(state);
@@ -354,6 +360,24 @@ namespace SampleGame
                         if (text.Length > 0) Chat.AddMessage(remote.Name, remote.Color, text);
                         break;
 
+                    case MessageType.Rocket:
+                        ushort rocketId = message.ReadUShort();
+                        Vector3 origin = message.ReadVector3();
+                        Vector3 direction = message.ReadVector3();
+                        if (direction.LengthSquared() < 1e-6f || !float.IsFinite(direction.X + direction.Y + direction.Z + origin.X + origin.Y + origin.Z)) break;
+                        Rocket.Spawn(LocalPlayer, from, mine: false, origin, direction, rocketId);
+                        remote.ShowShot([], Weapon.RocketLauncher);
+                        break;
+
+                    case MessageType.RocketExploded:
+                        var owner = message.ReadPeer();
+                        ushort explodedId = message.ReadUShort();
+                        Vector3 at = message.ReadVector3();
+                        bool wasDirect = message.ReadBool();
+                        PeerId directHit = message.ReadPeer();
+                        Rocket.Find(owner, explodedId)?.Explode(at, decidedHere: false, wasDirect ? directHit : null);
+                        break;
+
                     case MessageType.ServerVariables:
                         // Only the host's say counts.
                         if (from == Network.HostPeer) ApplyServerVariables(ref message);
@@ -427,6 +451,44 @@ namespace SampleGame
             }
 
             if (hits.Count > 0) LocalPlayer.Hud.ShowHit(hits.Values.Any(h => h.Headshot));
+        }
+
+        /// <summary>Tells everyone about a rocket just fired, so their games fly it too.</summary>
+        private static void OnRocketFired(Rocket rocket)
+        {
+            if (!Network.InSession) return;
+
+            var fired = new MessageWriter(stackalloc byte[32], MessageType.Rocket);
+            fired.Write(rocket.Id);
+            fired.Write(rocket.Transform.WorldPosition);
+            fired.Write(Vector3.Normalize(rocket.Velocity));
+            Network.Broadcast(fired.Data, SendMode.Reliable);
+        }
+
+        /// <summary>This game decided a rocket blew up: tell everyone, so theirs blows up in the same place.</summary>
+        private static void OnRocketExploded(Rocket rocket, Vector3 position)
+        {
+            if (!Network.InSession) return;
+
+            var exploded = new MessageWriter(stackalloc byte[32], MessageType.RocketExploded);
+            exploded.Write(rocket.Owner.Value);
+            exploded.Write(rocket.Id);
+            exploded.Write(position);
+            exploded.Write(rocket.DirectHit != null);
+            exploded.Write(rocket.DirectHit?.Value ?? 0);
+            Network.Broadcast(exploded.Data, SendMode.Reliable);
+        }
+
+        /// <summary>
+        /// One of your rockets went off: a hit marker if it caught anyone. Each player works out their own damage from
+        /// the blast, so nothing is sent.
+        /// </summary>
+        private void OnRocketDetonated(Rocket rocket, Vector3 position)
+        {
+            if (!rocket.IsMine) return;
+
+            bool hit = _remotePlayers.Values.Any(remote => remote.Alive && rocket.Strength(position, remote.Transform.WorldPosition) > 0f);
+            if (hit) LocalPlayer.Hud.ShowHit(headshot: false);
         }
 
         /// <summary>

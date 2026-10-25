@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 using JoltPhysicsSharp;
 
@@ -115,8 +116,27 @@ namespace Vertex.Physics
             if (!_bodiesById.TryGetValue(result.BodyID.ID, out PhysicsObject? target)) return false;
 
             float distance = result.Fraction * maxDistance;
-            hit = new RaycastHit(target.Collider, origin + normalized * distance, distance);
+            Vector3 point = origin + normalized * distance;
+            hit = new RaycastHit(target.Collider, point, distance, SurfaceNormal(result, point, -normalized));
             return true;
+        }
+
+        /// <summary>The way the surface a ray hit faces at <paramref name="point"/>, or <paramref name="fallback"/> if Jolt can't say.</summary>
+        private Vector3 SurfaceNormal(RayCastResult result, Vector3 point, Vector3 fallback)
+        {
+            BodyLockInterface locks = _system.BodyLockInterface;
+            locks.LockRead(result.BodyID, out BodyLockRead bodyLock);
+            try
+            {
+                if (!bodyLock.Succeeded || bodyLock.Body is not { } body) return fallback;
+
+                Vector3 normal = body.GetWorldSpaceSurfaceNormal(new SubShapeID(result.subShapeID2), point);
+                return normal.LengthSquared() > 0.5f ? normal : fallback;
+            }
+            finally
+            {
+                locks.UnlockRead(bodyLock);
+            }
         }
 
         private BodyID FindBodyId(Collider? collider)
@@ -190,10 +210,11 @@ namespace Vertex.Physics
             foreach (Collider collider in _colliders)
             {
                 if (FirstEnabledCollider(collider.GameObject) != collider) continue;
-                if (collider is ConvexCollider { Mesh: null }) continue;
+                if (collider is ConvexCollider { Mesh: null } or MeshCollider { Mesh: null }) continue;
 
                 Rigidbody? rigidbody = collider.GetComponent<Rigidbody>();
-                if (rigidbody is { Enabled: false }) rigidbody = null;
+                // Jolt can only collide a mesh's triangles with things that move, so it never moves itself.
+                if (rigidbody is { Enabled: false } || collider is MeshCollider) rigidbody = null;
 
                 Vector3 scale = collider.Transform.WorldScale;
 
@@ -401,9 +422,47 @@ namespace Vertex.Physics
                     return settings.Create();
                 }
 
+                case MeshCollider { Mesh: { } mesh }:
+                    return CreateMeshShape(mesh, size);
+
                 default:
                     throw new NotSupportedException($"{collider.GetType().Name} is not supported by the physics world.");
             }
+        }
+
+        /// <summary>
+        /// A shape of the mesh's triangles. Corners in the same place are joined into one first: meshes keep separate
+        /// copies where faces meet (for sharp shading), and Jolt needs to see that triangles share an edge to slide
+        /// smoothly over it rather than catching on it.
+        /// </summary>
+        private static Shape CreateMeshShape(Rendering.Mesh mesh, Vector3 scale)
+        {
+            var points = new List<Vector3>();
+            var pointIndices = new Dictionary<(int, int, int), int>();
+            var remap = new int[mesh.Vertices.Length];
+            for (int i = 0; i < remap.Length; i++)
+            {
+                Vector3 position = mesh.Vertices[i].Position * scale;
+                var key = ((int)MathF.Round(position.X * 1000f), (int)MathF.Round(position.Y * 1000f), (int)MathF.Round(position.Z * 1000f));
+                if (!pointIndices.TryGetValue(key, out int index))
+                {
+                    index = points.Count;
+                    points.Add(position);
+                    pointIndices[key] = index;
+                }
+                remap[i] = index;
+            }
+
+            var triangles = new List<IndexedTriangle>(mesh.Indices.Length / 3);
+            for (int i = 0; i + 2 < mesh.Indices.Length; i += 3)
+            {
+                int a = remap[mesh.Indices[i]], b = remap[mesh.Indices[i + 1]], c = remap[mesh.Indices[i + 2]];
+                if (a == b || b == c || a == c) continue;
+                triangles.Add(new IndexedTriangle(a, b, c, 0, 0));
+            }
+
+            using var settings = new MeshShapeSettings(CollectionsMarshal.AsSpan(points), CollectionsMarshal.AsSpan(triangles));
+            return settings.Create();
         }
 
         private void RemoveBody(Body body)
@@ -499,12 +558,13 @@ namespace Vertex.Physics
             // The body follows during the next physics step, pushing rigidbodies out of the way like any kinematic body.
             _system.BodyInterface.MoveKinematic(character.Id, jolt.Position, Quaternion.Identity, deltaTime);
 
-            // Remove any part of the velocity that went into something it actually hit (Quake's ClipVelocity).
+            // Remove any part of the velocity that went into something it actually hit (Quake's ClipVelocity), measured
+            // against how fast that thing moves, so standing on something rising or sinking rides along with it.
             foreach (CharacterContact contact in jolt.GetActiveContacts())
             {
                 if (!contact.HadCollision || contact.IsSensorB) continue;
 
-                float into = Vector3.Dot(velocity, contact.ContactNormal);
+                float into = Vector3.Dot(velocity - contact.LinearVelocity, contact.ContactNormal);
                 if (into >= 0f) continue;
 
                 if (contact.MotionTypeB == MotionType.Dynamic)
@@ -521,6 +581,8 @@ namespace Vertex.Physics
             controller.Velocity = velocity;
             controller.IsGrounded = jolt.GroundState == GroundState.OnGround;
             controller.GroundNormal = controller.IsGrounded ? jolt.GroundNormal : Vector3.UnitY;
+            controller.GroundVelocity = controller.IsGrounded ? jolt.GroundVelocity : Vector3.Zero;
+            controller.GroundCollider = controller.IsGrounded && _bodiesById.TryGetValue(jolt.GroundBodyId, out PhysicsObject? ground) ? ground.Collider : null;
 
             character.PreviousPosition = character.Position;
             character.Position = jolt.Position;

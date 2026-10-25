@@ -27,6 +27,12 @@ namespace Vertex.Rendering
         /// </summary>
         public float ShadowDistance { get; set; } = 40f;
 
+        /// <summary>
+        /// How strongly glowing things (materials' emission, glowing particles) spill light onto the space around them,
+        /// like a bright light seen through a lens. 0 turns it off.
+        /// </summary>
+        public float Bloom { get; set; } = 1f;
+
         /// <summary>Draw the sky. Off, the screen is cleared to the camera's ClearColor, and fog fades into that instead.</summary>
         public bool DrawSky { get; set; } = true;
     }

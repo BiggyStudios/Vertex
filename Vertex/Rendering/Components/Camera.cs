@@ -39,5 +39,20 @@ namespace Vertex.Rendering
         {
             return Matrix4x4.CreatePerspectiveFieldOfView(MathHelper.ToRadians(FieldOfView), aspectRatio, NearPlane, FarPlane);
         }
+
+        /// <summary>
+        /// Where <paramref name="point"/> appears on a screen of <paramref name="screenSize"/>, measured from the top-left
+        /// corner in the same units, such as <see cref="UI.Canvas.Size"/>. Null if it's behind the camera.
+        /// </summary>
+        public Vector2? WorldToScreen(Vector3 point, Vector2 screenSize)
+        {
+            if (screenSize.X <= 0f || screenSize.Y <= 0f) return null;
+
+            Vector4 clip = Vector4.Transform(new Vector4(point, 1f), ViewMatrix * GetProjectionMatrix(screenSize.X / screenSize.Y));
+            if (clip.W <= NearPlane) return null;
+
+            var device = new Vector2(clip.X, clip.Y) / clip.W;
+            return new Vector2((device.X + 1f) * 0.5f * screenSize.X, (1f - device.Y) * 0.5f * screenSize.Y);
+        }
     }
 }

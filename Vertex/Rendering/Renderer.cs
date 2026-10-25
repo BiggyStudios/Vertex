@@ -1,3 +1,5 @@
+using System.Numerics;
+
 using Silk.NET.Windowing;
 
 namespace Vertex.Rendering
@@ -56,6 +58,7 @@ namespace Vertex.Rendering
                 lighting.AmbientIntensity, lighting.FogDensity, lighting.Exposure, lighting.DrawSky);
             _frame.ShadowDistance = lighting.ShadowDistance;
             _frame.ShadowLightIndex = -1;
+            _frame.Bloom = lighting.Bloom;
 
             Camera? camera = Camera.Main;
             _frame.ClearColor = camera?.ClearColor ?? Color.Black;
@@ -89,6 +92,13 @@ namespace Vertex.Rendering
                 bool castShadows = meshRenderer.CastShadows && meshRenderer.Material.Shading == ShadingModel.Lit;
                 _frame.DrawCallList.Add(new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, castShadows));
             }
+
+            foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
+
+            // Furthest first, so nearer dust and smoke covers what's behind it. Additive ones don't mind the order.
+            Vector3 eye = _frame.CameraPosition;
+            Vector3 forward = _frame.CameraForward;
+            _frame.ParticleList.Sort((a, b) => Vector3.Dot(b.Position - eye, forward).CompareTo(Vector3.Dot(a.Position - eye, forward)));
         }
 
         public void Dispose() => Backend.Dispose();

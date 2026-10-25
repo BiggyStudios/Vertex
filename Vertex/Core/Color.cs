@@ -31,6 +31,10 @@ namespace Vertex
         public Vector3 ToVector3() => new(R, G, B);
         public Vector4 ToVector4() => new(R, G, B, A);
 
+        /// <summary>Part way from <paramref name="a"/> to <paramref name="b"/>, alpha included: 0 is a, 1 is b.</summary>
+        public static Color Lerp(Color a, Color b, float t) =>
+            new(a.R + (b.R - a.R) * t, a.G + (b.G - a.G) * t, a.B + (b.B - a.B) * t, a.A + (b.A - a.A) * t);
+
         public static Color operator *(Color color, float scalar) => new(color.R * scalar, color.G * scalar, color.B * scalar, color.A);
     }
 }

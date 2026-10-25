@@ -66,6 +66,15 @@ namespace Vertex.Physics
         /// <summary>The surface direction of what's underneath, or straight up when there's nothing.</summary>
         public Vector3 GroundNormal { get; internal set; } = Vector3.UnitY;
 
+        /// <summary>The collider being stood on, if <see cref="IsGrounded"/> and it's one of the scene's colliders.</summary>
+        public Collider? GroundCollider { get; internal set; }
+
+        /// <summary>
+        /// How fast the ground underneath is moving, where it's being stood on: zero on still ground, and a moving
+        /// platform's (or a kinematic body's) velocity on one. Characters that should ride along add it to their own.
+        /// </summary>
+        public Vector3 GroundVelocity { get; internal set; }
+
         /// <summary>Moves by <see cref="Velocity"/> over <paramref name="deltaTime"/>. Call it once per FixedUpdate.</summary>
         public void Move(float deltaTime) => GameObject.Scene.Physics.MoveCharacter(this, deltaTime);
     }

@@ -3,33 +3,91 @@ using System.Numerics;
 using Vertex;
 using Vertex.Audio;
 using Vertex.Physics;
+using Vertex.Rendering;
 
 namespace SampleGame
 {
     /// <summary>
     /// Throws the player into the air when they touch it, like a jump pad. Needs a trigger collider. It always sends
-    /// them <see cref="Height"/> above the pad. With a <see cref="ForwardSpeed"/>, it also throws them that fast in
-    /// whichever direction they're facing, replacing their own speed across the ground: the same throw every time, so
-    /// it's up to them to face the right way and air strafe onto where they want to land. Without one, it bounces them
-    /// straight up and they keep their speed across the ground, so they can run or surf over it.
+    /// them <see cref="Height"/> above the pad. With a <see cref="ForwardSpeed"/>, it also throws them at least that fast
+    /// in whichever direction they're facing: arriving slower, they get that speed; arriving faster, they keep their own
+    /// speed, turned the way they face, so a pad never slows anyone down. It's up to them to face the right way and air
+    /// strafe onto where they want to land. Without one, it bounces them straight up and they keep their speed across
+    /// the ground, so they can run or surf over it.
     /// </summary>
     public class BouncePad : Component
     {
         /// <summary>How high the throw peaks above the pad, in metres.</summary>
         public float Height { get; set; } = 8f;
 
-        /// <summary>How fast it throws the player the way they're facing, in metres per second. 0 bounces straight up.</summary>
+        /// <summary>
+        /// The least speed it throws the player the way they're facing, in metres per second; faster players keep their
+        /// speed. 0 bounces straight up.
+        /// </summary>
         public float ForwardSpeed { get; set; }
 
-        /// <summary>The glowing top, which squashes and springs back when used. Optional.</summary>
+        /// <summary>The glowing top, which squashes, flares and springs back when used. Optional.</summary>
         public GameObject? Top { get; set; }
+
+        /// <summary>The colour of its glow and sparkles.</summary>
+        public Color Color { get; set; } = new(1f, 0.8f, 0.2f);
+
+        // How brightly the top glows at rest, and how much brighter for a moment when used.
+        private const float _glow = 2f;
+        private const float _flareGlow = 6f;
 
         private float _bounce;
         private Vector3 _topScale;
+        private Material? _topMaterial;
+        private ParticleSystem _sparkles = null!;
+        private ParticleSystem _burst = null!;
 
         protected override void Start()
         {
-            if (Top != null) _topScale = Top.Transform.Scale;
+            if (Top != null)
+            {
+                _topScale = Top.Transform.Scale;
+                _topMaterial = Top.GetComponent<MeshRenderer>()?.Material;
+                if (_topMaterial != null)
+                {
+                    _topMaterial.Emission = Color;
+                    _topMaterial.EmissionStrength = _glow;
+                }
+            }
+
+            // A steady trickle of sparks floating up off the pad, so you can see it from across the map.
+            var sparkles = new GameObject("Sparkles");
+            sparkles.Transform.Parent = Transform;
+            sparkles.Transform.Position = new Vector3(0f, 0.2f, 0f);
+            _sparkles = sparkles.AddComponent<ParticleSystem>();
+            _sparkles.Rate = 16f;
+            _sparkles.Area = new Vector3(2.4f, 0f, 2.4f);
+            _sparkles.Spread = 8f;
+            _sparkles.Speed = new FloatRange(0.8f, 2.2f);
+            _sparkles.Lifetime = new FloatRange(0.8f, 1.5f);
+            _sparkles.Size = new FloatRange(0.05f, 0.09f);
+            _sparkles.EndSize = 0.3f;
+            _sparkles.StartColor = Color;
+            _sparkles.EndColor = Color with { A = 0f };
+            _sparkles.Glow = 2.5f;
+
+            // Thrown up and out when someone is launched, then falling back.
+            var burst = new GameObject("Launch Burst");
+            burst.Transform.Parent = Transform;
+            burst.Transform.Position = new Vector3(0f, 0.25f, 0f);
+            _burst = burst.AddComponent<ParticleSystem>();
+            _burst.Area = new Vector3(2f, 0f, 2f);
+            _burst.Spread = 50f;
+            _burst.Speed = new FloatRange(3f, 10f);
+            _burst.Lifetime = new FloatRange(0.4f, 0.9f);
+            _burst.Size = new FloatRange(0.06f, 0.12f);
+            _burst.EndSize = 0.4f;
+            _burst.StartColor = Color with { A = 1f };
+            _burst.EndColor = Color with { A = 0f };
+            _burst.Glow = 3f;
+            _burst.Stretch = 0.03f;
+            _burst.Gravity = 9.8f;
+            _burst.Drag = 1.5f;
         }
 
         protected override void OnTriggerEnter(Collider other)
@@ -39,8 +97,10 @@ namespace SampleGame
             Vector3 velocity = player.Controller.Velocity;
             if (ForwardSpeed > 0f)
             {
+                // Never slower than they arrived: coming in fast, they keep that speed, turned the way they face.
                 Vector3 facing = Vector3.Normalize(player.Transform.Forward with { Y = 0f });
-                velocity = facing * ForwardSpeed;
+                float speed = MathF.Max(ForwardSpeed, (velocity with { Y = 0f }).Length());
+                velocity = facing * speed;
             }
 
             // Measured from the pad, not the player: falling back onto it sets it off a little way up, and should
@@ -50,6 +110,7 @@ namespace SampleGame
 
             player.Launch(velocity);
             Sound.PlayAt(Sounds.Bounce, Transform.WorldPosition, volume: 0.8f, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f);
+            _burst.Emit(40);
             _bounce = 1f;
         }
 
@@ -69,8 +130,9 @@ namespace SampleGame
         {
             if (Top == null) return;
 
-            // Squash flat, then spring back with a little wobble.
+            // Squash flat, then spring back with a little wobble, flaring bright and fading back.
             _bounce = MathF.Max(_bounce - Time.DeltaTime * 2.5f, 0f);
+            if (_topMaterial != null) _topMaterial.EmissionStrength = _glow + (_flareGlow - _glow) * _bounce * _bounce;
             float wobble = _bounce * _bounce * MathF.Sin(_bounce * 18f);
             Top.Transform.Scale = _topScale * new Vector3(1f + wobble * 0.15f, 1f + wobble * 1.5f, 1f + wobble * 0.15f);
         }

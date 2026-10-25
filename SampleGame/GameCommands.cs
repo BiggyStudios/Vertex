@@ -1,3 +1,4 @@
+using Vertex;
 using Vertex.Networking;
 using Vertex.UI;
 
@@ -21,6 +22,7 @@ namespace SampleGame
             DevConsole.AddVariable("fov_desired", "Horizontal field of view in degrees, as on a 4:3 screen.", () => settings.FieldOfView, v => Change(() => settings.FieldOfView = v));
             DevConsole.AddVariable("volume", "Sound volume, from 0 to 1.", () => settings.Volume, v => Change(() => settings.Volume = v));
             DevConsole.AddVariable("ui_scale", "Interface size; 1 is normal.", () => settings.UiScale, v => Change(() => settings.UiScale = v));
+            DevConsole.AddVariable("mat_bloomscale", "How strongly glowing things bloom; 0 turns it off.", () => Scene.Active.Lighting.Bloom, v => Scene.Active.Lighting.Bloom = MathF.Max(v, 0f));
 
             foreach (ServerVariables.Variable variable in ServerVariables.All)
             {
@@ -29,6 +31,17 @@ namespace SampleGame
 
             DevConsole.AddCommand("say", "Sends a chat message.", args => multiplayer.SendChat(string.Join(' ', args)));
             DevConsole.AddCommand("kill", "Kills your player.", _ => player.Kill());
+            DevConsole.AddCommand("noclip", "Flies through everything: WASD where you look, Shift faster, E/Q up and down. Needs sv_cheats 1.", _ =>
+            {
+                if (!player.CheatsAllowed)
+                {
+                    DevConsole.Error("Can't use cheat command noclip unless the server has sv_cheats set to 1.");
+                    return;
+                }
+
+                player.Noclip = !player.Noclip;
+                DevConsole.Print(player.Noclip ? "noclip ON" : "noclip OFF");
+            });
             DevConsole.AddCommand("class", "Changes class: class <name>. With no name, lists the classes.", args =>
             {
                 PlayerClass? chosen = args.Length > 0

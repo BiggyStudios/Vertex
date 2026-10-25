@@ -24,16 +24,25 @@ namespace SampleGame
         Chat,
 
         /// <summary>Reliable, from the host: every server variable's name and value (see <see cref="ServerVariables"/>).</summary>
-        ServerVariables
+        ServerVariables,
+
+        /// <summary>Reliable: a rocket fired, with the firer's number for it, where it started and which way it's going.</summary>
+        Rocket,
+
+        /// <summary>
+        /// Reliable: a rocket blew up, decided by whoever sends it (see <see cref="SampleGame.Rocket"/>): whose rocket it
+        /// was, their number for it, where, and whether it hit someone directly, and who (killed outright).
+        /// </summary>
+        RocketExploded
     }
 
     /// <summary>
     /// Where a player is and what they're doing. <see cref="Time"/> is the sender's clock. Each player counts their
     /// own kills and deaths and sends them here, so someone joining late still sees the right scores, along with the
-    /// weapon they're holding, so others see it in their hands.
+    /// weapon they're holding, so others see it in their hands, and where their grapple is caught, if it is.
     /// </summary>
     internal readonly record struct PlayerState(float Time, Vector3 Position, Vector3 Velocity, float Yaw, float Pitch, byte Health, bool Alive,
-        ushort Kills, ushort Deaths, WeaponId Weapon);
+        ushort Kills, ushort Deaths, WeaponId Weapon, Vector3? Grapple = null);
 
     /// <summary>Writes a message into a buffer, usually on the stack: <c>new MessageWriter(stackalloc byte[64], MessageType.Hit)</c>.</summary>
     internal ref struct MessageWriter
@@ -105,6 +114,8 @@ namespace SampleGame
             Write(state.Kills);
             Write(state.Deaths);
             Write((byte)state.Weapon);
+            Write(state.Grapple.HasValue);
+            if (state.Grapple is Vector3 grapple) Write(grapple);
         }
     }
 
@@ -121,6 +132,9 @@ namespace SampleGame
         }
 
         public MessageType Type { get; }
+
+        /// <summary>Whether everything has been read. Fields added later go at the end, so a message without them still reads.</summary>
+        public bool AtEnd => _position >= _data.Length;
 
         public byte ReadByte() => _data[_position++];
 
@@ -158,7 +172,8 @@ namespace SampleGame
         public Vector3 ReadVector3() => new(ReadFloat(), ReadFloat(), ReadFloat());
 
         public PlayerState ReadPlayerState() =>
-            new(ReadFloat(), ReadVector3(), ReadVector3(), ReadFloat(), ReadFloat(), ReadByte(), ReadBool(), ReadUShort(), ReadUShort(), (WeaponId)ReadByte());
+            new(ReadFloat(), ReadVector3(), ReadVector3(), ReadFloat(), ReadFloat(), ReadByte(), ReadBool(), ReadUShort(), ReadUShort(), (WeaponId)ReadByte(),
+                !AtEnd && ReadBool() ? ReadVector3() : null);
 
         public PeerId ReadPeer() => new(ReadULong());
     }

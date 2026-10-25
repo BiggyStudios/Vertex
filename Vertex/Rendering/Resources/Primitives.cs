@@ -110,6 +110,78 @@ namespace Vertex.Rendering
             }
         }
 
+        /// <summary>
+        /// A shape drawn in 2D (<paramref name="crossSection"/>, corners in counter-clockwise order) swept along a path,
+        /// like <see cref="CreatePrism"/> but following any line, curves included: each of <paramref name="path"/>'s frames
+        /// places the cross-section there, its X along the frame's Right and its Y along its Up. Shading is smooth along
+        /// the path, so a curve made of many frames looks curved. Textures repeat <paramref name="texturesPerUnit"/> times
+        /// per unit, along the path and across each side.
+        /// </summary>
+        public static Mesh CreateSweep(ReadOnlySpan<Vector2> crossSection, ReadOnlySpan<SweepFrame> path, float texturesPerUnit = 1f)
+        {
+            if (crossSection.Length < 3) throw new ArgumentException("A sweep needs at least 3 corners.", nameof(crossSection));
+            if (path.Length < 2) throw new ArgumentException("A sweep needs at least 2 frames.", nameof(path));
+
+            var vertices = new List<MeshVertex>();
+            var indices = new List<uint>();
+
+            // How far along the path each frame is, for the texture.
+            var distances = new float[path.Length];
+            for (int i = 1; i < path.Length; i++) distances[i] = distances[i - 1] + Vector3.Distance(path[i - 1].Position, path[i].Position);
+
+            // Sides: a strip along the whole path for each edge of the cross-section, sharing corners along its length.
+            for (int edge = 0; edge < crossSection.Length; edge++)
+            {
+                Vector2 a = crossSection[edge];
+                Vector2 b = crossSection[(edge + 1) % crossSection.Length];
+                Vector2 normal2D = Vector2.Normalize(new Vector2(b.Y - a.Y, a.X - b.X));
+                float u = Vector2.Distance(a, b) * texturesPerUnit;
+                uint start = (uint)vertices.Count;
+
+                for (int i = 0; i < path.Length; i++)
+                {
+                    SweepFrame frame = path[i];
+                    Vector3 normal = Vector3.Normalize(frame.Right * normal2D.X + frame.Up * normal2D.Y);
+                    float v = distances[i] * texturesPerUnit;
+                    vertices.Add(new MeshVertex(frame.Place(a), normal, new Vector2(0f, v)));
+                    vertices.Add(new MeshVertex(frame.Place(b), normal, new Vector2(u, v)));
+                }
+
+                for (uint i = 0; i + 1 < (uint)path.Length; i++)
+                {
+                    uint a0 = start + i * 2, b0 = a0 + 1, a1 = a0 + 2, b1 = a0 + 3;
+                    AddFacing(a0, b0, b1);
+                    AddFacing(a0, b1, a1);
+                }
+            }
+
+            // Ends: the cross-section itself at the first and last frames, facing out of the shape.
+            AddCap(path[0], -path[0].Forward, crossSection);
+            AddCap(path[^1], path[^1].Forward, crossSection);
+
+            return new Mesh(vertices.ToArray(), indices.ToArray());
+
+            void AddCap(SweepFrame frame, Vector3 normal, ReadOnlySpan<Vector2> corners)
+            {
+                uint start = (uint)vertices.Count;
+                foreach (Vector2 corner in corners)
+                {
+                    vertices.Add(new MeshVertex(frame.Place(corner), normal, corner * texturesPerUnit));
+                }
+
+                for (uint i = 1; i + 1 < (uint)corners.Length; i++) AddFacing(start, start + i, start + i + 1);
+            }
+
+            // Adds a triangle wound so its front faces the way its corners' normals point, whichever way the path turns.
+            void AddFacing(uint i0, uint i1, uint i2)
+            {
+                Vector3 p0 = vertices[(int)i0].Position;
+                Vector3 facing = Vector3.Cross(vertices[(int)i1].Position - p0, vertices[(int)i2].Position - p0);
+                if (Vector3.Dot(facing, vertices[(int)i0].Normal) >= 0f) indices.AddRange([i0, i1, i2]);
+                else indices.AddRange([i0, i2, i1]);
+            }
+        }
+
         /// <summary>A flat square on the XZ plane, facing up.</summary>
         /// <param name="uvScale">How many times a texture repeats across the plane.</param>
         public static Mesh CreatePlane(float uvScale = 1f)

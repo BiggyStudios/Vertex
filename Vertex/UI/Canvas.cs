@@ -59,6 +59,55 @@ namespace Vertex.UI
                 new CanvasVertex(new Vector2(topLeft.X, bottomRight.Y), new Vector2(0f, 1f), c)));
         }
 
+        /// <summary>A straight line from <paramref name="from"/> to <paramref name="to"/>, <paramref name="thickness"/> UI units wide.</summary>
+        public static void DrawLine(Vector2 from, Vector2 to, float thickness, Color color)
+        {
+            Vector2 along = to - from;
+            float length = along.Length();
+            if (length < 0.0001f) return;
+
+            Vector2 side = new Vector2(-along.Y, along.X) / length * (thickness * 0.5f);
+            AddShape(from - side, to - side, to + side, from + side, color);
+        }
+
+        /// <summary>
+        /// Part of a ring round <paramref name="centre"/>, <paramref name="radius"/> out to the middle of its line, which is
+        /// <paramref name="thickness"/> wide. It starts <paramref name="startAngle"/> degrees round from the right and runs
+        /// <paramref name="sweep"/> degrees clockwise; a sweep of 360 is a whole circle.
+        /// </summary>
+        public static void DrawArc(Vector2 centre, float radius, float startAngle, float sweep, float thickness, Color color)
+        {
+            if (sweep == 0f || radius <= 0f) return;
+
+            // Short enough pieces that the ring looks round at any size.
+            int segments = Math.Clamp((int)MathF.Ceiling(MathF.Abs(sweep) / 360f * MathF.Max(radius * Scale * 0.5f, 12f)), 1, 128);
+            float inner = MathF.Max(radius - thickness * 0.5f, 0f);
+            float outer = radius + thickness * 0.5f;
+            Vector2 Point(float angle, float distance)
+            {
+                float radians = angle * MathF.PI / 180f;
+                return centre + new Vector2(MathF.Cos(radians), MathF.Sin(radians)) * distance;
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                float a = startAngle + sweep * i / segments;
+                float b = startAngle + sweep * (i + 1) / segments;
+                AddShape(Point(a, outer), Point(b, outer), Point(b, inner), Point(a, inner), color);
+            }
+        }
+
+        // A solid four-cornered shape, corners in UI units.
+        private static void AddShape(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color)
+        {
+            Vector4 colour = Premultiply(color);
+            _drawing.Add(new CanvasQuad(null,
+                new CanvasVertex(a * Scale, Vector2.Zero, colour),
+                new CanvasVertex(b * Scale, new Vector2(1f, 0f), colour),
+                new CanvasVertex(c * Scale, Vector2.One, colour),
+                new CanvasVertex(d * Scale, new Vector2(0f, 1f), colour)));
+        }
+
         /// <summary>
         /// Draws text with its top-left corner at <paramref name="position"/>, <paramref name="size"/> UI units tall.
         /// A shadow makes it readable over a busy scene. Returns the width drawn, so pieces in different colours can

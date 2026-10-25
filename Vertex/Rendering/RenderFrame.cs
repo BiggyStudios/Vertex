@@ -15,6 +15,12 @@ namespace Vertex.Rendering
     /// <summary>A point light. Color already includes intensity.</summary>
     public readonly record struct PointLightData(Vector3 Position, Color Color, float Range);
 
+    /// <summary>
+    /// One particle, facing the camera. Velocity is the stretch: it's drawn that much longer along that direction
+    /// (zero for round). Glow is how much it adds to bloom.
+    /// </summary>
+    public readonly record struct ParticleData(Vector3 Position, Vector3 Velocity, float Size, Color Color, float Glow, bool Additive);
+
     /// <summary>One corner of a 2D quad: a position in pixels from the top-left of the screen, and a colour already multiplied by its alpha.</summary>
     public readonly record struct CanvasVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);
 
@@ -33,6 +39,7 @@ namespace Vertex.Rendering
         internal readonly List<DrawCall> DrawCallList = new();
         internal readonly List<DirectionalLightData> DirectionalLightList = new();
         internal readonly List<PointLightData> PointLightList = new();
+        internal readonly List<ParticleData> ParticleList = new();
         internal readonly List<CanvasQuad> CanvasQuadList = new();
 
         /// <summary>Framebuffer size in pixels.</summary>
@@ -44,6 +51,9 @@ namespace Vertex.Rendering
 
         public Color ClearColor { get; internal set; }
         public EnvironmentData Environment { get; internal set; }
+
+        /// <summary>How strongly glowing things bloom; see <see cref="Lighting.Bloom"/>. 0 for none.</summary>
+        public float Bloom { get; internal set; }
 
         /// <summary>Which of <see cref="DirectionalLights"/> casts shadows, or -1 for none.</summary>
         public int ShadowLightIndex { get; internal set; } = -1;
@@ -66,6 +76,9 @@ namespace Vertex.Rendering
         public IReadOnlyList<DirectionalLightData> DirectionalLights => DirectionalLightList;
         public IReadOnlyList<PointLightData> PointLights => PointLightList;
 
+        /// <summary>Particles, furthest from the camera first, so the nearer ones cover them.</summary>
+        public IReadOnlyList<ParticleData> Particles => ParticleList;
+
         /// <summary>The 2D layer (see <see cref="UI.Canvas"/>), drawn after the 3D scene. Drawn even without a camera.</summary>
         public IReadOnlyList<CanvasQuad> CanvasQuads => CanvasQuadList;
 
@@ -74,6 +87,7 @@ namespace Vertex.Rendering
             DrawCallList.Clear();
             DirectionalLightList.Clear();
             PointLightList.Clear();
+            ParticleList.Clear();
             CanvasQuadList.Clear();
         }
     }

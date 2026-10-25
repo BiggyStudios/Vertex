@@ -20,7 +20,7 @@ namespace SampleGame
         public override void Load()
         {
             // The player has the camera: mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot,
-            // hold right mouse to scope (or stab, with the knife), 1 for the knife and 2 for the gun, F to inspect, V for noclip.
+            // hold right mouse to scope (or stab, with the knife), 1 for the knife and 2 for the gun, F to inspect.
             // B to change class, Escape for the menu, ` for the console.
             var player = new Player();
             Settings.Current.Apply(player);
@@ -96,6 +96,11 @@ namespace SampleGame
 
             CombatSurfMap.Build(exit: home);
             MapBuilder.TeleportPad("To surf_vertex", new Vector3(-8f, 0f, 4f), CombatSurfMap.RedSpawn, CombatSurfMap.Zone, new Color(0.75f, 0.4f, 1f))
+                .GetComponent<Teleporter>()!.ToRandomSpawn = true;
+
+            // An orange pad in front of the spawn to surf_skyhall, the big surf and bhop loop north of here.
+            SkyhallMap.Build(exit: home);
+            MapBuilder.TeleportPad("To surf_skyhall", new Vector3(1f, 0f, -8f), SkyhallMap.Zone.Spawns[0], SkyhallMap.Zone, new Color(1f, 0.55f, 0.15f))
                 .GetComponent<Teleporter>()!.ToRandomSpawn = true;
 
             // Bounce pads: the yellow one behind the spawn throws you straight up, and the green one past the cyan pad

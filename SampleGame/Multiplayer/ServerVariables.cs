@@ -22,7 +22,8 @@ namespace SampleGame
             new("sv_stopspeed", "Below this speed, friction stops you quickly. In units per second.", p => p.StopSpeed / _units, (p, v) => p.StopSpeed = MathF.Max(v, 0f) * _units),
             new("sv_gravity", "Gravity, in units per second squared.", p => p.Gravity / _units, (p, v) => p.Gravity = MathF.Max(v, 0f) * _units),
             new("sv_jumpheight", "How high a jump goes, in units.", p => p.JumpHeight / _units, (p, v) => p.JumpHeight = MathF.Max(v, 0f) * _units),
-            new("sv_autobunnyhopping", "1: holding jump jumps again on landing. 0: each jump needs a fresh press.", p => p.AutoBunnyhop ? 1f : 0f, (p, v) => p.AutoBunnyhop = v != 0f)
+            new("sv_autobunnyhopping", "1: holding jump jumps again on landing. 0: each jump needs a fresh press.", p => p.AutoBunnyhop ? 1f : 0f, (p, v) => p.AutoBunnyhop = v != 0f),
+            new("sv_cheats", "1 allows cheat commands, like noclip. Setting it back to 0 takes them away.", p => p.CheatsAllowed ? 1f : 0f, (p, v) => p.CheatsAllowed = v != 0f)
         ];
 
         public static Variable? Find(string name) => All.FirstOrDefault(v => string.Equals(v.Name, name, StringComparison.OrdinalIgnoreCase));
