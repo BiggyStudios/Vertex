@@ -261,10 +261,11 @@ namespace SampleGame
         }
 
         /// <summary>
-        /// A glowing pad that sends the player to <paramref name="destination"/> when they step on it, and into
-        /// <paramref name="zone"/> if given.
+        /// A glowing pad that sends the player to <paramref name="destination"/>, and into <paramref name="zone"/> if
+        /// given. With <paramref name="onPress"/>, standing on it waits for E; without, it goes the moment it's
+        /// touched.
         /// </summary>
-        public static GameObject TeleportPad(string name, Vector3 position, SpawnPoint destination, Zone? zone, Color color)
+        public static GameObject TeleportPad(string name, Vector3 position, SpawnPoint destination, Zone? zone, Color color, bool onPress = false)
         {
             var size = new Vector3(3f, 0.2f, 3f);
 
@@ -304,6 +305,8 @@ namespace SampleGame
             teleporter.Destination = destination.Position;
             teleporter.DestinationYaw = destination.Yaw;
             teleporter.Zone = zone;
+            teleporter.OnPress = onPress;
+            teleporter.Glow = renderer.Material;
             return pad;
         }
 

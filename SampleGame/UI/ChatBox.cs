@@ -58,9 +58,10 @@ namespace SampleGame
             // The console takes the keyboard while it's open; the menu has nothing to type into.
             bool enter = InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter);
             if (IsTyping && !DevConsole.IsOpen) UpdateTyping(enter);
-            else if (!IsTyping && enter && !PauseMenu.IsOpen && !DevConsole.IsOpen) StartTyping();
+            else if (!IsTyping && enter && !PauseMenu.IsOpen && !MainMenu.IsOpen && !DevConsole.IsOpen) StartTyping();
 
-            Draw();
+            // The main menu says what happened itself.
+            if (!MainMenu.IsOpen) Draw();
         }
 
         protected override void OnDestroy() => IsTyping = false;

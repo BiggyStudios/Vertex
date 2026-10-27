@@ -77,6 +77,8 @@ namespace SampleGame
             _damageFlash = MathF.Max(_damageFlash - Time.DeltaTime * 1.5f, 0f);
             _sinceKill += Time.DeltaTime;
 
+            if (MainMenu.IsOpen) return;
+
             DrawDamageFlash();
 
             // No crosshair while the cursor is out for a menu or the console. The sniper rifle only gets a dot off the

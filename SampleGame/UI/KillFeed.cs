@@ -53,9 +53,9 @@ namespace SampleGame
                 var parts = new List<(string Text, Font Font, Color Color)>();
                 if (entry.Killer != null)
                 {
-                    // "Victim got murked by Killer with Weapon", then the tags.
+                    // "Victim got killed by Killer with Weapon", then the tags.
                     parts.Add((entry.Victim, Fonts.Bold, entry.VictimColor));
-                    parts.Add((" got murked by ", Fonts.Regular, _textColor));
+                    parts.Add((" got killed by ", Fonts.Regular, _textColor));
                     parts.Add((entry.Killer, Fonts.Bold, entry.KillerColor));
                     if (entry.Weapon is { } weapon) parts.Add(($" with {weapon.Name}", Fonts.Regular, _textColor));
                     if (entry.Headshot) parts.Add(("  (headshot)", Fonts.Regular, _headshotColor));

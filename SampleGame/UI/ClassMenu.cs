@@ -51,7 +51,7 @@ namespace SampleGame
 
         protected override void Update()
         {
-            bool otherInputOpen = ChatBox.IsTyping || DevConsole.IsOpen || PauseMenu.IsOpen;
+            bool otherInputOpen = ChatBox.IsTyping || DevConsole.IsOpen || PauseMenu.IsOpen || MainMenu.IsOpen;
 
             if (!IsOpen)
             {
@@ -100,8 +100,8 @@ namespace SampleGame
             float x = (Canvas.Width - totalWidth) / 2f;
             float y = (Canvas.Height - _cardHeight) / 2f + 20f;
 
-            DrawCentred(Fonts.Bold, "Choose your class", y - 92f, 40f, Color.White);
-            DrawCentred(Fonts.Regular, "Click a class or press its number. B to change class later.", y - 40f, 17f, _dim);
+            MenuText.Centred(Fonts.Bold, "Choose your class", y - 92f, 40f, Color.White);
+            MenuText.Centred(Fonts.Regular, "Click a class or press its number. B to change class later.", y - 40f, 17f, _dim);
 
             for (int i = 0; i < classes.Count; i++)
             {
@@ -144,43 +144,13 @@ namespace SampleGame
             Canvas.DrawText(Fonts.Regular, weaponLine, new Vector2(left, y), Gui.AccentColor, 17f);
             y += 30f;
 
-            foreach (string line in Wrap(Fonts.Regular, playerClass.Description, 16f, right - left))
+            foreach (string line in MenuText.Wrap(Fonts.Regular, playerClass.Description, 16f, right - left))
             {
                 Canvas.DrawText(Fonts.Regular, line, new Vector2(left, y), _dim, 16f);
                 y += Canvas.LineHeight(Fonts.Regular, 16f);
             }
 
             return hovered && InputSystem.GetMouseButtonDown(MouseButton.Left);
-        }
-
-        /// <summary>Splits text into lines no wider than <paramref name="width"/>, breaking between words.</summary>
-        private static List<string> Wrap(Font font, string text, float size, float width)
-        {
-            var lines = new List<string>();
-            string line = "";
-
-            foreach (string word in text.Split(' '))
-            {
-                string attempt = line.Length == 0 ? word : $"{line} {word}";
-                if (line.Length > 0 && Canvas.MeasureText(font, attempt, size).X > width)
-                {
-                    lines.Add(line);
-                    line = word;
-                }
-                else
-                {
-                    line = attempt;
-                }
-            }
-
-            if (line.Length > 0) lines.Add(line);
-            return lines;
-        }
-
-        private static void DrawCentred(Font font, string text, float y, float size, Color color)
-        {
-            float width = Canvas.MeasureText(font, text, size).X;
-            Canvas.DrawText(font, text, new Vector2((Canvas.Width - width) / 2f, y), color, size, shadow: true);
         }
 
         private static bool Contains(Vector2 position, Vector2 size, Vector2 point) =>

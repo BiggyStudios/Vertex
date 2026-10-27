@@ -25,9 +25,24 @@ namespace SampleGame
         private const float _teleportDistance = 5f;
 
         public PeerId Peer { get; }
-        public Color Color { get; }
+        /// <summary>Their body's colour, and their name's in chat and the scoreboard. The host hands these out.</summary>
+        public Color Color
+        {
+            get => _body.Material.Color;
+            set => _body.Material.Color = value;
+        }
+
         public bool Alive { get; private set; }
         public int Health { get; private set; } = Player.MaxHealth;
+
+        /// <summary>
+        /// How long a message takes to get to them and back, in milliseconds, smoothed; null until it's measured. Only the
+        /// host measures it: everyone's ping on the scoreboard is to the host.
+        /// </summary>
+        public float? Ping { get; private set; }
+
+        /// <summary>A new round trip, in milliseconds. Each one only moves <see cref="Ping"/> a little, so one slow message doesn't make it jump.</summary>
+        internal void AddPing(float milliseconds) => Ping = Ping is float before ? before + (milliseconds - before) * 0.3f : milliseconds;
 
         /// <summary>Their score, as they last reported it.</summary>
         public int Kills => _states.Count > 0 ? _states[^1].Kills : 0;
@@ -39,6 +54,7 @@ namespace SampleGame
 
         private readonly CapsuleCollider _collider;
         private readonly GameObject _model;
+        private readonly MeshRenderer _body;
         private readonly GameObject _gunPivot;
         private readonly Dictionary<WeaponId, (GameObject Model, GameObject Muzzle)> _guns = new();
         private readonly GameObject _flash;
@@ -53,8 +69,6 @@ namespace SampleGame
         public RemotePlayer(PeerId peer, string name, Color color) : base(name)
         {
             Peer = peer;
-            Color = color;
-
             // Hidden until their first update says where they are.
             Active = false;
 
@@ -68,7 +82,8 @@ namespace SampleGame
             _model = new GameObject("Model");
             _model.Transform.Parent = Transform;
 
-            AddShape(_model, "Body", Primitives.Sphere, new Vector3(0f, 0.72f, 0f), new Vector3(_radius * 2f, HeadHeight, _radius * 2f), color);
+            _body = AddShape(_model, "Body", Primitives.Sphere, new Vector3(0f, 0.72f, 0f), new Vector3(_radius * 2f, HeadHeight, _radius * 2f), color)
+                .GetComponent<MeshRenderer>()!;
             AddShape(_model, "Head", Primitives.Sphere, new Vector3(0f, 1.62f, 0f), new Vector3(0.3f), new Color(0.9f, 0.75f, 0.6f));
 
             // Turns up and down with where they're looking.
@@ -199,6 +214,9 @@ namespace SampleGame
             _grapple = grapple;
         }
 
+        /// <summary>Whether shots hit them and they block the way: while they're alive.</summary>
+        protected virtual bool Solid => Alive;
+
         /// <summary>Called when they announce their death, so they go down straight away rather than at their next update.</summary>
         public void MarkDead()
         {
@@ -228,7 +246,7 @@ namespace SampleGame
             }
 
             _model.Active = Alive;
-            _collider.Enabled = Alive;
+            _collider.Enabled = Solid;
 
             ShowLanding(shown);
             ShowGrapple(shown);

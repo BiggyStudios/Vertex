@@ -33,7 +33,49 @@ namespace SampleGame
         /// Reliable: a rocket blew up, decided by whoever sends it (see <see cref="SampleGame.Rocket"/>): whose rocket it
         /// was, their number for it, where, and whether it hit someone directly, and who (killed outright).
         /// </summary>
-        RocketExploded
+        RocketExploded,
+
+        /// <summary>Reliable, from the host: each player's colour, as a number into the palette, so no two share one while there are colours to go round.</summary>
+        Colors,
+
+        /// <summary>Reliable, to the host: start a vote to kick this player.</summary>
+        VoteCall,
+
+        /// <summary>Reliable, to the host: a yes or no in the vote going on.</summary>
+        VoteCast,
+
+        /// <summary>
+        /// Reliable, from the host: the vote as it stands: who it's to kick, who called it, the yes and no votes, how many
+        /// yeses it needs, the seconds left, and how it ended, if it has (see <see cref="VoteKick"/>).
+        /// </summary>
+        VoteState,
+
+        /// <summary>Unreliable, from the host to everyone, every second: the host's clock, for it to measure their ping by.</summary>
+        Ping,
+
+        /// <summary>Unreliable: a <see cref="Ping"/> sent straight back, as it came.</summary>
+        Pong,
+
+        /// <summary>Unreliable, from the host, every second: everyone's ping to the host in milliseconds, as it measured them.</summary>
+        Pings,
+
+        /// <summary>Reliable, to the host: put a bot here, facing this way (see <see cref="Bot"/>).</summary>
+        BotAdd,
+
+        /// <summary>Reliable, to the host: take every bot away.</summary>
+        BotKick,
+
+        /// <summary>
+        /// Reliable, from the host, whenever one changes: every bot, as its number, where it stands, which way it faces
+        /// and its health. The host decides how they're doing; everyone else's are copies.
+        /// </summary>
+        Bots,
+
+        /// <summary>Reliable, to the host: a bot was hit, as a <see cref="Hit"/> is, after the bot's number.</summary>
+        BotHit,
+
+        /// <summary>Reliable, from the host: a bot died, as a <see cref="Died"/> says, after the bot's number.</summary>
+        BotDied
     }
 
     /// <summary>

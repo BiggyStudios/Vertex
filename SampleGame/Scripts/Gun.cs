@@ -268,8 +268,8 @@ namespace SampleGame
             Zoom += (zoomTarget - Zoom) * (1f - MathF.Exp(-30f * dt));
             if (MathF.Abs(Zoom - zoomTarget) < 0.01f) Zoom = zoomTarget;
 
-            // Looking down the scope, there's nothing of the gun to see.
-            Model.Root.Active = !_owner.IsDead && !IsScoped;
+            // Looking down the scope, there's nothing of the gun to see; nor in the main menu, where it'd be in the way.
+            Model.Root.Active = !_owner.IsDead && !IsScoped && !MainMenu.IsOpen;
             if (!_owner.IsDead) Animate(dt);
         }
 

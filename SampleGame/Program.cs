@@ -1,6 +1,7 @@
 using System.Numerics;
 
 using Vertex;
+using Vertex.Networking;
 using Vertex.Physics;
 using Vertex.Rendering;
 using Vertex.UI;
@@ -9,6 +10,12 @@ namespace SampleGame
 {
     public class SampleGame : Game
     {
+        /// <summary>
+        /// This build's version. Players only join rooms on the same one, so bump it whenever you put out a version whose
+        /// changes matter in multiplayer: new weapons, maps, movement, or anything sent over the network.
+        /// </summary>
+        public const string Version = "0.1";
+
         private static VertexWindow? _window;
 
         public static void Main()
@@ -19,25 +26,35 @@ namespace SampleGame
 
         public override void Load()
         {
+            Network.GameVersion = Version;
+
             // The player has the camera: mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot,
             // hold right mouse to scope (or stab, with the knife), 1 for the knife and 2 for the gun, F to inspect.
             // B to change class, Escape for the menu, ` for the console.
             var player = new Player();
             Settings.Current.Apply(player);
 
-            // F1-F5 to host or join; see MultiplayerManager.
             var multiplayerObject = new GameObject("Multiplayer");
             MultiplayerManager multiplayer = multiplayerObject.AddComponent<MultiplayerManager>();
             multiplayer.LocalPlayer = player;
 
-            // B, or Change class in the menu, to pick a class. It also opens as the game starts.
+            // B, or Change class in the menu, to pick a class. It also opens on the way into a game from the main menu.
             ClassMenu classMenu = multiplayerObject.AddComponent<ClassMenu>();
             classMenu.Player = player;
+            classMenu.OpenOnStart = false;
+
+            // The game opens on the main menu: find or host a room, or practise offline.
+            MainMenu mainMenu = multiplayerObject.AddComponent<MainMenu>();
+            mainMenu.Player = player;
+            mainMenu.Multiplayer = multiplayer;
+            mainMenu.ClassMenu = classMenu;
+            mainMenu.Quit = () => _window?.Close();
 
             PauseMenu menu = multiplayerObject.AddComponent<PauseMenu>();
             menu.Player = player;
             menu.Multiplayer = multiplayer;
             menu.ClassMenu = classMenu;
+            menu.MainMenu = mainMenu;
             menu.Quit = () => _window?.Close();
 
             DevConsole.Font = Fonts.Regular;
@@ -88,19 +105,20 @@ namespace SampleGame
             house.Transform.EulerAngles = new Vector3(0f, 25f, 0f);
 
             // Two glowing pads either side of the spawn: cyan (right) to the practice surf course, purple (left) to the
-            // surf_vertex combat arena. Pads in each bring you back. In both, air control comes from sv_surf_airaccelerate
-            // (150, as on surf servers) instead of sv_airaccelerate.
+            // surf_vertex combat arena. Stand on one and press E to go. Pads in each bring you back. In both, air control
+            // comes from sv_surf_airaccelerate (150, as on surf servers) instead of sv_airaccelerate.
             var home = new SpawnPoint(Player.SpawnPosition, 0f);
             SurfMap.Build(exit: home);
-            MapBuilder.TeleportPad("To Surf", new Vector3(6f, 0f, 2f), new SpawnPoint(SurfMap.Start, SurfMap.StartYaw), SurfMap.Zone, new Color(0.2f, 0.9f, 1f));
+            MapBuilder.TeleportPad("To Surf", new Vector3(6f, 0f, 2f), new SpawnPoint(SurfMap.Start, SurfMap.StartYaw), SurfMap.Zone, new Color(0.2f, 0.9f, 1f),
+                onPress: true);
 
             CombatSurfMap.Build(exit: home);
-            MapBuilder.TeleportPad("To surf_vertex", new Vector3(-8f, 0f, 4f), CombatSurfMap.RedSpawn, CombatSurfMap.Zone, new Color(0.75f, 0.4f, 1f))
+            MapBuilder.TeleportPad("To surf_vertex", new Vector3(-8f, 0f, 4f), CombatSurfMap.RedSpawn, CombatSurfMap.Zone, new Color(0.75f, 0.4f, 1f), onPress: true)
                 .GetComponent<Teleporter>()!.ToRandomSpawn = true;
 
             // An orange pad in front of the spawn to surf_skyhall, the big surf and bhop loop north of here.
             SkyhallMap.Build(exit: home);
-            MapBuilder.TeleportPad("To surf_skyhall", new Vector3(1f, 0f, -8f), SkyhallMap.Zone.Spawns[0], SkyhallMap.Zone, new Color(1f, 0.55f, 0.15f))
+            MapBuilder.TeleportPad("To surf_skyhall", new Vector3(1f, 0f, -8f), SkyhallMap.Zone.Spawns[0], SkyhallMap.Zone, new Color(1f, 0.55f, 0.15f), onPress: true)
                 .GetComponent<Teleporter>()!.ToRandomSpawn = true;
 
             // Bounce pads: the yellow one behind the spawn throws you straight up, and the green one past the cyan pad

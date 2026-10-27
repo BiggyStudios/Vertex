@@ -3,7 +3,8 @@ namespace SampleGame
     /// <summary>
     /// Movement settings shared by everyone in a game, named and measured like Source's cvars (in units, where a unit
     /// is an inch). Only the host can change them, and every change is sent to all players; anyone joining later is
-    /// sent the current values. Playing alone, you're the host.
+    /// sent the current values. Playing alone, you're the host. Every room starts on the normal values, and a public
+    /// room keeps them.
     /// </summary>
     internal static class ServerVariables
     {

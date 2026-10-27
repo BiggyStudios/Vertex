@@ -37,6 +37,9 @@ namespace Vertex.UI
 
         public int MaxLength { get; set; } = 256;
 
+        /// <summary>Shown in place of every character, for a password; it can't be copied either. Null shows the text.</summary>
+        public char? PasswordChar { get; set; }
+
         public string Text => _text.ToString();
 
         public int Caret => _caret;
@@ -69,7 +72,7 @@ namespace Vertex.UI
                 MoveCaret(_text.Length, extendSelection: true);
             }
 
-            if (ctrl && (InputSystem.GetKeyDown(Key.C) || InputSystem.GetKeyDown(Key.X)) && HasSelection)
+            if (ctrl && (InputSystem.GetKeyDown(Key.C) || InputSystem.GetKeyDown(Key.X)) && HasSelection && PasswordChar == null)
             {
                 InputSystem.ClipboardText = _text.ToString(SelectionStart, SelectionEnd - SelectionStart);
                 if (InputSystem.GetKeyDown(Key.X)) DeleteSelection();
@@ -108,11 +111,12 @@ namespace Vertex.UI
 
         /// <summary>
         /// Draws the text with its selection and cursor, at most <paramref name="width"/> wide.
-        /// Long text scrolls to keep the cursor in view.
+        /// Long text scrolls to keep the cursor in view. Without <paramref name="caret"/>, for a box that isn't being
+        /// typed in, the cursor is hidden.
         /// </summary>
-        public void Draw(Font font, Vector2 position, float width, float size, Color color)
+        public void Draw(Font font, Vector2 position, float width, float size, Color color, bool caret = true)
         {
-            string text = _text.ToString();
+            string text = PasswordChar is char mask ? new string(mask, _text.Length) : _text.ToString();
             float lineHeight = Canvas.LineHeight(font, size);
 
             float Width(int from, int to) => to > from ? Canvas.MeasureText(font, text[from..to], size).X : 0f;
@@ -136,7 +140,7 @@ namespace Vertex.UI
             Canvas.DrawText(font, text[_scroll..end], position, color, size);
 
             // Solid while typing or moving, blinking once idle.
-            if ((Time.TotalTime - _caretMoved) % 1f < 0.5f)
+            if (caret && (Time.TotalTime - _caretMoved) % 1f < 0.5f)
             {
                 Canvas.DrawRect(new Vector2(position.X + Width(_scroll, _caret), position.Y + 2f), new Vector2(1.5f, lineHeight - 4f), color);
             }

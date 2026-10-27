@@ -20,6 +20,9 @@ namespace Vertex.UI
         // The slider being dragged, if any, so it keeps following the mouse even when the pointer leaves it.
         private static string? _dragging;
 
+        /// <summary>The text box being typed in, if any. Clicking a box focuses it; clicking anywhere else lets it go.</summary>
+        public static TextField? Focused { get; set; }
+
         /// <summary>A button with centred text. True on the frame it's clicked.</summary>
         public static bool Button(Font font, string text, Vector2 position, Vector2 size, float textSize = 20f)
         {
@@ -87,6 +90,33 @@ namespace Vertex.UI
             Canvas.DrawRect(box + new Vector2(value ? 22f : 2f, 2f), new Vector2(16f, 16f), hovered ? Color.White : new Color(0.85f, 0.85f, 0.85f));
 
             return hovered && InputSystem.GetMouseButtonDown(MouseButton.Left) ? !value : value;
+        }
+
+        /// <summary>
+        /// A box to type <paramref name="field"/>'s text into, showing <paramref name="placeholder"/> dimly while it's
+        /// empty. Only the <see cref="Focused"/> box takes typing. True on the frame Enter is pressed in it.
+        /// </summary>
+        public static bool TextBox(Font font, TextField field, Vector2 position, Vector2 size, string placeholder = "", float textSize = 18f)
+        {
+            bool hovered = Contains(position, size, Canvas.MousePosition);
+            if (InputSystem.GetMouseButtonDown(MouseButton.Left))
+            {
+                if (hovered) Focused = field;
+                else if (Focused == field) Focused = null;
+            }
+
+            bool focused = Focused == field;
+            Canvas.DrawRect(position, size, focused || hovered ? HoverColor : ControlColor);
+            Canvas.DrawRect(new Vector2(position.X, position.Y + size.Y - 2f), new Vector2(size.X, 2f), focused ? AccentColor : new Color(1f, 1f, 1f, 0.15f));
+
+            const float padding = 12f;
+            var textPosition = new Vector2(position.X + padding, position.Y + (size.Y - Canvas.LineHeight(font, textSize)) / 2f);
+            if (focused) field.Update();
+
+            if (field.Text.Length == 0 && !focused) Canvas.DrawText(font, placeholder, textPosition, new Color(TextColor.R, TextColor.G, TextColor.B, 0.4f), textSize);
+            else field.Draw(font, textPosition, size.X - padding * 2f, textSize, TextColor, caret: focused);
+
+            return focused && (InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter));
         }
 
         private static bool Contains(Vector2 position, Vector2 size, Vector2 point) =>

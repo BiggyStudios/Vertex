@@ -29,6 +29,10 @@ namespace SampleGame
         // Before this, the solid top is left off, so a rocket doesn't knock into the player who just fired it.
         private const float _solidAfter = 0.15f;
 
+        // How far from its middle someone standing on top can go, across and along it, before KeepOnTop stops them.
+        private const float _standWidth = 0.1f;
+        private const float _standLength = 0.65f;
+
         // Your own rocket hurts you this much less than it would anyone else, so rocket jumping is worth the health.
         private const float _selfDamage = 0.4f;
 
@@ -199,6 +203,32 @@ namespace SampleGame
             };
 
             return feet is not Vector3 position || !IsRiding(position);
+        }
+
+        /// <summary>
+        /// Someone standing on top, running about at <paramref name="relative"/> to it: the same, but stopping at its edges
+        /// rather than running off it, which at running speed takes a tenth of a second on something this small. Only
+        /// jumping takes them off. <paramref name="feet"/> is where they stand before this physics step, which the rocket
+        /// hasn't taken yet either.
+        /// </summary>
+        public Vector3 KeepOnTop(Vector3 feet, Vector3 relative, float dt)
+        {
+            Quaternion toLocal = Quaternion.Inverse(Transform.Rotation);
+            Vector3 at = Vector3.Transform(feet - _position, toLocal);
+            Vector3 move = Vector3.Transform(relative, toLocal);
+
+            move.X = StopAtEdge(at.X, move.X, _standWidth);
+            move.Z = StopAtEdge(at.Z, move.Z, _standLength);
+            return Vector3.Transform(move, Transform.Rotation);
+
+            // Heading past the edge, only as far as it; already past it (landed on the very end), no further.
+            float StopAtEdge(float position, float speed, float edge)
+            {
+                float next = position + speed * dt;
+                if (next > edge && speed > 0f) return MathF.Max((edge - position) / dt, 0f);
+                if (next < -edge && speed < 0f) return MathF.Min((-edge - position) / dt, 0f);
+                return speed;
+            }
         }
 
         /// <summary>Whether someone with their feet at <paramref name="feet"/> is standing on top.</summary>

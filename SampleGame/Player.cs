@@ -267,13 +267,25 @@ namespace SampleGame
             Died?.Invoke(death);
         }
 
-        private void Respawn()
+        private void Respawn() => Respawn(Zone.RandomSpawn());
+
+        private void Respawn(SpawnPoint spawn)
         {
             IsDead = false;
             Health = MaxHealth;
             _eye.Transform.Position = new Vector3(0f, _eyeHeight, 0f);
-            SpawnPoint spawn = Zone.RandomSpawn();
             Teleport(spawn.Position, spawn.Yaw);
+        }
+
+        /// <summary>
+        /// Back in the sandbox, alive, at full health and out of noclip, so nothing carries over from before: for the
+        /// main menu, at the spot the game starts on, and for going into a room, at <paramref name="spawn"/>.
+        /// </summary>
+        public void StartOver(SpawnPoint? spawn = null)
+        {
+            Noclip = false;
+            Zone = Zone.Sandbox;
+            Respawn(spawn ?? new SpawnPoint(SpawnPosition, 0f));
         }
 
         protected override void Start()
@@ -391,6 +403,10 @@ namespace SampleGame
                 ApplyFriction(ref velocity, dt);
                 Accelerate(ref velocity, wishDir, wishSpeed, Acceleration, dt);
                 velocity.Y = 0f;
+
+                // On a rocket, running stops at its edges: only jumping takes you off it.
+                if (_controller.GroundCollider?.GameObject.GetComponent<Rocket>() is { } rocket) velocity = rocket.KeepOnTop(Transform.WorldPosition, velocity, dt);
+
                 velocity += ground;
             }
             else

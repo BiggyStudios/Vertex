@@ -9,6 +9,6 @@ namespace SampleGame
         public static bool Blocked => ChatBox.IsTyping || LookBlocked;
 
         /// <summary>The mouse is pointing at a menu or the console, so the view shouldn't turn and the cursor is free.</summary>
-        public static bool LookBlocked => PauseMenu.IsOpen || ClassMenu.IsOpen || DevConsole.IsOpen;
+        public static bool LookBlocked => MainMenu.IsOpen || PauseMenu.IsOpen || ClassMenu.IsOpen || DevConsole.IsOpen;
     }
 }

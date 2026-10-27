@@ -88,7 +88,7 @@ namespace SampleGame
             BuildIsland("North-West", 1f, islandRamps, stone);
             BuildIsland("South-East", -1f, islandRamps, stone);
 
-            MapBuilder.TeleportPad("surf_skyhall Exit", Centre + new Vector3(-15f, _upperDeck, -15f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f));
+            MapBuilder.TeleportPad("surf_skyhall Exit", Centre + new Vector3(-15f, _upperDeck, -15f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f), onPress: true);
 
             // Tall pillars round the outside, coloured for the side they're on, so it's easy to tell which way you face.
             foreach (Vector2 corner in (ReadOnlySpan<Vector2>)[new(-80f, -85f), new(80f, -85f), new(-80f, 85f), new(80f, 85f)])

@@ -29,7 +29,7 @@ namespace SampleGame
             Texture platformTexture = MapBuilder.Checker(new Color(0.5f, 0.7f, 0.45f), new Color(0.38f, 0.56f, 0.35f));
 
             MapBuilder.Block("Surf Start", new Vector3(60f, 39.5f, 4f), new Vector3(12f, 1f, 12f), Color.White, platformTexture);
-            MapBuilder.TeleportPad("Surf Start Exit", new Vector3(64.5f, 40f, 8.5f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f));
+            MapBuilder.TeleportPad("Surf Start Exit", new Vector3(64.5f, 40f, 8.5f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f), onPress: true);
 
             // Each ramp starts a little lower than the last one ended, shifted sideways, with a 12-unit gap to fly across.
             MapBuilder.Ramp("Surf Ramp 1", ridgeStart: new Vector3(60f, 37f, -6f), length: 80f, drop: 8f, rampTexture);
@@ -37,7 +37,7 @@ namespace SampleGame
             MapBuilder.Ramp("Surf Ramp 3", ridgeStart: new Vector3(60f, 15f, -190f), length: 80f, drop: 6f, rampTexture);
 
             MapBuilder.Block("Surf End", new Vector3(62f, -0.5f, -295f), new Vector3(30f, 1f, 30f), Color.White, platformTexture);
-            MapBuilder.TeleportPad("Surf Exit", new Vector3(62f, 0f, -302f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f));
+            MapBuilder.TeleportPad("Surf Exit", new Vector3(62f, 0f, -302f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f), onPress: true);
 
             // Well below everything, and kept clear of the sandbox at x -15 to 15.
             MapBuilder.Water("Surf Water", new Vector3(65f, -10f, -150f), new Vector2(60f, 340f));

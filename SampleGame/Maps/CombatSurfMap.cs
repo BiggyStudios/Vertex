@@ -81,7 +81,7 @@ namespace SampleGame
             MapBuilder.Glow($"{team} Spawn Edge", Place(21f, _spawnHeight - 0.4f, 69.95f), new Vector3(24.2f, 0.8f, 0.2f), color);
             MapBuilder.Block($"{team} Spawn Crate", Place(13f, _spawnHeight + 1f, 82f), new Vector3(2f, 2f, 2f), new Color(0.65f, 0.45f, 0.25f));
             MapBuilder.Block($"{team} Spawn Crate", Place(28f, _spawnHeight + 1.5f, 81f), new Vector3(3f, 3f, 2f), new Color(0.65f, 0.45f, 0.25f));
-            MapBuilder.TeleportPad($"{team} Exit", Place(30f, _spawnHeight, 86f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f));
+            MapBuilder.TeleportPad($"{team} Exit", Place(30f, _spawnHeight, 86f), exit, Zone.Sandbox, new Color(0.2f, 0.9f, 1f), onPress: true);
 
             // The lane: two downhill ramps with an 8-unit gap in the middle. The second starts well below where the first
             // ends, because you drop a few units flying across the gap and would otherwise hit its end.
