@@ -15,9 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The sample game too, so changes to the engine are checked against a real game that uses it. -->
     <ProjectReference Include="..\Vertex\Vertex.csproj" />
-    <ProjectReference Include="..\SampleGame\SampleGame.csproj" />
   </ItemGroup>
 
   <ItemGroup>

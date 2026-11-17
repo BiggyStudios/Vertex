@@ -68,5 +68,25 @@ namespace Vertex.Tests
             InputSystem.EndFrame();
             Assert.Equal(System.Numerics.Vector2.Zero, InputSystem.MouseDelta);
         }
+
+        [Fact]
+        public void Simulated_input_reaches_the_game_like_real_input()
+        {
+            var game = new EmptyGame();
+            var loop = new GameLoop(game);
+            loop.Load();
+
+            SimulatedInput.PressButton(MouseButton.Left);
+            SimulatedInput.Type("hi");
+            Assert.True(InputSystem.GetMouseButtonDown(MouseButton.Left));
+            Assert.Equal("hi", InputSystem.TypedText);
+
+            RunFrames(loop, 1);
+            Assert.False(InputSystem.GetMouseButtonDown(MouseButton.Left));
+            Assert.True(InputSystem.GetMouseButton(MouseButton.Left));
+
+            SimulatedInput.Reset();
+            Assert.False(InputSystem.GetMouseButton(MouseButton.Left));
+        }
     }
 }
