@@ -45,7 +45,7 @@ namespace SampleGame
 
         public Player Player { get; set; } = null!;
         public MultiplayerManager Multiplayer { get; set; } = null!;
-        public ClassMenu ClassMenu { get; set; } = null!;
+        public LoadoutMenu LoadoutMenu { get; set; } = null!;
 
         /// <summary>What the Quit button does.</summary>
         public Action? Quit { get; set; }
@@ -119,16 +119,16 @@ namespace SampleGame
             _message = null;
             _ignoreClick = InputSystem.GetMouseButton(MouseButton.Left);
             Gui.Focused = null;
-            ClassMenu.Close();
+            LoadoutMenu.Close();
         }
 
-        /// <summary>Into the game: the menu goes, and the class menu comes up to pick a class.</summary>
+        /// <summary>Into the game: the menu goes, and the loadout menu comes up to pick a weapon and gadget.</summary>
         private void Play()
         {
             IsOpen = false;
             _searching = false;
             Gui.Focused = null;
-            ClassMenu.Open();
+            LoadoutMenu.Open();
         }
 
         protected override void Update()
@@ -269,6 +269,7 @@ namespace SampleGame
             string version = $"Version {Network.GameVersion}";
             float versionWidth = Canvas.MeasureText(Fonts.Regular, version, 16f).X;
             Canvas.DrawText(Fonts.Regular, version, new Vector2(Canvas.Width - 40f - versionWidth, Canvas.Height - 52f), _faint, 16f, shadow: true);
+            DrawCredits(new Vector2(Canvas.Width - 40f, Canvas.Height - 64f));
 
             // Whether Steam's rooms are available, in the bottom-left corner.
             var status = new Vector2(x, Canvas.Height - 52f);
@@ -281,6 +282,60 @@ namespace SampleGame
             {
                 string text = Multiplayer.SteamError != null ? "Steam isn't running: only rooms on your network are available." : "Not connected to Steam.";
                 Canvas.DrawText(Fonts.Regular, text, status, _faint, 16f, shadow: true);
+            }
+        }
+
+        /// <summary>
+        /// Thanks to the playtesters, in a panel whose bottom-right corner is <paramref name="corner"/>: each one's name,
+        /// handle and site's logo. Clicking one opens their page.
+        /// </summary>
+        private void DrawCredits(Vector2 corner)
+        {
+            const float padding = 16f;
+            const float row = 30f;
+            const float icon = 22f;
+            const string title = "Special thanks";
+            const string subtitle = "To everyone who helped test the game";
+            if (Credits.Testers.Length == 0) return;
+
+            float nameWidth = Credits.Testers.Max(t => Canvas.MeasureText(Fonts.Bold, t.Name, 17f).X);
+            float handleWidth = Credits.Testers.Max(t => Canvas.MeasureText(Fonts.Regular, t.Handle, 15f).X);
+            float rowWidth = nameWidth + 14f + handleWidth + 12f + icon;
+            float width = MathF.Max(rowWidth, Canvas.MeasureText(Fonts.Regular, subtitle, 15f).X) + padding * 2f;
+            float height = padding * 2f + 50f + Credits.Testers.Length * row;
+            var topLeft = new Vector2(corner.X - width, corner.Y - height);
+            Canvas.DrawRect(topLeft, new Vector2(width, height), _panel);
+
+            float x = topLeft.X + padding;
+            float y = topLeft.Y + padding;
+            Canvas.DrawText(Fonts.Bold, title, new Vector2(x, y), Color.White, 18f);
+            Canvas.DrawRect(new Vector2(x, y + 26f), new Vector2(28f, 3f), Gui.AccentColor);
+            Canvas.DrawText(Fonts.Regular, subtitle, new Vector2(x, y + 32f), _dim, 15f);
+            y += 50f;
+
+            foreach (Credits.Tester tester in Credits.Testers)
+            {
+                var rowAt = new Vector2(x - 6f, y);
+                var rowSize = new Vector2(width - padding * 2f + 12f, row);
+                bool hovered = Contains(rowAt, rowSize, Canvas.MousePosition) && !DevConsole.IsOpen;
+                if (hovered) Canvas.DrawRect(rowAt, rowSize, Gui.HoverColor);
+
+                float textY = y + (row - Canvas.LineHeight(Fonts.Bold, 17f)) / 2f;
+                Canvas.DrawText(Fonts.Bold, tester.Name, new Vector2(x, textY), Color.White, 17f);
+
+                // The handle, underlined while it's pointed at, as a link.
+                var handleAt = new Vector2(x + nameWidth + 14f, y + (row - Canvas.LineHeight(Fonts.Regular, 15f)) / 2f);
+                Canvas.DrawText(Fonts.Regular, tester.Handle, handleAt, hovered ? Color.White : _dim, 15f);
+                if (hovered)
+                {
+                    float handleLength = Canvas.MeasureText(Fonts.Regular, tester.Handle, 15f).X;
+                    Canvas.DrawRect(handleAt + new Vector2(0f, Canvas.LineHeight(Fonts.Regular, 15f) - 2f), new Vector2(handleLength, 1f), Color.White);
+                }
+
+                Canvas.DrawImage(Credits.Icon(tester.Site), new Vector2(x + rowWidth - icon, y + (row - icon) / 2f), new Vector2(icon), Color.White);
+
+                if (hovered && InputSystem.GetMouseButtonDown(MouseButton.Left) && !_ignoreClick) Credits.OpenLink(tester.Url);
+                y += row;
             }
         }
 

@@ -230,7 +230,7 @@ namespace SampleGame
             return new Texture(size, size, pixels);
         }
 
-        /// <summary>The weapon you're holding, and below it both slots, the one in hand lit up, and how to change class.</summary>
+        /// <summary>The weapon you're holding, and below it every slot, the one in hand lit up, and how to change loadout.</summary>
         private static void DrawWeapon(Gun gun)
         {
             var corner = new Vector2(Canvas.Width - 28f, Canvas.Height - 36f);
@@ -241,10 +241,10 @@ namespace SampleGame
             var parts = new List<(string Text, Color Color)>
             {
                 ($"1 {Weapon.Knife.Name}", gun.Weapon == Weapon.Knife ? Color.White : dim),
-                ($"    2 {gun.Primary.Name}", gun.Weapon == gun.Primary ? Color.White : dim)
+                ($"    2 {gun.Loadout.Weapon.Name}", gun.Weapon == gun.Loadout.Weapon ? Color.White : dim)
             };
-            if (gun.Secondary is { } secondary) parts.Add(($"    3 {secondary.Name}", gun.Weapon == secondary ? Color.White : dim));
-            parts.Add(("    ·    B to change class", dim));
+            if (gun.Loadout.Gadget is { } gadget) parts.Add(($"    3 {gadget.Name}", gun.Weapon == gadget ? Color.White : dim));
+            parts.Add(("    ·    B to change loadout", dim));
 
             const float size = 14f;
             float x = corner.X - parts.Sum(part => Canvas.MeasureText(Fonts.Regular, part.Text, size).X);

@@ -85,7 +85,7 @@ namespace Vertex.Rendering.OpenGL
                 if (sky) DrawSky(frame);
                 DrawScene(frame, shadows);
                 _particles.Draw(frame);
-                _bloom.Finish(frame.Bloom);
+                _bloom.Finish(frame.Bloom, frame.Environment.Outlines, frame.ProjectionMatrix);
             }
             else
             {
@@ -132,38 +132,63 @@ namespace Vertex.Rendering.OpenGL
         private void DrawScene(RenderFrame frame, bool shadows)
         {
             GLShader? currentShader = null;
+            Material? currentMaterial = null;
+            Mesh? currentMesh = null;
+            GLMesh? glMesh = null;
             _shadowMap.Bind(1);
 
-            foreach (DrawCall draw in frame.DrawCalls)
+            // The draws come grouped by shader, then material, then mesh (see Renderer), so each is only set up when it
+            // changes: many draws in a row share a material, and some a mesh too.
+            IReadOnlyList<DrawCall> draws = frame.DrawCalls;
+            for (int i = 0; i < draws.Count; i++)
             {
+                DrawCall draw = draws[i];
                 Material material = draw.Material;
-                GLShader shader = material.Shading == ShadingModel.Unlit ? _unlitShader : _litShader;
+                bool unlit = material.Shading == ShadingModel.Unlit;
+                GLShader shader = unlit ? _unlitShader : _litShader;
 
                 if (shader != currentShader)
                 {
                     shader.Use();
                     SetFrameUniforms(shader, frame, shadows);
                     currentShader = shader;
+                    currentMaterial = null;
                 }
-
-                Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
 
                 shader.SetMatrix4("uModel", draw.WorldMatrix);
-                shader.SetMatrix4("uNormalMatrix", Matrix4x4.Transpose(inverseModel));
-                shader.SetColor("uColor", material.Color);
-                shader.SetFloat("uSpecular", material.Specular);
-                shader.SetFloat("uShininess", material.Shininess);
-                shader.SetColor3("uEmission", material.Emission);
-                shader.SetFloat("uEmissionStrength", material.EmissionStrength);
-                shader.SetBool("uHasTexture", material.Texture != null);
 
-                if (material.Texture != null)
+                // Only lighting needs the normals turned to match.
+                if (!unlit)
                 {
-                    GetTexture(material.Texture).Bind(0);
-                    shader.SetInt("uTexture", 0);
+                    Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
+                    shader.SetMatrix4("uNormalMatrix", Matrix4x4.Transpose(inverseModel));
                 }
 
-                GetMesh(draw.Mesh).Draw();
+                if (material != currentMaterial)
+                {
+                    shader.SetColor("uColor", material.Color);
+                    shader.SetFloat("uSpecular", material.Specular);
+                    shader.SetFloat("uShininess", material.Shininess);
+                    shader.SetColor3("uEmission", material.Emission);
+                    shader.SetFloat("uEmissionStrength", material.EmissionStrength);
+                    shader.SetBool("uHasTexture", material.Texture != null);
+
+                    if (material.Texture != null)
+                    {
+                        GetTexture(material.Texture).Bind(0);
+                        shader.SetInt("uTexture", 0);
+                    }
+
+                    currentMaterial = material;
+                }
+
+                if (draw.Mesh != currentMesh)
+                {
+                    glMesh = GetMesh(draw.Mesh);
+                    currentMesh = draw.Mesh;
+                }
+
+                glMesh!.Draw();
             }
         }
 
@@ -181,6 +206,7 @@ namespace Vertex.Rendering.OpenGL
             shader.SetColor3("uFogColor", environment.DrawSky ? environment.HorizonColor : frame.ClearColor);
             shader.SetFloat("uFogDensity", environment.FogDensity);
             shader.SetFloat("uExposure", environment.Exposure);
+            shader.SetFloat("uCelShading", environment.CelShading);
 
             shader.SetInt("uShadowLightIndex", shadows ? frame.ShadowLightIndex : -1);
             shader.SetMatrix4("uLightSpace", _shadowMap.LightSpace);

@@ -83,8 +83,8 @@ namespace SampleGame
         /// <summary>How fast the player can run right now: sv_maxspeed, or less if the gun they hold is heavy.</summary>
         public float RunSpeed => MathF.Min(MaxSpeed, Gun.MoveSpeed);
 
-        /// <summary>Their class, chosen from the class menu, which decides their weapon.</summary>
-        public PlayerClass Class { get; private set; } = PlayerClass.Pistol;
+        /// <summary>Their weapon and gadget, chosen from the loadout menu.</summary>
+        public Loadout Loadout => Gun.Loadout;
 
         public float NoclipSpeed { get; set; } = 10f;
 
@@ -212,19 +212,18 @@ namespace SampleGame
         }
 
         /// <summary>
-        /// Changes class, switching to its weapon straight away. Picking the class you already are just takes its gun
-        /// out, if you had the knife in hand.
+        /// Changes loadout, taking out its weapon straight away. Picking the one you already have just takes the weapon
+        /// out, if you had something else in hand.
         /// </summary>
-        public void SetClass(PlayerClass playerClass)
+        public void SetLoadout(Loadout loadout)
         {
-            if (playerClass == Class)
+            if (loadout == Loadout)
             {
-                if (Gun.Weapon != Gun.Primary) Gun.Equip(Gun.Primary);
+                if (Gun.Weapon != loadout.Weapon) Gun.Equip(loadout.Weapon);
                 return;
             }
 
-            Class = playerClass;
-            Gun.SetLoadout(playerClass.Weapon, playerClass.Secondary);
+            Gun.SetLoadout(loadout);
         }
 
         /// <summary>

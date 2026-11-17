@@ -16,7 +16,9 @@ namespace SampleGame
     /// <para>
     /// From the upper deck, a straight ramp runs east and another west, each launching you across a gap into a long roofed
     /// hall floating in the air, to bhop through, with walls to weave round and a small ramp. Pads at the edge of the lower
-    /// deck throw you into the halls as well. At the far end of each hall, a bounce pad throws you onto a curved ramp that
+    /// deck throw you into the halls as well, and pads beside those onto a ramp along each side of the hall, for surfing
+    /// past it instead, onto a wing of the hall's exit platform with a pad of its own onto the curved ramp. At the far end
+    /// of each hall, a bounce pad throws you onto a curved ramp that
     /// turns all the way back, runs along the outside of the hall and bends in to drop you on the lower deck: the east one
     /// comes in from the north, the west one from the south. Orange arrows on the ramps are boosters. Falling into the
     /// water is a death.
@@ -52,6 +54,9 @@ namespace SampleGame
         private const float _sky = 72f;         // the top of the sky platforms
         private const float _skyOut = 100f;     // how far north (or south) of the middle the sky platforms are
         private const float _island = 50f;      // the top of the grapple islands
+        private const float _sideRidge = _hallHalfWidth + 9f; // how far either side of a hall its side ramps' ridges run, clear of its walls
+        private const float _sideTop = 35f;     // the top of the side ramps' ridges where they start, and how far they fall to the far end
+        private const float _sideDrop = 3f;
 
         private static readonly Color _east = new(0.75f, 0.45f, 1f);
         private static readonly Color _west = new(0.3f, 0.9f, 0.85f);
@@ -224,13 +229,44 @@ namespace SampleGame
             const float hallRamp = 4.5f;
             MapBuilder.Ramp($"{side} Hall Ramp", Place(_hallStart + 30f, _hallFloor + hallRamp, 0f), length: 24f, drop: 1f, ramps, outward, height: hallRamp);
 
-            // The exit platform, with a pad that throws you up onto the start of the curved ramp. It's straight ahead and a
-            // little up: aim slightly left of it (towards the inside of the bend) to land on the face you surf.
+            // Along the outside of the hall, from its way in to its way out, a straight ramp each side with boosters: the way
+            // past the hall for anyone who'd rather surf than bhop through it. A pad beside the hall launch pads throws you
+            // onto it (face out), or swing out onto one off the end of the drop. Each ends over the exit platform, which
+            // reaches out under both.
             float exitEnd = _hallStart + _hallLength;
-            MapBuilder.Block($"{side} Hall Exit", Place(exitEnd + 6f, _hallFloor - 1f, 0f), new Vector3(12f, 2f, _hallHalfWidth * 2f), _stoneColor, stone);
+            float sideStart = floorStart;
+            float sideLength = exitEnd - sideStart;
+            foreach (float across in (ReadOnlySpan<float>)[-_sideRidge, _sideRidge])
+            {
+                MapBuilder.Ramp($"{side} Side Ramp", Place(sideStart, _sideTop, across), length: sideLength, drop: _sideDrop, ramps, outward,
+                    boosters: [0.2f, 0.5f, 0.8f]);
+
+                // It lands you on the face nearest the hall, 10 m along.
+                const float padIn = 5f;
+                float padAcross = across - MathF.Sign(across) * padIn;
+                float landing = _sideTop - _sideDrop * 10f / sideLength - padIn * MathF.Tan(MathHelper.ToRadians(MapBuilder.RampAngle));
+                MapBuilder.BouncePad($"{side} Side Launch", Place(_lowerHalf - 4f, _lowerDeck, padAcross), color, height: 13f,
+                    reach: sideStart + 10f - (_lowerHalf - 4f), landingRise: landing - _lowerDeck);
+            }
+
+            // The exit platform, with a pad that throws you up onto the start of the curved ramp. It's straight ahead and a
+            // little up: aim slightly left of it (towards the inside of the bend) to land on the face you surf. Off a side
+            // ramp, you land on the platform's wing on that side, with a pad of its own: face the start of the curved ramp.
+            // From the wing on the outside of the bend, the pad throws you higher, to clear the ridge and come down on the
+            // inside face; from the other, it aims further round the bend, so you land going along it, not across it.
+            const float exitHalfWidth = _sideRidge + 7f;
+            MapBuilder.Block($"{side} Hall Exit", Place(exitEnd + 6f, _hallFloor - 1f, 0f), new Vector3(12f, 2f, exitHalfWidth * 2f), _stoneColor, stone);
             float curveTop = _hallFloor + 18f;
             MapBuilder.BouncePad($"{side} Hall Pad", Place(exitEnd + 7f, _hallFloor, 0f), color, height: curveTop - _hallFloor + 4f,
                 reach: 17f, landingRise: curveTop - _hallFloor - 4f);
+            foreach (float across in (ReadOnlySpan<float>)[-_sideRidge, _sideRidge])
+            {
+                bool insideOfBend = across < 0f;
+                var pad = new Vector2(exitEnd + 6f, across);
+                Vector2 landing = insideOfBend ? new Vector2(exitEnd + 34f, -6f) : new Vector2(exitEnd + 24f, -4f);
+                MapBuilder.BouncePad($"{side} Wing Pad", Place(pad.X, _hallFloor, pad.Y), color, height: insideOfBend ? 22f : 30f,
+                    reach: Vector2.Distance(pad, landing), landingRise: curveTop - _hallFloor - (insideOfBend ? 4f : 5f));
+            }
 
             // The roof is somewhere to bhop too, where a sky ramp drops you: glowing along its edges, with a pad at the far
             // end that throws you onto the same spot on the curved ramp as the hall pad does.

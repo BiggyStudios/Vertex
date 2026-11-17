@@ -58,7 +58,7 @@ namespace SampleGame
             MoveSpeed: 240f, Spread: 0f, ScopeZoom: 1f, ScopedMoveSpeed: 240f, UnscopedSpread: 0f, Knockback: 0f,
             Sounds.DeagleShot, SoundVolume: 0.85f, ViewKick: 4f);
 
-        /// <summary>Hold to fire. Quick and steady. Not in any class for now; the Pistol took the Rifleman's place.</summary>
+        /// <summary>Hold to fire. Quick and steady. Not in the loadout menu for now; the Deagle took its place.</summary>
         public static Weapon Rifle { get; } = new(WeaponId.Rifle, "Rifle",
             BodyDamage: 20, HeadDamage: 50, Pellets: 1, SecondsPerShot: 1f / 6f, Automatic: true, Range: 200f, ImpactForce: 3f,
             MoveSpeed: 250f, Spread: 0f, ScopeZoom: 1f, ScopedMoveSpeed: 250f, UnscopedSpread: 0f, Knockback: 0f,
@@ -93,7 +93,7 @@ namespace SampleGame
             Sounds.KnifeSwing, SoundVolume: 0.5f, Melee: true, StabDamage: 65, SecondsPerStab: 1f, StabRange: 2.2f);
 
         /// <summary>
-        /// The Shotgunner's second gun, on 3: fires rockets that fly straight, not too fast, and explode on whatever they
+        /// A gadget, on 3: fires rockets that fly straight, not too fast, and explode on whatever they
         /// hit, throwing everyone nearby (you too) away from the blast. A rocket is solid on top, so you can ride one: shoot
         /// it under a teammate's feet and they're carried along; they can jump and land back on it, or jump off it. Land in
         /// front of it, though, and it hits them.
@@ -118,23 +118,42 @@ namespace SampleGame
     }
 
     /// <summary>
-    /// What the player chooses from the class menu: which weapon they carry on 2, and for some, a second one on 3.
+    /// What a player carries, picked in the loadout menu: their weapon on 2 and their gadget on 3, in any combination.
+    /// Everyone has the knife on 1 as well. A gadget is something extra to the weapon, like the rocket launcher.
     /// </summary>
-    public sealed record PlayerClass(string Name, string Description, Weapon Weapon, Weapon? Secondary = null)
+    public sealed record Loadout(Weapon Weapon, Weapon? Gadget)
     {
-        public static PlayerClass Pistol { get; } = new("Pistol",
-            "A Deagle. One to the head, two to the body.", Weapon.Deagle);
+        /// <summary>The weapons to pick from, for slot 2. The rifle isn't one for now: the Deagle took its place.</summary>
+        public static IReadOnlyList<Weapon> Weapons { get; } = [Weapon.Deagle, Weapon.Sniper, Weapon.Shotgun];
 
-        /// <summary>Not in the class menu for now: the Pistol took its place. Kept to bring back.</summary>
-        public static PlayerClass Rifleman { get; } = new("Rifleman",
-            "Gun that shoots, I think?", Weapon.Rifle);
+        /// <summary>The gadgets to pick from, for slot 3.</summary>
+        public static IReadOnlyList<Weapon> Gadgets { get; } = [Weapon.RocketLauncher];
 
-        public static PlayerClass Sniper { get; } = new("Sniper",
-            "It can snipe people.", Weapon.Sniper);
+        /// <summary>What everyone starts with.</summary>
+        public static Loadout Default { get; } = new(Weapon.Deagle, Weapon.RocketLauncher);
 
-        public static PlayerClass Shotgunner { get; } = new("Shotgunner",
-            "A shotgun that might have a special trick up it's sleave.", Weapon.Shotgun, Weapon.RocketLauncher);
+        /// <summary>A line about how a weapon or gadget plays, for the loadout menu.</summary>
+        public static string Describe(Weapon weapon) => weapon.Id switch
+        {
+            WeaponId.Deagle => "It goes pew pew bang bang.",
+            WeaponId.Sniper => "It can snipe people.",
+            WeaponId.Shotgun => "A shotgun that might have a special trick up its sleeve.",
+            WeaponId.RocketLauncher => "Rockets that blast everyone nearby away, you too. Jump on them, or ride one.",
+            WeaponId.Rifle => "Gun that shoots, I think?",
+            _ => ""
+        };
 
-        public static IReadOnlyList<PlayerClass> All { get; } = [Pistol, Sniper, Shotgunner];
+        /// <summary>
+        /// The weapon or gadget out of <paramref name="from"/> that <paramref name="name"/> means: its whole name, or the
+        /// start of it, or of any word in it ("sniper", "rocket", "launcher"), ignoring case. Null if none or several do.
+        /// </summary>
+        public static Weapon? Find(IReadOnlyList<Weapon> from, string name)
+        {
+            if (from.FirstOrDefault(w => w.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } exact) return exact;
+
+            List<Weapon> matches = from.Where(w => name.Length > 0
+                && w.Name.Split(' ').Any(word => word.StartsWith(name, StringComparison.OrdinalIgnoreCase))).ToList();
+            return matches.Count == 1 ? matches[0] : null;
+        }
     }
 }

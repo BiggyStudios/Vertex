@@ -16,6 +16,13 @@ namespace Vertex
         public Transform Transform { get; }
         public Scene Scene { get; }
         public IReadOnlyList<Component> Components => _components;
+
+        /// <summary>
+        /// The same list, for the engine's own loops that run every frame: going through a List directly allocates
+        /// nothing, where going through it as an interface allocates an enumerator every time.
+        /// </summary>
+        internal List<Component> ComponentList => _components;
+
         public bool IsDestroyed { get; private set; }
 
         internal bool Started;

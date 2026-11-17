@@ -29,8 +29,8 @@ namespace SampleGame
             Network.GameVersion = Version;
 
             // The player has the camera: mouse to look, WASD to move, Space or mouse wheel to jump, left mouse to shoot,
-            // hold right mouse to scope (or stab, with the knife), 1 for the knife and 2 for the gun, F to inspect.
-            // B to change class, Escape for the menu, ` for the console.
+            // hold right mouse to scope (or stab, with the knife), 1 for the knife, 2 for your weapon and 3 for your gadget, F to
+            // inspect. B to change loadout, Escape for the menu, ` for the console.
             var player = new Player();
             Settings.Current.Apply(player);
 
@@ -38,34 +38,53 @@ namespace SampleGame
             MultiplayerManager multiplayer = multiplayerObject.AddComponent<MultiplayerManager>();
             multiplayer.LocalPlayer = player;
 
-            // B, or Change class in the menu, to pick a class. It also opens on the way into a game from the main menu.
-            ClassMenu classMenu = multiplayerObject.AddComponent<ClassMenu>();
-            classMenu.Player = player;
-            classMenu.OpenOnStart = false;
+            // B, or Change loadout in the menu, to pick a weapon and gadget. It also opens on the way into a game from the
+            // main menu.
+            LoadoutMenu loadoutMenu = multiplayerObject.AddComponent<LoadoutMenu>();
+            loadoutMenu.Player = player;
+            loadoutMenu.OpenOnStart = false;
 
             // The game opens on the main menu: find or host a room, or practise offline.
             MainMenu mainMenu = multiplayerObject.AddComponent<MainMenu>();
             mainMenu.Player = player;
             mainMenu.Multiplayer = multiplayer;
-            mainMenu.ClassMenu = classMenu;
+            mainMenu.LoadoutMenu = loadoutMenu;
             mainMenu.Quit = () => _window?.Close();
 
             PauseMenu menu = multiplayerObject.AddComponent<PauseMenu>();
             menu.Player = player;
             menu.Multiplayer = multiplayer;
-            menu.ClassMenu = classMenu;
+            menu.LoadoutMenu = loadoutMenu;
             menu.MainMenu = mainMenu;
             menu.Quit = () => _window?.Close();
 
             DevConsole.Font = Fonts.Regular;
             GameCommands.Register(player, multiplayer);
 
-            // Slightly warm sunlight, which reads nicely against the cooler light from the sky.
-            var sun = new GameObject("Sun");
-            Light sunLight = sun.AddComponent<Light>();
-            sunLight.Color = new Color(1f, 0.95f, 0.87f);
-            sunLight.Intensity = 1.1f;
-            sun.Transform.EulerAngles = new Vector3(-50f, 30f, 0f);
+            // Night in the city: cold moonlight from high up, a deep blue sky glowing purple at the horizon where the city
+            // lights it from below, and a thin haze that the far towers fade into. The moon is the sky's sun disc.
+            var moon = new GameObject("Moon");
+            Light moonLight = moon.AddComponent<Light>();
+            moonLight.Color = new Color(0.6f, 0.68f, 1f);
+            moonLight.Intensity = 0.65f;
+            moon.Transform.EulerAngles = new Vector3(-55f, 30f, 0f);
+
+            Lighting night = Scene.Active.Lighting;
+            night.SkyColor = new Color(0.03f, 0.035f, 0.1f);
+            night.HorizonColor = new Color(0.34f, 0.13f, 0.4f);
+            night.GroundColor = new Color(0.06f, 0.035f, 0.1f);
+            night.AmbientIntensity = 2.6f;
+            night.FogDensity = 0.0013f;
+            night.Bloom = 1.4f;
+
+            // The city all round, far below and out to the horizon, and the cars flying over it.
+            CityBackdrop.Build();
+            Traffic.Build();
+
+            // A light toon touch: banded light, crisp highlights and soft outlines round things, the gun in your hands
+            // most of all. Not a full comic-book look; mat_celshading and mat_outlines in the console change it.
+            Scene.Active.Lighting.CelShading = 0.5f;
+            Scene.Active.Lighting.Outlines = 0.85f;
 
             var ground = new GameObject("Ground");
             ground.Transform.Scale = new Vector3(30f, 1f, 30f);

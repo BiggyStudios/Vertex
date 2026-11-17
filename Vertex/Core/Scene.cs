@@ -39,13 +39,17 @@ namespace Vertex
         /// <summary>All enabled components of type T on active objects.</summary>
         public IEnumerable<T> FindComponents<T>() where T : Component
         {
-            foreach (GameObject gameObject in _objects)
+            // Indexed, not foreach: this runs several times a frame over every object, and enumerating each object's
+            // components through an interface would allocate thousands of enumerators a frame for the GC to collect.
+            for (int i = 0; i < _objects.Count; i++)
             {
+                GameObject gameObject = _objects[i];
                 if (!gameObject.ActiveInHierarchy) continue;
 
-                foreach (Component component in gameObject.Components)
+                List<Component> components = gameObject.ComponentList;
+                for (int c = 0; c < components.Count; c++)
                 {
-                    if (component is T match && component.Enabled) yield return match;
+                    if (components[c] is T match && match.Enabled) yield return match;
                 }
             }
         }

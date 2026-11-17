@@ -23,6 +23,10 @@ namespace SampleGame
             DevConsole.AddVariable("volume", "Sound volume, from 0 to 1.", () => settings.Volume, v => Change(() => settings.Volume = v));
             DevConsole.AddVariable("ui_scale", "Interface size; 1 is normal.", () => settings.UiScale, v => Change(() => settings.UiScale = v));
             DevConsole.AddVariable("mat_bloomscale", "How strongly glowing things bloom; 0 turns it off.", () => Scene.Active.Lighting.Bloom, v => Scene.Active.Lighting.Bloom = MathF.Max(v, 0f));
+            DevConsole.AddVariable("mat_celshading", "How toon-like the lighting is, from 0 (smooth) to 1 (flat bands).", () => Scene.Active.Lighting.CelShading,
+                v => Scene.Active.Lighting.CelShading = Math.Clamp(v, 0f, 1f));
+            DevConsole.AddVariable("mat_outlines", "How dark the outlines round things are, from 0 (none) to 1.", () => Scene.Active.Lighting.Outlines,
+                v => Scene.Active.Lighting.Outlines = Math.Clamp(v, 0f, 1f));
 
             foreach (ServerVariables.Variable variable in ServerVariables.All)
             {
@@ -63,21 +67,24 @@ namespace SampleGame
                 int count = multiplayer.KickBots();
                 DevConsole.Print(count == 1 ? "Took away 1 bot." : $"Took away {count} bots.");
             });
-            DevConsole.AddCommand("class", "Changes class: class <name>. With no name, lists the classes.", args =>
+            DevConsole.AddCommand("loadout", "Changes your weapon and gadget: loadout <weapon> [gadget], like loadout sniper rocket. With nothing, lists them.", args =>
             {
-                PlayerClass? chosen = args.Length > 0
-                    ? PlayerClass.All.FirstOrDefault(c => c.Name.Equals(args[0], StringComparison.OrdinalIgnoreCase))
-                    : null;
+                string Names(IReadOnlyList<Weapon> weapons) => string.Join(", ", weapons.Select(w => w.Name.ToLowerInvariant()));
+                Weapon? weapon = args.Length > 0 ? Loadout.Find(Loadout.Weapons, args[0]) : null;
+                Weapon? gadget = args.Length > 1 ? Loadout.Find(Loadout.Gadgets, string.Join(' ', args[1..])) : player.Loadout.Gadget;
 
-                if (chosen == null)
+                if (weapon == null || (args.Length > 1 && gadget == null))
                 {
-                    if (args.Length > 0) DevConsole.Error($"No class called {args[0]}.");
-                    DevConsole.Print($"Classes: {string.Join(", ", PlayerClass.All.Select(c => c.Name.ToLowerInvariant()))}. You're a {player.Class.Name.ToLowerInvariant()}.");
+                    if (args.Length > 0 && weapon == null) DevConsole.Error($"No weapon called {args[0]}.");
+                    else if (args.Length > 1) DevConsole.Error($"No gadget called {string.Join(' ', args[1..])}.");
+                    DevConsole.Print($"Weapons: {Names(Loadout.Weapons)}. Gadgets: {Names(Loadout.Gadgets)}.");
+                    DevConsole.Print($"You have the {player.Loadout.Weapon.Name.ToLowerInvariant()}" +
+                        (player.Loadout.Gadget is { } current ? $" and the {current.Name.ToLowerInvariant()}." : "."));
                     return;
                 }
 
-                player.SetClass(chosen);
-                DevConsole.Print($"You're now a {chosen.Name.ToLowerInvariant()}, with the {chosen.Weapon.Name.ToLowerInvariant()}.");
+                player.SetLoadout(new Loadout(weapon, gadget));
+                DevConsole.Print($"You now have the {weapon.Name.ToLowerInvariant()}" + (gadget != null ? $" and the {gadget.Name.ToLowerInvariant()}." : "."));
             });
             DevConsole.AddCommand("status", "Lists the players in the game, and who's hosting.", _ => multiplayer.PrintStatus());
 

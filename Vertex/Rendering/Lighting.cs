@@ -33,6 +33,18 @@ namespace Vertex.Rendering
         /// </summary>
         public float Bloom { get; set; } = 1f;
 
+        /// <summary>
+        /// A toon look, from 0 (off, smooth lighting) to 1: light from the scene's Lights falls off in a few soft-edged
+        /// bands instead of smoothly, and highlights get a crisp edge. In between, it's a mix of the two, for a light touch.
+        /// </summary>
+        public float CelShading { get; set; }
+
+        /// <summary>
+        /// How dark the outlines round things are, from 0 (none) to 1: silhouettes and outer edges, found from the depth of
+        /// what's drawn, fading out with distance so far-off things stay clean. Pairs with <see cref="CelShading"/>.
+        /// </summary>
+        public float Outlines { get; set; }
+
         /// <summary>Draw the sky. Off, the screen is cleared to the camera's ClearColor, and fog fades into that instead.</summary>
         public bool DrawSky { get; set; } = true;
     }

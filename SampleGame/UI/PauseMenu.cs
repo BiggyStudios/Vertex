@@ -10,7 +10,7 @@ using Vertex.UI;
 namespace SampleGame
 {
     /// <summary>
-    /// Escape opens it: Resume, Change class, Settings, Players (in a room, to vote to kick someone), Leave room (or Main
+    /// Escape opens it: Resume, Change loadout, Settings, Players (in a room, to vote to kick someone), Leave room (or Main
     /// menu, playing offline) and Quit. The game
     /// keeps running behind it, as in any multiplayer game. Settings are saved as soon as you leave the settings page.
     /// It also looks after the mouse cursor, which is free while a menu or the console is open and locked to the game
@@ -26,7 +26,7 @@ namespace SampleGame
 
         public Player Player { get; set; } = null!;
         public MultiplayerManager Multiplayer { get; set; } = null!;
-        public ClassMenu ClassMenu { get; set; } = null!;
+        public LoadoutMenu LoadoutMenu { get; set; } = null!;
 
         /// <summary>Where Leave room and Main menu go. Without one, there's no Main menu button.</summary>
         public MainMenu? MainMenu { get; set; }
@@ -43,7 +43,7 @@ namespace SampleGame
         protected override void Update()
         {
             // Chat, the console and the other menus handle Escape themselves (and consume it) while they're open.
-            if (InputSystem.GetKeyDown(Key.Escape) && !ChatBox.IsTyping && !DevConsole.IsOpen && !ClassMenu.IsOpen && !global::SampleGame.MainMenu.IsOpen)
+            if (InputSystem.GetKeyDown(Key.Escape) && !ChatBox.IsTyping && !DevConsole.IsOpen && !LoadoutMenu.IsOpen && !global::SampleGame.MainMenu.IsOpen)
             {
                 InputSystem.Consume(Key.Escape);
                 if (!IsOpen) Open();
@@ -91,7 +91,7 @@ namespace SampleGame
             var buttons = new List<(string Label, Action Action)>
             {
                 ("Resume", Close),
-                ("Change class", () => { Close(); ClassMenu.Open(); }),
+                ("Change loadout", () => { Close(); LoadoutMenu.Open(); }),
                 ("Settings", () => _onSettingsPage = true)
             };
             if (Network.InSession) buttons.Add(("Players", () => { _onPlayersPage = true; _voteProblem = null; }));

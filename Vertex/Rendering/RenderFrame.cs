@@ -7,7 +7,7 @@ namespace Vertex.Rendering
 
     /// <summary>The scene's <see cref="Rendering.Lighting"/> settings for this frame. Colours are as authored (sRGB).</summary>
     public readonly record struct EnvironmentData(Color SkyColor, Color HorizonColor, Color GroundColor,
-        float AmbientIntensity, float FogDensity, float Exposure, bool DrawSky);
+        float AmbientIntensity, float FogDensity, float Exposure, bool DrawSky, float CelShading = 0f, float Outlines = 0f);
 
     /// <summary>A directional light. Color already includes intensity.</summary>
     public readonly record struct DirectionalLightData(Vector3 Direction, Color Color);

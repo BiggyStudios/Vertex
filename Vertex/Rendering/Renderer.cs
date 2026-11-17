@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 using Silk.NET.Windowing;
 
@@ -12,6 +13,16 @@ namespace Vertex.Rendering
     public sealed class Renderer : IDisposable
     {
         private readonly RenderFrame _frame = new();
+
+        // Unlit draws, gathered apart this frame to go after the lit ones; kept to reuse.
+        private readonly List<DrawCall> _unlitDraws = new();
+
+        // Any order that keeps draws with the same material, and within that the same mesh, next to each other.
+        private static readonly Comparison<DrawCall> _byMaterialThenMesh = (a, b) =>
+        {
+            int material = RuntimeHelpers.GetHashCode(a.Material).CompareTo(RuntimeHelpers.GetHashCode(b.Material));
+            return material != 0 ? material : RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
+        };
 
         public IRenderBackend Backend { get; }
 
@@ -55,7 +66,8 @@ namespace Vertex.Rendering
 
             Lighting lighting = scene.Lighting;
             _frame.Environment = new EnvironmentData(lighting.SkyColor, lighting.HorizonColor, lighting.GroundColor,
-                lighting.AmbientIntensity, lighting.FogDensity, lighting.Exposure, lighting.DrawSky);
+                lighting.AmbientIntensity, lighting.FogDensity, lighting.Exposure, lighting.DrawSky, Math.Clamp(lighting.CelShading, 0f, 1f),
+                Math.Clamp(lighting.Outlines, 0f, 1f));
             _frame.ShadowDistance = lighting.ShadowDistance;
             _frame.ShadowLightIndex = -1;
             _frame.Bloom = lighting.Bloom;
@@ -85,13 +97,22 @@ namespace Vertex.Rendering
                 }
             }
 
+            // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
+            // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
             foreach (MeshRenderer meshRenderer in scene.FindComponents<MeshRenderer>())
             {
                 if (meshRenderer.Mesh == null) continue;
 
-                bool castShadows = meshRenderer.CastShadows && meshRenderer.Material.Shading == ShadingModel.Lit;
-                _frame.DrawCallList.Add(new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, castShadows));
+                bool lit = meshRenderer.Material.Shading == ShadingModel.Lit;
+                var draw = new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, meshRenderer.CastShadows && lit);
+                (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
             }
+
+            // And within each, the same material and mesh together, so the backend sets each up once for all its draws.
+            _frame.DrawCallList.Sort(_byMaterialThenMesh);
+            _unlitDraws.Sort(_byMaterialThenMesh);
+            _frame.DrawCallList.AddRange(_unlitDraws);
+            _unlitDraws.Clear();
 
             foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
 

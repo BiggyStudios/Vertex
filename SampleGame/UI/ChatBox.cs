@@ -55,10 +55,11 @@ namespace SampleGame
 
         protected override void Update()
         {
-            // The console takes the keyboard while it's open; the menu has nothing to type into.
+            // The console takes the keyboard while it's open; the menus have nothing to type into, and in the loadout menu
+            // Enter deploys.
             bool enter = InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter);
             if (IsTyping && !DevConsole.IsOpen) UpdateTyping(enter);
-            else if (!IsTyping && enter && !PauseMenu.IsOpen && !MainMenu.IsOpen && !DevConsole.IsOpen) StartTyping();
+            else if (!IsTyping && enter && !PauseMenu.IsOpen && !MainMenu.IsOpen && !LoadoutMenu.IsOpen && !DevConsole.IsOpen) StartTyping();
 
             // The main menu says what happened itself.
             if (!MainMenu.IsOpen) Draw();

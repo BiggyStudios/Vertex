@@ -93,11 +93,8 @@ namespace SampleGame
 
         public Weapon Weapon { get; private set; } = Weapon.Deagle;
 
-        /// <summary>The class's gun, on 2. The knife is always on 1.</summary>
-        public Weapon Primary { get; private set; } = Weapon.Deagle;
-
-        /// <summary>Some classes' second gun, on 3 (the Shotgunner's rocket launcher). Null for the rest.</summary>
-        public Weapon? Secondary { get; private set; }
+        /// <summary>The weapon on 2 and the gadget on 3, if there is one. The knife is always on 1.</summary>
+        public Loadout Loadout { get; private set; } = Loadout.Default;
 
         /// <summary>Showing the weapon off, after pressing F.</summary>
         public bool IsInspecting => _inspectTime >= 0f;
@@ -206,12 +203,11 @@ namespace SampleGame
             Equip(Weapon.Deagle, deploy: false);
         }
 
-        /// <summary>Gives the player their class's guns, for slot 2 and (if it has one) slot 3, and switches to slot 2's.</summary>
-        public void SetLoadout(Weapon primary, Weapon? secondary)
+        /// <summary>Gives the player a weapon for slot 2 and a gadget (if any) for slot 3, and takes the weapon out.</summary>
+        public void SetLoadout(Loadout loadout)
         {
-            Primary = primary;
-            Secondary = secondary;
-            Equip(primary);
+            Loadout = loadout;
+            Equip(loadout.Weapon);
         }
 
         /// <summary>
@@ -253,8 +249,8 @@ namespace SampleGame
             {
                 // Switching to what's already in hand does nothing, as in CS.
                 if (InputSystem.GetKeyDown(Key.Number1) && Weapon != Weapon.Knife) Equip(Weapon.Knife);
-                else if (InputSystem.GetKeyDown(Key.Number2) && Weapon != Primary) Equip(Primary);
-                else if (InputSystem.GetKeyDown(Key.Number3) && Secondary != null && Weapon != Secondary) Equip(Secondary);
+                else if (InputSystem.GetKeyDown(Key.Number2) && Weapon != Loadout.Weapon) Equip(Loadout.Weapon);
+                else if (InputSystem.GetKeyDown(Key.Number3) && Loadout.Gadget is { } gadget && Weapon != gadget) Equip(gadget);
 
                 // Pressing it again starts over. Not while the gun is busy: being brought up, or working its bolt or pump.
                 if (InputSystem.GetKeyDown(Key.F) && _cooldown <= 0f && !IsScoped) _inspectTime = 0f;

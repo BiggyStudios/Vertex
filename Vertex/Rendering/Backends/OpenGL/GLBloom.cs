@@ -7,7 +7,8 @@ namespace Vertex.Rendering.OpenGL
     /// <summary>
     /// The scene is drawn into here rather than straight to the screen: its colour, plus a second image of only what
     /// glows. That glow is blurred wider and wider by halving it several times, then built back up, each size adding
-    /// onto the next. The wide, soft result goes over the scene on its way to the screen.
+    /// onto the next. The wide, soft result goes over the scene on its way to the screen, along with outlines found from
+    /// the scene's depth (see <see cref="Lighting.Outlines"/>).
     /// </summary>
     internal sealed unsafe class GLBloom : IDisposable
     {
@@ -51,15 +52,20 @@ namespace Vertex.Rendering.OpenGL
             _sceneColor = CreateTexture(width, height, InternalFormat.Rgba8, PixelType.UnsignedByte);
             _sceneGlow = CreateTexture(width, height, InternalFormat.Rgba16f, PixelType.Float);
 
-            _sceneDepth = _gl.GenRenderbuffer();
-            _gl.BindRenderbuffer(RenderbufferTarget.Renderbuffer, _sceneDepth);
-            _gl.RenderbufferStorage(RenderbufferTarget.Renderbuffer, InternalFormat.DepthComponent24, (uint)width, (uint)height);
+            // A texture rather than a renderbuffer, so the outlines can read it.
+            _sceneDepth = _gl.GenTexture();
+            _gl.BindTexture(TextureTarget.Texture2D, _sceneDepth);
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.DepthComponent24, (uint)width, (uint)height, 0, PixelFormat.DepthComponent, PixelType.UnsignedInt, null);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
 
             _sceneFramebuffer = _gl.GenFramebuffer();
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _sceneFramebuffer);
             _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, _sceneColor, 0);
             _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment1, TextureTarget.Texture2D, _sceneGlow, 0);
-            _gl.FramebufferRenderbuffer(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, RenderbufferTarget.Renderbuffer, _sceneDepth);
+            _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, _sceneDepth, 0);
             GLEnum* buffers = stackalloc GLEnum[2] { GLEnum.ColorAttachment0, GLEnum.ColorAttachment1 };
             _gl.DrawBuffers(2, buffers);
             Check("Scene");
@@ -96,8 +102,12 @@ namespace Vertex.Rendering.OpenGL
             _gl.Clear(ClearBufferMask.DepthBufferBit);
         }
 
-        /// <summary>Blurs the glow and draws the scene with it to the screen. <paramref name="strength"/> 0 skips the glow.</summary>
-        public void Finish(float strength)
+        /// <summary>
+        /// Blurs the glow and draws the scene with it to the screen. <paramref name="strength"/> 0 skips the glow.
+        /// <paramref name="outlines"/> is how dark the outlines are (0 for none); <paramref name="projection"/> is the
+        /// camera's, to tell how far away each pixel is from its depth.
+        /// </summary>
+        public void Finish(float strength, float outlines, Matrix4x4 projection)
         {
             _gl.Disable(EnableCap.DepthTest);
             _gl.DepthMask(false);
@@ -138,11 +148,23 @@ namespace Vertex.Rendering.OpenGL
             _composite.Use();
             _composite.SetInt("uScene", 0);
             _composite.SetInt("uBloom", 1);
+            _composite.SetInt("uDepth", 2);
+            _composite.SetFloat("uOutlines", outlines);
+            // Distance from depth needs only these two: see the shader.
+            _composite.SetFloat("uProjectionZ", projection.M33);
+            _composite.SetFloat("uProjectionW", projection.M43);
+            // One pixel wide at 720 lines, wider on bigger screens.
+            _composite.SetVector2("uOutlineStep", new Vector2(1f / _width, 1f / _height) * MathF.Max(1f, MathF.Round(_height / 720f)));
             // Each level adds the glow once more, so share the strength between them.
             _composite.SetFloat("uBloomStrength", bloom ? strength * 3.5f / _levels.Count : 0f);
             BindTexture(0, _sceneColor);
             BindTexture(1, bloom ? _levels[0].Texture : _sceneGlow);
+            BindTexture(2, _sceneDepth);
             _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
+
+            // The depth texture is drawn into next frame, so it mustn't be left where a shader could read it.
+            BindTexture(2, 0);
+            _gl.ActiveTexture(TextureUnit.Texture0);
 
             _gl.DepthMask(true);
             _gl.Enable(EnableCap.DepthTest);
@@ -188,7 +210,7 @@ namespace Vertex.Rendering.OpenGL
                 _gl.DeleteFramebuffer(_sceneFramebuffer);
                 _gl.DeleteTexture(_sceneColor);
                 _gl.DeleteTexture(_sceneGlow);
-                _gl.DeleteRenderbuffer(_sceneDepth);
+                _gl.DeleteTexture(_sceneDepth);
                 _sceneFramebuffer = 0;
             }
 

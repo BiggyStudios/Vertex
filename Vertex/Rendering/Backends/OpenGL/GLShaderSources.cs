@@ -77,6 +77,9 @@ namespace Vertex.Rendering.OpenGL
             uniform float uFogDensity;
             uniform float uExposure;
 
+            // 0 for smooth lighting, 1 for toon bands; see Lighting.CelShading.
+            uniform float uCelShading;
+
             // The sun's shadow map. uShadowLightIndex is -1 when nothing casts shadows.
             uniform int uShadowLightIndex;
             uniform mat4 uLightSpace;
@@ -98,14 +101,19 @@ namespace Vertex.Rendering.OpenGL
             // ACES filmic curve (Narkowicz's fit): bright areas roll off smoothly instead of clipping to flat white.
             vec3 toneMap(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
 
+            // Toon lighting: three flat steps (unlit, half lit, fully lit) with soft edges between them, rather than a smooth fade.
+            float toonBands(float NdotL) { return smoothstep(0.0, 0.08, NdotL) * 0.45 + smoothstep(0.35, 0.45, NdotL) * 0.55; }
+
             void addLight(vec3 N, vec3 V, vec3 L, vec3 color)
             {
                 float NdotL = max(dot(N, L), 0.0);
                 if (NdotL <= 0.0) return;
 
+                // With cel shading, the light falls into bands, and the highlight is a crisp spot instead of a soft fade.
                 vec3 H = normalize(L + V);
-                diffuseLight += color * NdotL;
-                specularLight += color * pow(max(dot(N, H), 0.0), uShininess) * uSpecular;
+                float highlight = pow(max(dot(N, H), 0.0), uShininess);
+                diffuseLight += color * mix(NdotL, toonBands(NdotL), uCelShading);
+                specularLight += color * mix(highlight, smoothstep(0.6, 0.7, highlight), uCelShading) * uSpecular;
             }
 
             // 1 in full sunlight, 0 in shadow, in between at soft edges.
@@ -265,6 +273,7 @@ namespace Vertex.Rendering.OpenGL
         public const string UnlitFragment = """
             #version 330 core
 
+            in vec3 vWorldPosition;
             in vec2 vUV;
 
             uniform vec4 uColor;
@@ -273,6 +282,10 @@ namespace Vertex.Rendering.OpenGL
             uniform vec3 uEmission;
             uniform float uEmissionStrength;
 
+            uniform vec3 uCameraPosition;
+            uniform vec3 uFogColor;
+            uniform float uFogDensity;
+
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 GlowColor;
 
@@ -280,8 +293,12 @@ namespace Vertex.Rendering.OpenGL
             {
                 vec4 color = uColor;
                 if (uHasTexture) color *= texture(uTexture, vUV);
-                FragColor = color;
-                GlowColor = vec4(pow(uEmission, vec3(2.2)) * uEmissionStrength, 1.0);
+
+                // Fades into the horizon with distance, as lit things do, glow and all.
+                float distance = length(uCameraPosition - vWorldPosition);
+                float fog = 1.0 - exp(-pow(uFogDensity * distance, 2.0));
+                FragColor = vec4(mix(color.rgb, uFogColor, fog), color.a);
+                GlowColor = vec4(pow(uEmission, vec3(2.2)) * uEmissionStrength * (1.0 - fog), 1.0);
             }
             """;
 
@@ -449,7 +466,8 @@ namespace Vertex.Rendering.OpenGL
             """;
 
         // The finished scene with the bloom on top, blended like light on a lens: it brightens towards white but never
-        // past it, so the scene underneath keeps its colours.
+        // past it, so the scene underneath keeps its colours. First, the outlines darken the scene along the edges of
+        // things, found from its depth.
         public const string CompositeFragment = """
             #version 330 core
 
@@ -459,11 +477,41 @@ namespace Vertex.Rendering.OpenGL
             uniform sampler2D uBloom;
             uniform float uBloomStrength;
 
+            uniform sampler2D uDepth;
+            uniform float uOutlines;
+            uniform float uProjectionZ;
+            uniform float uProjectionW;
+            uniform vec2 uOutlineStep;
+
             out vec4 FragColor;
+
+            // One over the distance to what's drawn there. From the depth d stored for it, NDC depth is 2d - 1, which for
+            // the projection is M43 / distance - M33; so 1 / distance is (NDC + M33) / M43. Across any flat surface it
+            // changes evenly from pixel to pixel, which is what finds the edges below.
+            float nearness(vec2 uv) { return (texture(uDepth, uv).r * 2.0 - 1.0 + uProjectionZ) / uProjectionW; }
+
+            // How much this pixel is on an edge: the outline of something against what's behind it, or a corner. On a flat
+            // surface, the pixels either side average out to this one; where it's nearer or further than that average, it's
+            // an edge, so the line takes a pixel either side of it. Relative to its own nearness, so it's the same near or far.
+            float edge()
+            {
+                float centre = nearness(vUV);
+                vec2 x = vec2(uOutlineStep.x, 0.0);
+                vec2 y = vec2(0.0, uOutlineStep.y);
+                float across = 2.0 * centre - nearness(vUV + x) - nearness(vUV - x);
+                float down = 2.0 * centre - nearness(vUV + y) - nearness(vUV - y);
+                float strength = max(abs(across), abs(down)) / max(centre, 1e-6);
+
+                // Faint ones are left out, and outlines fade away into the distance, where they'd only be noise.
+                float distance = 1.0 / max(centre, 1e-6);
+                return smoothstep(0.003, 0.02, strength) * (1.0 - smoothstep(25.0, 80.0, distance));
+            }
 
             void main()
             {
                 vec3 scene = pow(texture(uScene, vUV).rgb, vec3(2.2));
+                // Darkened by as much as it looks on screen, not in linear light, where the same cut looks far less.
+                if (uOutlines > 0.0) scene *= pow(1.0 - 0.85 * uOutlines * edge(), 2.2);
                 vec3 bloom = 1.0 - exp(-texture(uBloom, vUV).rgb * uBloomStrength);
                 vec3 color = 1.0 - (1.0 - scene) * (1.0 - bloom);
                 FragColor = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
