@@ -5,7 +5,8 @@ using Vertex.Audio;
 using Vertex.Input;
 using Vertex.Platform;
 using Vertex.Rendering;
-using Vertex.Rendering.OpenGL;
+using Vertex.Rendering.Vulkan;
+using Vertex.UI;
 
 namespace Vertex
 {
@@ -23,11 +24,11 @@ namespace Vertex
         public int Width => _window.FramebufferSize.X;
         public int Height => _window.FramebufferSize.Y;
 
-        /// <param name="backend">The graphics API backend to render with. Defaults to OpenGL.</param>
+        /// <param name="backend">The graphics API backend to render with. Defaults to <see cref="RenderBackends.CreateDefault"/>: Vulkan where it can, otherwise OpenGL.</param>
         public VertexWindow(int sizeX, int sizeY, Game game, string title = "Window", IRenderBackend? backend = null)
         {
             _loop = new GameLoop(game);
-            Renderer = new Renderer(backend ?? new GLRenderBackend());
+            Renderer = new Renderer(backend ?? RenderBackends.CreateDefault());
 
             WindowOptions options = Renderer.ConfigureWindow(WindowOptions.Default with
             {
@@ -62,6 +63,9 @@ namespace Vertex
             _ = new SilkInput(_window);
             Sound.Initialise();
             Application.QuitRequested += Close;
+
+            DevConsole.AddCommand("r_backend", "Says which graphics API is rendering. Start with -opengl or -vulkan to choose.",
+                _ => DevConsole.Print(Renderer.Backend is VulkanRenderBackend vulkan ? $"Vulkan on {vulkan.DeviceName}" : Renderer.Backend.Name));
 
             _loop.Load();
         }

@@ -340,6 +340,9 @@ namespace Vertex.Rendering.OpenGL
 
         public void Dispose()
         {
+            // Never initialised (the window didn't open): nothing was made.
+            if (_gl == null) return;
+
             foreach (KeyValuePair<Mesh, GLMesh> entry in _meshes) entry.Value.Dispose();
             foreach (KeyValuePair<Texture, GLTexture> entry in _textures) entry.Value.Dispose();
             foreach (KeyValuePair<RenderTexture, GLRenderTarget> entry in _renderTargets) entry.Value.Dispose();

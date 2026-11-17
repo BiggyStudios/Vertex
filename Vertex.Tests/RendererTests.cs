@@ -118,6 +118,23 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void Players_can_choose_opengl()
+        {
+            string? before = Environment.GetEnvironmentVariable("VERTEX_RENDERER");
+            Environment.SetEnvironmentVariable("VERTEX_RENDERER", "opengl");
+            try
+            {
+                using IRenderBackend backend = RenderBackends.CreateDefault();
+                Assert.Equal("OpenGL", backend.Name);
+                Assert.False(backend.SupportsGpuParticles);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("VERTEX_RENDERER", before);
+            }
+        }
+
+        [Fact]
         public void Render_textures_have_no_pixels_to_set()
         {
             var texture = new RenderTexture(4, 4);
