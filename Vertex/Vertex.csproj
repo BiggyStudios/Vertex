@@ -11,6 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The tests drive the engine without a window, through its internal frame and input methods. -->
+    <InternalsVisibleTo Include="Vertex.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FontStashSharp.PlatformAgnostic" Version="1.6.2" />
     <PackageReference Include="JoltPhysicsSharp" Version="2.23.0" />
     <PackageReference Include="Silk.NET" Version="2.23.0" />
