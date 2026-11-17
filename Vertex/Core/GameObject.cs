@@ -182,12 +182,28 @@ namespace Vertex
                 child.GameObject.DestroyImmediate();
             }
 
+            // One that throws mustn't stop the rest from cleaning up.
             foreach (Component component in _components)
             {
-                component.OnDestroy();
+                try
+                {
+                    component.OnDestroy();
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine($"[Vertex] {component.GetType().Name}.OnDestroy on {Name} failed: {exception.Message}");
+                }
             }
 
-            OnDestroy();
+            try
+            {
+                OnDestroy();
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"[Vertex] OnDestroy on {Name} failed: {exception.Message}");
+            }
+
             Transform.Parent = null;
         }
 

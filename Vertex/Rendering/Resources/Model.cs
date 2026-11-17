@@ -21,6 +21,43 @@ namespace Vertex.Rendering
         /// Loads a model file and returns a root GameObject that mirrors the file's node hierarchy,
         /// with a MeshRenderer for every mesh. The objects are added to the active scene.
         /// </summary>
+        /// <summary>
+        /// One mesh from a model file, by its number in the file: how a saved scene refers to meshes from models (see
+        /// <see cref="Mesh.Source"/>). Each file is read once; later meshes from it come from what was read.
+        /// </summary>
+        public static unsafe Mesh? LoadMesh(string path, int index)
+        {
+            path = Path.GetFullPath(path);
+            if (!_loadedMeshes.TryGetValue(path, out Mesh?[]? meshes))
+            {
+                _assimp ??= Assimp.GetApi();
+                AssimpScene* scene = _assimp.ImportFile(path, (uint)_flags);
+                if (scene == null || scene->MRootNode == null) throw new Exception($"Failed to load model '{path}': {_assimp.GetErrorStringS()}");
+
+                try
+                {
+                    var importer = new Importer(_assimp, scene, path);
+                    meshes = new Mesh?[scene->MNumMeshes];
+                    for (int i = 0; i < meshes.Length; i++) meshes[i] = importer.GetMesh(i);
+                    _loadedMeshes[path] = meshes;
+                }
+                finally
+                {
+                    _assimp.ReleaseImport(scene);
+                }
+            }
+
+            return index >= 0 && index < meshes.Length ? meshes[index] : null;
+        }
+
+        private static readonly Dictionary<string, Mesh?[]> _loadedMeshes = new(StringComparer.OrdinalIgnoreCase);
+
+        private const PostProcessSteps _flags = PostProcessSteps.Triangulate
+            | PostProcessSteps.GenerateSmoothNormals
+            | PostProcessSteps.JoinIdenticalVertices
+            | PostProcessSteps.SortByPrimitiveType
+            | PostProcessSteps.FlipUVs;
+
         public static unsafe GameObject Load(string path)
         {
             _assimp ??= Assimp.GetApi();
@@ -37,7 +74,7 @@ namespace Vertex.Rendering
 
             try
             {
-                var importer = new Importer(_assimp, scene, Path.GetDirectoryName(Path.GetFullPath(path))!);
+                var importer = new Importer(_assimp, scene, Path.GetFullPath(path));
                 GameObject root = importer.ProcessNode(scene->MRootNode, null);
                 root.Name = Path.GetFileNameWithoutExtension(path);
                 return root;
@@ -53,15 +90,17 @@ namespace Vertex.Rendering
             private readonly Assimp _assimp;
             private readonly AssimpScene* _scene;
             private readonly string _directory;
+            private readonly string _path;
             private readonly Mesh?[] _meshes;
             private readonly Material[] _materials;
             private readonly Dictionary<string, Texture?> _textures = new();
 
-            public Importer(Assimp assimp, AssimpScene* scene, string directory)
+            public Importer(Assimp assimp, AssimpScene* scene, string path)
             {
+                _path = path;
                 _assimp = assimp;
                 _scene = scene;
-                _directory = directory;
+                _directory = Path.GetDirectoryName(path)!;
                 _meshes = new Mesh?[scene->MNumMeshes];
 
                 // Materials are shared between every mesh that uses them, so editing one affects them all.
@@ -70,6 +109,19 @@ namespace Vertex.Rendering
                 {
                     _materials[i] = LoadMaterial(scene->MMaterials[i]);
                 }
+            }
+
+            /// <summary>The file's mesh number <paramref name="index"/>, loaded the first time it's asked for. Null if it isn't triangles.</summary>
+            public Mesh? GetMesh(int index)
+            {
+                if (index < 0 || index >= _meshes.Length) return null;
+                if (_meshes[index] == null && LoadMesh(_scene->MMeshes[index]) is { } loaded)
+                {
+                    loaded.Source = $"{_path}#{index}";
+                    _meshes[index] = loaded;
+                }
+
+                return _meshes[index];
             }
 
             public GameObject ProcessNode(AssimpNode* node, GameObject? parent)
@@ -85,7 +137,7 @@ namespace Vertex.Rendering
                 for (int i = 0; i < node->MNumMeshes; i++)
                 {
                     uint meshIndex = node->MMeshes[i];
-                    Mesh? mesh = _meshes[meshIndex] ??= LoadMesh(_scene->MMeshes[meshIndex]);
+                    Mesh? mesh = GetMesh((int)meshIndex);
                     if (mesh == null) continue;
 
                     MeshRenderer renderer = gameObject.AddComponent<MeshRenderer>();

@@ -46,6 +46,27 @@ namespace Vertex
         }
 
         /// <summary>
+        /// Where this comes among its parent's children, or among the scene's top-level objects if it has no parent: 0 is
+        /// first. Setting it moves it there (as dragging in an editor's outliner does). It only changes the order objects
+        /// are listed and updated in.
+        /// </summary>
+        public int SiblingIndex
+        {
+            get => _parent != null ? _parent._children.IndexOf(this) : GameObject.Scene.RootIndex(GameObject);
+            set
+            {
+                if (_parent == null)
+                {
+                    GameObject.Scene.SetRootIndex(GameObject, value);
+                    return;
+                }
+
+                _parent._children.Remove(this);
+                _parent._children.Insert(Math.Clamp(value, 0, _parent._children.Count), this);
+            }
+        }
+
+        /// <summary>
         /// The rotation as euler angles in degrees (X = pitch, Y = yaw, Z = roll), applied roll first, then pitch, then yaw.
         /// Reading gives pitch from -90 to 90 and yaw and roll from -180 to 180, which may differ from the angles set but
         /// turn the same way.

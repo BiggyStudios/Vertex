@@ -22,13 +22,22 @@ namespace Vertex.Input
         private static bool _cursorLocked;
         private static readonly System.Text.StringBuilder _typedText = new();
 
-        public static Vector2 MouseDelta { get; private set; }
+        public static Vector2 MouseDelta { get => Muted ? Vector2.Zero : _mouseDelta; private set => _mouseDelta = value; }
+
+        private static Vector2 _mouseDelta;
+        private static float _scrollDelta;
+
+        /// <summary>
+        /// While true, reading input gives nothing pressed and no movement, though it carries on being tracked: an editor
+        /// hides input from the game it's playing while the editor has it, and the other way round.
+        /// </summary>
+        internal static bool Muted { get; set; }
 
         /// <summary>
         /// The characters typed this frame, with Shift, accents and the keyboard layout already applied:
         /// use this for text boxes rather than reading keys. Doesn't include Enter, Backspace or other control keys.
         /// </summary>
-        public static string TypedText => _typedText.ToString();
+        public static string TypedText => Muted ? "" : _typedText.ToString();
 
         /// <summary>The system clipboard's text, for copy and paste. Empty if there's nowhere to get it from.</summary>
         public static string ClipboardText
@@ -40,7 +49,7 @@ namespace Vertex.Input
             }
         }
 
-        public static float ScrollDelta { get; private set; }
+        public static float ScrollDelta { get => Muted ? 0f : _scrollDelta; private set => _scrollDelta = value; }
 
         /// <summary>The mouse pointer's position in window coordinates, from the top-left corner.</summary>
         public static Vector2 MousePosition { get; private set; }
@@ -73,9 +82,9 @@ namespace Vertex.Input
 
         private static CursorShape _cursorShape;
 
-        public static bool GetKey(Key key) => _keysHeld.Contains(key);
+        public static bool GetKey(Key key) => !Muted && _keysHeld.Contains(key);
 
-        public static bool GetKeyDown(Key key) => _keysPressed.Contains(key);
+        public static bool GetKeyDown(Key key) => !Muted && _keysPressed.Contains(key);
 
         /// <summary>
         /// Marks this frame's press of <paramref name="key"/> as handled, so <see cref="GetKeyDown"/> is false for
@@ -86,11 +95,11 @@ namespace Vertex.Input
         /// <summary>Marks this frame's <see cref="TypedText"/> as handled, so nothing after receives it.</summary>
         public static void ConsumeTypedText() => _typedText.Clear();
 
-        public static bool GetKeyUp(Key key) => _keysReleased.Contains(key);
+        public static bool GetKeyUp(Key key) => !Muted && _keysReleased.Contains(key);
 
-        public static bool GetMouseButton(MouseButton button) => _buttonsHeld.Contains(button);
-        public static bool GetMouseButtonDown(MouseButton button) => _buttonsPressed.Contains(button);
-        public static bool GetMouseButtonUp(MouseButton button) => _buttonsReleased.Contains(button);
+        public static bool GetMouseButton(MouseButton button) => !Muted && _buttonsHeld.Contains(button);
+        public static bool GetMouseButtonDown(MouseButton button) => !Muted && _buttonsPressed.Contains(button);
+        public static bool GetMouseButtonUp(MouseButton button) => !Muted && _buttonsReleased.Contains(button);
 
         /// <summary>Connects the clipboard and cursor locking to whatever hosts the game. Null disconnects them.</summary>
         internal static void SetPlatform(IInputHost? platform)
@@ -121,11 +130,11 @@ namespace Vertex.Input
 
         internal static void TypeCharacter(char character) => _typedText.Append(character);
 
-        internal static void Scroll(float amount) => ScrollDelta += amount;
+        internal static void Scroll(float amount) => _scrollDelta += amount;
 
         internal static void MoveMouse(Vector2 position)
         {
-            if (_hasMousePosition) MouseDelta += position - _lastMousePosition;
+            if (_hasMousePosition) _mouseDelta += position - _lastMousePosition;
 
             _lastMousePosition = position;
             _hasMousePosition = true;
@@ -160,6 +169,7 @@ namespace Vertex.Input
             _buttonsHeld.Clear();
             _hasMousePosition = false;
             _cursorLocked = false;
+            Muted = false;
             MousePosition = Vector2.Zero;
         }
     }

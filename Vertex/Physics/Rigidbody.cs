@@ -87,6 +87,7 @@ namespace Vertex.Physics
         public bool Interpolate { get; set; } = true;
 
         /// <summary>In units per second, world space.</summary>
+        [Serialization.DontSave]
         public Vector3 Velocity
         {
             get => CurrentVelocity;
@@ -98,6 +99,7 @@ namespace Vertex.Physics
         }
 
         /// <summary>In radians per second around each world axis.</summary>
+        [Serialization.DontSave]
         public Vector3 AngularVelocity
         {
             get => CurrentAngularVelocity;

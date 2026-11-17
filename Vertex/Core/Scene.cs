@@ -124,6 +124,19 @@ namespace Vertex
         }
 
         /// <summary>
+        /// Empties the scene without running any of its objects' code, not even OnDestroy: for a scene that was never
+        /// run (an editor's, being edited), whose scripts haven't started and so have nothing to clean up.
+        /// </summary>
+        internal void Discard()
+        {
+            _objects.Clear();
+            _toAdd.Clear();
+            _toDestroy.Clear();
+            _physics?.Dispose();
+            _physics = null;
+        }
+
+        /// <summary>
         /// Brings in objects made since the last update and removes destroyed ones, without running any of their code:
         /// how an editor shows changes to a scene that isn't playing.
         /// </summary>
@@ -153,6 +166,41 @@ namespace Vertex
             ApplyChanges();
             List<GameObject> members = Subtree(gameObject).Where(member => !_objects.Contains(member)).ToList();
             _objects.InsertRange(Math.Clamp(index, 0, _objects.Count), members);
+        }
+
+        /// <summary>Where a top-level object comes among the scene's top-level objects. See <see cref="Transform.SiblingIndex"/>.</summary>
+        internal int RootIndex(GameObject gameObject)
+        {
+            int index = 0;
+            foreach (GameObject other in _objects.Concat(_toAdd))
+            {
+                if (other == gameObject) return index;
+                if (other.Transform.Parent == null) index++;
+            }
+
+            return -1;
+        }
+
+        /// <summary>Moves a top-level object to <paramref name="index"/> among the top-level objects. See <see cref="Transform.SiblingIndex"/>.</summary>
+        internal void SetRootIndex(GameObject gameObject, int index)
+        {
+            ApplyChanges();
+            if (!_objects.Remove(gameObject)) return;
+
+            int roots = 0;
+            for (int i = 0; i < _objects.Count; i++)
+            {
+                if (_objects[i].Transform.Parent != null) continue;
+                if (roots == index)
+                {
+                    _objects.Insert(i, gameObject);
+                    return;
+                }
+
+                roots++;
+            }
+
+            _objects.Add(gameObject);
         }
 
         private static IEnumerable<GameObject> Subtree(GameObject root)

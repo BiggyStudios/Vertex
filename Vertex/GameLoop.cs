@@ -29,10 +29,18 @@ namespace Vertex
         /// <summary>Sets up the engine's own services, then the game's <see cref="Game.Load"/>. Call once, before the first <see cref="Update"/>.</summary>
         public void Load()
         {
+            Start();
+            _game.Load();
+        }
+
+        /// <summary>
+        /// Sets up the engine's own services without calling the game's <see cref="Game.Load"/>: for an editor, which has
+        /// already loaded the game's world to show it and then plays that.
+        /// </summary>
+        internal static void Start()
+        {
             DevConsole.Initialise();
             DevConsole.AddCommand("quit", "Closes the game.", _ => Application.Quit());
-
-            _game.Load();
         }
 
         /// <summary>
@@ -44,7 +52,17 @@ namespace Vertex
         {
             Time.Advance(deltaTime);
             Canvas.BeginFrame(width, height, windowHeight);
+            Step();
+            Canvas.EndFrame();
+            InputSystem.EndFrame();
+        }
 
+        /// <summary>
+        /// One frame of the game, for a host that runs the frame round it (an editor's play mode): the host has already
+        /// moved <see cref="Time"/> on and set up the 2D layer, and finishes the frame's input itself.
+        /// </summary>
+        internal void Step()
+        {
             // The console goes first, so while it's open it takes the keyboard before the game sees it.
             DevConsole.Update();
 
@@ -75,8 +93,6 @@ namespace Vertex
 
             // After everything has moved, so sounds come from where things are drawn.
             Sound.Update();
-            Canvas.EndFrame();
-            InputSystem.EndFrame();
         }
 
         /// <summary>Leaves any network session and unloads the active scene. Call once, when the game stops.</summary>

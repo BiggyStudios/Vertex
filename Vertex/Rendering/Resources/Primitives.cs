@@ -12,9 +12,24 @@ namespace Vertex.Rendering
         private static Mesh? _sphere;
         private static Mesh? _plane;
 
-        public static Mesh Cube => _cube ??= CreateCube();
-        public static Mesh Sphere => _sphere ??= CreateSphere();
-        public static Mesh Plane => _plane ??= CreatePlane();
+        public static Mesh Cube => _cube ??= Named(CreateCube(), "Cube");
+        public static Mesh Sphere => _sphere ??= Named(CreateSphere(), "Sphere");
+        public static Mesh Plane => _plane ??= Named(CreatePlane(), "Plane");
+
+        /// <summary>The shared built-in shape called <paramref name="name"/> (Cube, Sphere or Plane), or null: how saved scenes refer to them.</summary>
+        public static Mesh? Builtin(string name) => name switch
+        {
+            "Cube" => Cube,
+            "Sphere" => Sphere,
+            "Plane" => Plane,
+            _ => null
+        };
+
+        private static Mesh Named(Mesh mesh, string name)
+        {
+            mesh.Source = "builtin:" + name;
+            return mesh;
+        }
 
         public static Mesh CreateCube()
         {

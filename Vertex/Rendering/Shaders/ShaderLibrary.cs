@@ -37,9 +37,36 @@ namespace Vertex.Rendering.Shaders
                 return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
             }
 
+            // Signed distance to a triangle: negative inside.
+            float triangleDistance(vec2 p, vec2 p0, vec2 p1, vec2 p2)
+            {
+                vec2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
+                vec2 v0 = p - p0, v1 = p - p1, v2 = p - p2;
+                vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+                vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+                vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+                float s = sign(e0.x * e2.y - e0.y * e2.x);
+                vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                                 vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                                 vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+                return -sqrt(d.x) * sign(d.y);
+            }
+
             float canvasCoverage(vec2 pixel, vec4 shape, vec4 style, vec4 clip)
             {
                 if (clip.z > clip.x && (pixel.x < clip.x || pixel.y < clip.y || pixel.x >= clip.z || pixel.y >= clip.w)) return 0.0;
+
+                // A line with round ends from shape.xy to shape.zw, style.x either side of it.
+                if (style.w > 0.5 && style.w < 1.5)
+                {
+                    vec2 along = shape.zw - shape.xy;
+                    float h = clamp(dot(pixel - shape.xy, along) / max(dot(along, along), 1e-6), 0.0, 1.0);
+                    return 1.0 - smoothstep(-0.5, 0.5, length(pixel - shape.xy - along * h) - style.x);
+                }
+
+                // A triangle with corners shape.xy, shape.zw and style.xy.
+                if (style.w > 1.5) return 1.0 - smoothstep(-0.5, 0.5, triangleDistance(pixel, shape.xy, shape.zw, style.xy));
+
                 if (shape.z <= 0.0) return 1.0;
 
                 float distance = roundedBox(pixel - shape.xy, shape.zw, style.x);

@@ -43,8 +43,14 @@ namespace Vertex.Rendering
         {
             using FileStream stream = File.OpenRead(path);
             ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
-            return new Texture(image.Width, image.Height, image.Data);
+            return new Texture(image.Width, image.Height, image.Data) { Source = Path.GetFullPath(path) };
         }
+
+        /// <summary>
+        /// The file the texture was loaded from, so a saved scene can refer to it instead of keeping its pixels. Null for
+        /// textures made in code, which are saved whole.
+        /// </summary>
+        public string? Source { get; set; }
 
         /// <summary>Decodes an encoded image (PNG, JPG, ...) held in memory.</summary>
         public static Texture FromMemory(byte[] encodedImage)

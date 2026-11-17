@@ -25,6 +25,12 @@ namespace Vertex.Rendering
     /// </summary>
     public class Mesh : IDisposable
     {
+        /// <summary>
+        /// Where the mesh came from, so a saved scene can refer to it: a built-in shape ("builtin:Cube"), or a model file
+        /// and which of its meshes ("path#2"). Null for meshes made in code, which are saved whole.
+        /// </summary>
+        public string? Source { get; set; }
+
         public MeshVertex[] Vertices { get; }
         public uint[] Indices { get; }
 

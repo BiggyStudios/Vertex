@@ -51,7 +51,7 @@ namespace Vertex.UI
         public static Vector2 Size => new(Width, Height);
 
         /// <summary>The mouse pointer's position in UI units. Only meaningful while the cursor isn't locked.</summary>
-        public static Vector2 MousePosition => InputSystem.MousePosition * _windowToPixels / Scale;
+        public static Vector2 MousePosition => (InputSystem.MousePosition * _windowToPixels - _origin) / Scale;
 
         /// <summary>How many screen pixels make up one unit of <see cref="InputSystem.MousePosition"/>; more than 1 on some high-DPI screens.</summary>
         public static float WindowToPixels => _windowToPixels;
@@ -59,13 +59,46 @@ namespace Vertex.UI
         // Mouse positions come in window coordinates, which on high-DPI screens differ from pixels.
         private static float _windowToPixels = 1f;
 
+        // Where drawing lands in the window, in pixels: the top-left of the view while one is open (see BeginView).
+        private static Vector2 _origin;
+
+        private readonly record struct ViewState(float Scale, float Width, float Height, Vector2 Origin, Vector4[] Clips);
+        private static readonly Stack<ViewState> _views = new();
+
+        /// <summary>
+        /// Draws into a rectangle of the window as if it were a whole screen, until <see cref="EndView"/>: positions, sizes
+        /// and the mouse are measured from its top-left, the UI scales to its height as it would on a screen that size, and
+        /// nothing spills out of it. For an editor showing a game's own UI in its game view.
+        /// </summary>
+        internal static void BeginView(Vector2 pixelOrigin, int width, int height)
+        {
+            _views.Push(new ViewState(Scale, Width, Height, _origin, _clips.ToArray()));
+            _origin = pixelOrigin;
+            Scale = height > 0 ? MathF.Max(height / ReferenceHeight * UiScale, 0.1f) : 1f;
+            Width = width / Scale;
+            Height = height / Scale;
+            _clips.Clear();
+            _clips.Add(new Vector4(pixelOrigin.X, pixelOrigin.Y, pixelOrigin.X + width, pixelOrigin.Y + height));
+        }
+
+        /// <summary>Goes back to drawing as before <see cref="BeginView"/>.</summary>
+        internal static void EndView()
+        {
+            if (_views.Count == 0) return;
+
+            ViewState state = _views.Pop();
+            (Scale, Width, Height, _origin) = (state.Scale, state.Width, state.Height, state.Origin);
+            _clips.Clear();
+            _clips.AddRange(state.Clips);
+        }
+
         /// <summary>
         /// Keeps everything drawn from now until <see cref="PopClip"/> inside this rectangle, as well as inside any clip
         /// already pushed. For panels whose contents scroll past their edges.
         /// </summary>
         public static void PushClip(Vector2 position, Vector2 size)
         {
-            var clip = new Vector4(position.X * Scale, position.Y * Scale, (position.X + size.X) * Scale, (position.Y + size.Y) * Scale);
+            var clip = new Vector4(position.X * Scale + _origin.X, position.Y * Scale + _origin.Y, (position.X + size.X) * Scale + _origin.X, (position.Y + size.Y) * Scale + _origin.Y);
             if (_clips.Count > 0)
             {
                 Vector4 outer = _clips[^1];
@@ -90,7 +123,7 @@ namespace Vertex.UI
             {
                 if (_clips.Count == 0) return null;
                 Vector4 clip = _clips[^1];
-                return (new Vector2(clip.X, clip.Y) / Scale, new Vector2(clip.Z - clip.X, clip.W - clip.Y) / Scale);
+                return ((new Vector2(clip.X, clip.Y) - _origin) / Scale, new Vector2(clip.Z - clip.X, clip.W - clip.Y) / Scale);
             }
         }
 
@@ -99,7 +132,7 @@ namespace Vertex.UI
         {
             if (_clips.Count == 0) return true;
             Vector4 clip = _clips[^1];
-            Vector2 pixel = point * Scale;
+            Vector2 pixel = point * Scale + _origin;
             return pixel.X >= clip.X && pixel.Y >= clip.Y && pixel.X < clip.Z && pixel.Y < clip.W;
         }
 
@@ -188,16 +221,48 @@ namespace Vertex.UI
                 softness: radius > 0f ? _edgeSoftness : 0f, grow: 0f);
         }
 
-        /// <summary>A straight line from <paramref name="from"/> to <paramref name="to"/>, <paramref name="thickness"/> UI units wide.</summary>
+        /// <summary>
+        /// A straight line from <paramref name="from"/> to <paramref name="to"/>, <paramref name="thickness"/> UI units wide,
+        /// with smooth edges and round ends.
+        /// </summary>
         public static void DrawLine(Vector2 from, Vector2 to, float thickness, Color color)
         {
-            Vector2 along = to - from;
-            float length = along.Length();
-            if (length < 0.0001f) return;
+            Vector2 a = from * Scale, b = to * Scale;
+            float radius = thickness * 0.5f * Scale;
 
-            Vector2 side = new Vector2(-along.Y, along.X) / length * (thickness * 0.5f);
-            AddShape(from - side, to - side, to + side, from + side, color);
+            // Thinner than a pixel draws a pixel wide, fainter, which looks the same and doesn't break up.
+            if (radius < 0.5f)
+            {
+                color.A *= MathF.Max(radius * 2f, 0f);
+                radius = 0.5f;
+            }
+
+            Vector2 along = b - a;
+            float length = along.Length();
+            Vector2 direction = length > 1e-4f ? along / length : Vector2.UnitX;
+            Vector2 side = new Vector2(-direction.Y, direction.X) * (radius + 1f);
+            Vector2 end = direction * (radius + 1f);
+            Vector4 c = Premultiply(color);
+
+            Add(new CanvasQuad(null,
+                new CanvasVertex(a - end - side, Vector2.Zero, c),
+                new CanvasVertex(b + end - side, new Vector2(1f, 0f), c),
+                new CanvasVertex(b + end + side, Vector2.One, c),
+                new CanvasVertex(a - end + side, new Vector2(0f, 1f), c))
+            {
+                Shape = new Vector4(a, b.X, b.Y),
+                ShapeStyle = new Vector4(radius, 0f, 1f, 1f)
+            });
         }
+
+        /// <summary>Lines joining <paramref name="points"/> in order, smooth and round where they meet.</summary>
+        public static void DrawPolyline(ReadOnlySpan<Vector2> points, float thickness, Color color)
+        {
+            for (int i = 0; i + 1 < points.Length; i++) DrawLine(points[i], points[i + 1], thickness, color);
+        }
+
+        /// <summary>A four-cornered shape with hard edges, corners in UI units, in order round it.</summary>
+        public static void DrawQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color) => AddShape(a, b, c, d, color);
 
         /// <summary>
         /// Part of a ring round <paramref name="centre"/>, <paramref name="radius"/> out to the middle of its line, which is
@@ -218,6 +283,19 @@ namespace Vertex.UI
                 return centre + new Vector2(MathF.Cos(radians), MathF.Sin(radians)) * distance;
             }
 
+            // Thin rings as smooth lines; thick ones as filled pieces, which meet without overlapping.
+            if (thickness * Scale <= 4f)
+            {
+                for (int i = 0; i < segments; i++)
+                {
+                    float a = startAngle + sweep * i / segments;
+                    float b = startAngle + sweep * (i + 1) / segments;
+                    DrawLine(Point(a, radius), Point(b, radius), thickness, color);
+                }
+
+                return;
+            }
+
             for (int i = 0; i < segments; i++)
             {
                 float a = startAngle + sweep * i / segments;
@@ -226,8 +304,24 @@ namespace Vertex.UI
             }
         }
 
-        /// <summary>A filled triangle, corners in UI units: arrowheads and markers.</summary>
-        public static void DrawTriangle(Vector2 a, Vector2 b, Vector2 c, Color color) => AddShape(a, b, c, c, color);
+        /// <summary>A filled triangle with smooth edges, corners in UI units: arrowheads and markers.</summary>
+        public static void DrawTriangle(Vector2 a, Vector2 b, Vector2 c, Color color)
+        {
+            Vector2 pa = a * Scale, pb = b * Scale, pc = c * Scale;
+            Vector2 min = Vector2.Min(pa, Vector2.Min(pb, pc)) - Vector2.One;
+            Vector2 max = Vector2.Max(pa, Vector2.Max(pb, pc)) + Vector2.One;
+            Vector4 colour = Premultiply(color);
+
+            Add(new CanvasQuad(null,
+                new CanvasVertex(min, Vector2.Zero, colour),
+                new CanvasVertex(new Vector2(max.X, min.Y), new Vector2(1f, 0f), colour),
+                new CanvasVertex(max, Vector2.One, colour),
+                new CanvasVertex(new Vector2(min.X, max.Y), new Vector2(0f, 1f), colour))
+            {
+                Shape = new Vector4(pa, pb.X, pb.Y),
+                ShapeStyle = new Vector4(pc.X, pc.Y, 0f, 2f)
+            });
+        }
 
         // A solid four-cornered shape, corners in UI units.
         private static void AddShape(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color)
@@ -307,6 +401,8 @@ namespace Vertex.UI
         // Every quad goes through here: it takes the clip in force, and is left out if that hides all of it.
         private static void Add(CanvasQuad quad)
         {
+            if (_origin != Vector2.Zero) quad = Moved(quad, _origin);
+
             if (_clips.Count > 0)
             {
                 Vector4 clip = _clips[^1];
@@ -323,6 +419,41 @@ namespace Vertex.UI
             _drawing.Add(quad);
         }
 
+        // The quad and its shape, moved by `by` pixels: into a view (see BeginView).
+        private static CanvasQuad Moved(CanvasQuad quad, Vector2 by)
+        {
+            CanvasVertex Move(CanvasVertex v) => v with { Position = v.Position + by };
+            var offset = new Vector4(by, by.X, by.Y);
+            Vector4 shape = quad.Shape, style = quad.ShapeStyle;
+
+            switch (style.W)
+            {
+                // A line: both its ends.
+                case > 0.5f and < 1.5f: shape += offset; break;
+
+                // A triangle: two corners in the shape, the third in the style.
+                case >= 1.5f:
+                    shape += offset;
+                    style += new Vector4(by, 0f, 0f);
+                    break;
+
+                // A rounded rectangle: its centre.
+                default:
+                    if (shape.Z > 0f) shape += new Vector4(by, 0f, 0f);
+                    break;
+            }
+
+            return quad with
+            {
+                TopLeft = Move(quad.TopLeft),
+                TopRight = Move(quad.TopRight),
+                BottomRight = Move(quad.BottomRight),
+                BottomLeft = Move(quad.BottomLeft),
+                Shape = shape,
+                ShapeStyle = style
+            };
+        }
+
         internal static IReadOnlyList<CanvasQuad> ReadyQuads => _ready;
 
         internal static void BeginFrame(int width, int height, int windowHeight = 0)
@@ -333,6 +464,8 @@ namespace Vertex.UI
             Height = height / Scale;
             _windowToPixels = windowHeight > 0 ? height / (float)windowHeight : 1f;
             _clips.Clear();
+            _views.Clear();
+            _origin = Vector2.Zero;
         }
 
         internal static void EndFrame()
