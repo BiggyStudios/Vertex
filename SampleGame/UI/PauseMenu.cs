@@ -1,7 +1,5 @@
 using System.Numerics;
 
-using Silk.NET.Input;
-
 using Vertex;
 using Vertex.Input;
 using Vertex.Networking;
@@ -30,9 +28,6 @@ namespace SampleGame
 
         /// <summary>Where Leave room and Main menu go. Without one, there's no Main menu button.</summary>
         public MainMenu? MainMenu { get; set; }
-
-        /// <summary>What the Quit button does.</summary>
-        public Action? Quit { get; set; }
 
         private bool _onSettingsPage;
         private bool _onPlayersPage;
@@ -97,7 +92,7 @@ namespace SampleGame
             if (Network.InSession) buttons.Add(("Players", () => { _onPlayersPage = true; _voteProblem = null; }));
             if (Network.InSession) buttons.Add(("Leave room", () => { Close(); Multiplayer.Leave(); MainMenu?.Open(); }));
             else if (MainMenu != null) buttons.Add(("Main menu", () => { Close(); MainMenu.Open(); }));
-            buttons.Add(("Quit", () => Quit?.Invoke()));
+            buttons.Add(("Quit", Application.Quit));
 
             float height = buttons.Count * (_buttonHeight + _gap) - _gap;
             float x = (Canvas.Width - _buttonWidth) / 2f;

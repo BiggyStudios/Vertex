@@ -1,16 +1,19 @@
 using System.Numerics;
 
-using Silk.NET.Input;
-
 namespace Vertex.Input
 {
+    /// <summary>
+    /// What the keyboard and mouse are doing. Whatever hosts the game (a window, later an editor's game view) feeds it
+    /// events through the internal Press/Release methods; game code only reads it.
+    /// </summary>
     public static class InputSystem
     {
-        private static IKeyboard? _keyboard;
-        private static IMouse? _mouse;
+        private static IInputHost? _platform;
 
+        private static readonly HashSet<Key> _keysHeld = new();
         private static readonly HashSet<Key> _keysPressed = new();
         private static readonly HashSet<Key> _keysReleased = new();
+        private static readonly HashSet<MouseButton> _buttonsHeld = new();
         private static readonly HashSet<MouseButton> _buttonsPressed = new();
         private static readonly HashSet<MouseButton> _buttonsReleased = new();
 
@@ -27,58 +30,35 @@ namespace Vertex.Input
         /// </summary>
         public static string TypedText => _typedText.ToString();
 
-        /// <summary>The system clipboard's text, for copy and paste. Empty if there's no keyboard.</summary>
+        /// <summary>The system clipboard's text, for copy and paste. Empty if there's nowhere to get it from.</summary>
         public static string ClipboardText
         {
-            get => _keyboard?.ClipboardText ?? "";
+            get => _platform?.ClipboardText ?? "";
             set
             {
-                if (_keyboard != null) _keyboard.ClipboardText = value;
+                if (_platform != null) _platform.ClipboardText = value;
             }
         }
 
         public static float ScrollDelta { get; private set; }
 
-        public static Vector2 MousePosition => _mouse?.Position ?? Vector2.Zero;
+        /// <summary>The mouse pointer's position in window coordinates, from the top-left corner.</summary>
+        public static Vector2 MousePosition { get; private set; }
 
         public static bool CursorLocked
         {
             get => _cursorLocked;
             set
             {
-                if (_mouse == null || _cursorLocked == value) return;
+                if (_cursorLocked == value) return;
 
                 _cursorLocked = value;
-                _mouse.Cursor.CursorMode = !value ? CursorMode.Normal
-                    : _mouse.Cursor.IsSupported(CursorMode.Raw) ? CursorMode.Raw
-                    : CursorMode.Disabled;
-
+                _platform?.SetCursorLocked(value);
                 _hasMousePosition = false;
             }
         }
 
-        internal static void Initialise(IInputContext input)
-        {
-            _keyboard = input.Keyboards.FirstOrDefault();
-            _mouse = input.Mice.FirstOrDefault();
-
-            if (_keyboard != null)
-            {
-                _keyboard.KeyDown += (_, key, _) => _keysPressed.Add(key);
-                _keyboard.KeyUp += (_, key, _) => _keysReleased.Add(key);
-                _keyboard.KeyChar += (_, character) => _typedText.Append(character);
-            }
-
-            if (_mouse != null)
-            {
-                _mouse.MouseDown += (_, button) => _buttonsPressed.Add(button);
-                _mouse.MouseUp += (_, button) => _buttonsReleased.Add(button);
-                _mouse.Scroll += (_, wheel) => ScrollDelta += wheel.Y;
-                _mouse.MouseMove += OnMouseMove;
-            }
-        }
-
-        public static bool GetKey(Key key) => _keyboard?.IsKeyPressed(key) ?? false;
+        public static bool GetKey(Key key) => _keysHeld.Contains(key);
 
         public static bool GetKeyDown(Key key) => _keysPressed.Contains(key);
 
@@ -93,16 +73,57 @@ namespace Vertex.Input
 
         public static bool GetKeyUp(Key key) => _keysReleased.Contains(key);
 
-        public static bool GetMouseButton(MouseButton button) => _mouse?.IsButtonPressed(button) ?? false;
+        public static bool GetMouseButton(MouseButton button) => _buttonsHeld.Contains(button);
         public static bool GetMouseButtonDown(MouseButton button) => _buttonsPressed.Contains(button);
         public static bool GetMouseButtonUp(MouseButton button) => _buttonsReleased.Contains(button);
 
-        private static void OnMouseMove(IMouse mouse, Vector2 position)
+        /// <summary>Connects the clipboard and cursor locking to whatever hosts the game. Null disconnects them.</summary>
+        internal static void SetPlatform(IInputHost? platform)
+        {
+            _platform = platform;
+            if (platform != null && _cursorLocked) platform.SetCursorLocked(true);
+        }
+
+        internal static void PressKey(Key key)
+        {
+            if (_keysHeld.Add(key)) _keysPressed.Add(key);
+        }
+
+        internal static void ReleaseKey(Key key)
+        {
+            if (_keysHeld.Remove(key)) _keysReleased.Add(key);
+        }
+
+        internal static void PressButton(MouseButton button)
+        {
+            if (_buttonsHeld.Add(button)) _buttonsPressed.Add(button);
+        }
+
+        internal static void ReleaseButton(MouseButton button)
+        {
+            if (_buttonsHeld.Remove(button)) _buttonsReleased.Add(button);
+        }
+
+        internal static void TypeCharacter(char character) => _typedText.Append(character);
+
+        internal static void Scroll(float amount) => ScrollDelta += amount;
+
+        internal static void MoveMouse(Vector2 position)
         {
             if (_hasMousePosition) MouseDelta += position - _lastMousePosition;
 
             _lastMousePosition = position;
             _hasMousePosition = true;
+            MousePosition = position;
+        }
+
+        /// <summary>Lets go of every key and button, for when the game stops receiving input (focus lost, play mode stopped).</summary>
+        internal static void ReleaseAll()
+        {
+            foreach (Key key in _keysHeld) _keysReleased.Add(key);
+            foreach (MouseButton button in _buttonsHeld) _buttonsReleased.Add(button);
+            _keysHeld.Clear();
+            _buttonsHeld.Clear();
         }
 
         internal static void EndFrame()
@@ -115,5 +136,23 @@ namespace Vertex.Input
             ScrollDelta = 0f;
             _typedText.Clear();
         }
+
+        /// <summary>Forgets everything, as if the game had just started. For tests.</summary>
+        internal static void Reset()
+        {
+            EndFrame();
+            _keysHeld.Clear();
+            _buttonsHeld.Clear();
+            _hasMousePosition = false;
+            _cursorLocked = false;
+            MousePosition = Vector2.Zero;
+        }
+    }
+
+    /// <summary>The parts of input that need the host's help: the clipboard and capturing the cursor.</summary>
+    internal interface IInputHost
+    {
+        string ClipboardText { get; set; }
+        void SetCursorLocked(bool locked);
     }
 }

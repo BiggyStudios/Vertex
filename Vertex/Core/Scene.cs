@@ -5,10 +5,17 @@ namespace Vertex
 {
     /// <summary>
     /// Holds every GameObject and drives their Start/Update lifecycle.
+    /// <para>
+    /// To switch levels, make a new scene, set it as <see cref="Active"/>, build it, then <see cref="Unload"/> the old
+    /// one. Scenes that aren't active keep their objects but don't update or render.
+    /// </para>
     /// </summary>
     public class Scene
     {
-        /// <summary>The scene that is currently updated and rendered. New GameObjects are added to it.</summary>
+        /// <summary>
+        /// The scene that is currently updated and rendered. New GameObjects are added to it, unless they're given a
+        /// scene of their own (see <see cref="GameObject(string, Scene)"/>).
+        /// </summary>
         public static Scene Active { get; set; } = new Scene();
 
         private readonly List<GameObject> _objects = new();
@@ -88,9 +95,30 @@ namespace Vertex
             _physics?.Interpolate(alpha);
         }
 
-        /// <summary>Frees the physics simulation. Called when the window closes.</summary>
-        internal void Shutdown()
+        /// <summary>
+        /// Destroys every object in the scene straight away (each gets its OnDestroy) and frees the physics simulation.
+        /// The scene is left empty and can be filled again.
+        /// </summary>
+        public void Unload()
         {
+            // OnDestroy may create new objects (an effect where something was), which would land back in here, so
+            // keep going until nothing's left, but not forever.
+            for (int pass = 0; pass < 8 && (_objects.Count > 0 || _toAdd.Count > 0); pass++)
+            {
+                GameObject[] objects = [.. _objects, .. _toAdd];
+                _objects.Clear();
+                _toAdd.Clear();
+
+                foreach (GameObject gameObject in objects)
+                {
+                    gameObject.DestroyImmediate();
+                }
+            }
+
+            _objects.Clear();
+            _toAdd.Clear();
+            _toDestroy.Clear();
+
             _physics?.Dispose();
             _physics = null;
         }

@@ -31,6 +31,9 @@ namespace Vertex
             {
                 if (_parent == value) return;
 
+                if (value != null && value.GameObject.Scene != GameObject.Scene)
+                    throw new InvalidOperationException("A transform can only be parented to one in the same scene.");
+
                 for (Transform? t = value; t != null; t = t._parent)
                 {
                     if (t == this) throw new InvalidOperationException("A transform cannot be parented to itself or one of its children.");

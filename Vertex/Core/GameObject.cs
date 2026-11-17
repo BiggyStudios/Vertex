@@ -29,11 +29,15 @@ namespace Vertex
 
         public bool ActiveInHierarchy => Active && (Transform.Parent?.GameObject.ActiveInHierarchy ?? true);
 
-        public GameObject(string name = "GameObject")
+        /// <summary>Creates an object in <see cref="Scene.Active"/>.</summary>
+        public GameObject(string name = "GameObject") : this(name, Scene.Active) {}
+
+        /// <summary>Creates an object in <paramref name="scene"/>, which needn't be the active one (to build a level before switching to it).</summary>
+        public GameObject(string name, Scene scene)
         {
             Name = name;
             Transform = new Transform(this);
-            Scene = Scene.Active;
+            Scene = scene;
             Scene.Register(this);
         }
 

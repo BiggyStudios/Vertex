@@ -1,7 +1,5 @@
 using System.Numerics;
 
-using Silk.NET.Input;
-
 using Vertex;
 using Vertex.Input;
 using Vertex.Networking;
@@ -46,9 +44,6 @@ namespace SampleGame
         public Player Player { get; set; } = null!;
         public MultiplayerManager Multiplayer { get; set; } = null!;
         public LoadoutMenu LoadoutMenu { get; set; } = null!;
-
-        /// <summary>What the Quit button does.</summary>
-        public Action? Quit { get; set; }
 
         /// <summary>Open the menu when the game starts.</summary>
         public bool OpenOnStart { get; set; } = true;
@@ -249,7 +244,7 @@ namespace SampleGame
                 ("Host a room", OpenHost),
                 ("Practice offline", Play),
                 ("Settings", () => GoTo(Page.Settings)),
-                ("Quit", () => Quit?.Invoke())
+                ("Quit", Application.Quit)
             };
 
             foreach ((string label, Action action) in buttons)

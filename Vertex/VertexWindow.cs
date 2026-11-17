@@ -1,28 +1,22 @@
-using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
 using Vertex.Audio;
 using Vertex.Input;
-using Vertex.Networking;
+using Vertex.Platform;
 using Vertex.Rendering;
 using Vertex.Rendering.OpenGL;
-using Vertex.UI;
 
 namespace Vertex
 {
     /// <summary>
-    /// Creates the window and runs the game loop: receiving network messages, fixed-rate physics steps,
-    /// <see cref="Game"/> and <see cref="Scene"/> updates, then rendering through <see cref="Renderer"/>.
+    /// Runs a game in a window of its own: creates the window, feeds it keyboard and mouse input, runs a
+    /// <see cref="GameLoop"/> every frame and renders the result through <see cref="Renderer"/>.
     /// </summary>
     public class VertexWindow
     {
-        // Caps how far physics can fall behind, so one slow frame doesn't make every frame after it slower too.
-        private const float _maxFixedTimePerFrame = 0.25f;
-
         private readonly IWindow _window;
-        private readonly Game _game;
-        private float _fixedTimeAccumulator;
+        private readonly GameLoop _loop;
 
         public Renderer Renderer { get; }
 
@@ -32,7 +26,7 @@ namespace Vertex
         /// <param name="backend">The graphics API backend to render with. Defaults to OpenGL.</param>
         public VertexWindow(int sizeX, int sizeY, Game game, string title = "Window", IRenderBackend? backend = null)
         {
-            _game = game;
+            _loop = new GameLoop(game);
             Renderer = new Renderer(backend ?? new GLRenderBackend());
 
             WindowOptions options = Renderer.ConfigureWindow(WindowOptions.Default with
@@ -47,6 +41,7 @@ namespace Vertex
             _window.Update += OnUpdate;
             _window.Render += OnRender;
             _window.FramebufferResize += OnResize;
+            _window.FocusChanged += OnFocusChanged;
             _window.Closing += OnClosing;
         }
 
@@ -64,49 +59,16 @@ namespace Vertex
         {
             Renderer.Initialise(_window);
             Screen.Initialise(_window);
-
-            IInputContext input = _window.CreateInput();
-            InputSystem.Initialise(input);
+            _ = new SilkInput(_window);
             Sound.Initialise();
-            DevConsole.Initialise();
-            DevConsole.AddCommand("quit", "Closes the game.", _ => Close());
+            Application.QuitRequested += Close;
 
-            _game.Load();
+            _loop.Load();
         }
 
         private void OnUpdate(double deltaTime)
         {
-            Time.Advance(deltaTime);
-            Canvas.BeginFrame(Renderer.Width, Renderer.Height, _window.Size.Y);
-
-            // The console goes first, so while it's open it takes the keyboard before the game sees it.
-            DevConsole.Update();
-
-            // Receive first, so this frame's game code sees the latest messages.
-            Network.Update();
-
-            _fixedTimeAccumulator = Math.Min(_fixedTimeAccumulator + Time.DeltaTime, _maxFixedTimePerFrame);
-            if (_fixedTimeAccumulator >= Time.FixedDeltaTime) Scene.Active.BeginFixedSteps();
-
-            while (_fixedTimeAccumulator >= Time.FixedDeltaTime)
-            {
-                Scene.Active.FixedUpdate(Time.FixedDeltaTime);
-                _fixedTimeAccumulator -= Time.FixedDeltaTime;
-            }
-
-            // The time left over is how far this frame is between the last physics step and the next one.
-            Scene.Active.InterpolatePhysics(_fixedTimeAccumulator / Time.FixedDeltaTime);
-
-            _game.Update();
-            Scene.Active.Update();
-
-            // Over the top of the game's own UI.
-            DevConsole.Draw();
-
-            // After everything has moved, so sounds come from where things are drawn.
-            Sound.Update();
-            Canvas.EndFrame();
-            InputSystem.EndFrame();
+            _loop.Update(deltaTime, Renderer.Width, Renderer.Height, _window.Size.Y);
         }
 
         private void OnRender(double deltaTime)
@@ -119,12 +81,21 @@ namespace Vertex
             Renderer.Resize(size.X, size.Y);
         }
 
+        // Keys held when the window loses focus are let go of where the game can't see, so let go of them here.
+        private void OnFocusChanged(bool focused)
+        {
+            if (!focused) InputSystem.ReleaseAll();
+        }
+
         private void OnClosing()
         {
-            Network.Stop();
+            Application.QuitRequested -= Close;
+
+            // The scene first, while the renderer can still free what its objects hand back.
+            _loop.Shutdown();
             Sound.Shutdown();
             Renderer.Dispose();
-            Scene.Active.Shutdown();
+            InputSystem.SetPlatform(null);
         }
     }
 }

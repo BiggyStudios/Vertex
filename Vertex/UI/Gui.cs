@@ -1,7 +1,5 @@
 using System.Numerics;
 
-using Silk.NET.Input;
-
 using Vertex.Input;
 
 namespace Vertex.UI

@@ -16,12 +16,9 @@ namespace SampleGame
         /// </summary>
         public const string Version = "0.1";
 
-        private static VertexWindow? _window;
-
         public static void Main()
         {
-            _window = new VertexWindow(1280, 720, new SampleGame(), "Vertex");
-            _window.Run();
+            new VertexWindow(1280, 720, new SampleGame(), "Vertex").Run();
         }
 
         public override void Load()
@@ -49,14 +46,12 @@ namespace SampleGame
             mainMenu.Player = player;
             mainMenu.Multiplayer = multiplayer;
             mainMenu.LoadoutMenu = loadoutMenu;
-            mainMenu.Quit = () => _window?.Close();
 
             PauseMenu menu = multiplayerObject.AddComponent<PauseMenu>();
             menu.Player = player;
             menu.Multiplayer = multiplayer;
             menu.LoadoutMenu = loadoutMenu;
             menu.MainMenu = mainMenu;
-            menu.Quit = () => _window?.Close();
 
             DevConsole.Font = Fonts.Regular;
             GameCommands.Register(player, multiplayer);
