@@ -169,6 +169,9 @@ namespace Vertex.Rendering.Shaders
                 return atmosphere(normalize(vec3(direction.x, max(direction.y, 0.03), direction.z)));
             }
 
+            // How much glowing things add to bloom, on top of what they show.
+            const float GLOW_STRENGTH = 2.0;
+
             float fogAmount(float distance)
             {
                 return 1.0 - exp(-pow(frame.groundLight.w * distance, 2.0));
@@ -235,6 +238,9 @@ namespace Vertex.Rendering.Shaders
             layout (location = 0) out vec4 FragColor;
             // The part of the colour that's soft light from all around, which ambient occlusion takes away from.
             layout (location = 1) out vec4 AmbientColor;
+            // What glows, in linear light, for bloom: emission, so glowing things keep their colour on screen and still
+            // light up the space round them. Nearer things cover glow behind them.
+            layout (location = 2) out vec4 GlowColor;
 
             vec3 diffuseLight;
             vec3 specularLight;
@@ -447,6 +453,7 @@ namespace Vertex.Rendering.Shaders
                 float fog = fogAmount(distance);
                 FragColor = vec4(mix(color, fogColor(-V), fog), 1.0);
                 AmbientColor = vec4(ambient * (1.0 - fog), 1.0);
+                GlowColor = vec4(emission * GLOW_STRENGTH * (1.0 - fog), 1.0);
             }
             """;
 
@@ -457,6 +464,9 @@ namespace Vertex.Rendering.Shaders
 
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 AmbientColor;
+            // What glows, in linear light, for bloom: emission, so glowing things keep their colour on screen and still
+            // light up the space round them. Nearer things cover glow behind them.
+            layout (location = 2) out vec4 GlowColor;
 
             void main()
             {
@@ -467,8 +477,10 @@ namespace Vertex.Rendering.Shaders
 
                 vec3 toCamera = frame.cameraPosition.xyz - vWorldPosition;
                 float distance = length(toCamera);
-                FragColor = vec4(mix(color, fogColor(-toCamera / max(distance, 1e-4)), fogAmount(distance)), 1.0);
+                float fog = fogAmount(distance);
+                FragColor = vec4(mix(color, fogColor(-toCamera / max(distance, 1e-4)), fog), 1.0);
                 AmbientColor = vec4(0.0, 0.0, 0.0, 1.0);
+                GlowColor = vec4(material.emission.rgb * GLOW_STRENGTH * (1.0 - fog), 1.0);
             }
             """;
 
@@ -512,6 +524,9 @@ namespace Vertex.Rendering.Shaders
 
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 AmbientColor;
+            // What glows, in linear light, for bloom: emission, so glowing things keep their colour on screen and still
+            // light up the space round them. Nearer things cover glow behind them.
+            layout (location = 2) out vec4 GlowColor;
 
             // ---- Clouds -----------------------------------------------------------------------------------------
             // A layer of cloud overhead: smooth noise, layered at finer and finer scales, cut off below a level set by
@@ -591,6 +606,7 @@ namespace Vertex.Rendering.Shaders
 
                 FragColor = vec4(color, 1.0);
                 AmbientColor = vec4(0.0, 0.0, 0.0, 1.0);
+                GlowColor = vec4(0.0, 0.0, 0.0, 1.0);
             }
             """;
 
@@ -716,6 +732,9 @@ namespace Vertex.Rendering.Shaders
 
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 AmbientColor;
+            // What glows, in linear light, for bloom: emission, so glowing things keep their colour on screen and still
+            // light up the space round them. Nearer things cover glow behind them.
+            layout (location = 2) out vec4 GlowColor;
 
             void main()
             {
@@ -729,11 +748,12 @@ namespace Vertex.Rendering.Shaders
                 // In the distance, dust fades into the fog and glowing things fade out.
                 float distance = length(vToCamera);
                 float fog = fogAmount(distance);
-                vec3 color = toLinear(vColor.rgb) * (1.0 + vGlow * 1.5);
-                color = mix(color, fogColor(-vToCamera / max(distance, 1e-4)), fog * (1.0 - vAdditive)) * mix(1.0, 1.0 - fog, vAdditive);
+                vec3 linearColor = toLinear(vColor.rgb);
+                vec3 color = mix(linearColor, fogColor(-vToCamera / max(distance, 1e-4)), fog * (1.0 - vAdditive)) * mix(1.0, 1.0 - fog, vAdditive);
 
                 FragColor = vec4(color * alpha, covers);
                 AmbientColor = vec4(0.0, 0.0, 0.0, covers);
+                GlowColor = vec4(linearColor * vGlow * alpha * (1.0 - fog), covers);
             }
             """;
 
@@ -814,19 +834,23 @@ namespace Vertex.Rendering.Shaders
             """;
 
         // Halves an image, averaging 13 nearby samples (Jimenez's filter from Call of Duty: Advanced Warfare), which blurs
-        // it smoothly without flickering as things move. The first step keeps only what's brighter than the threshold.
+        // it smoothly without flickering as things move. The first step starts the bloom: what glows (the glow image, in
+        // bloomImage) and whatever in the scene is brighter than the threshold.
         public const string BloomDownsampleFragment = Post + """
-            vec3 tap(float x, float y) { return texture(source, vUV + vec2(x, y) * post.texelSize).rgb; }
+            vec3 tap(sampler2D image, float x, float y) { return texture(image, vUV + vec2(x, y) * post.texelSize).rgb; }
+
+            vec3 halve(sampler2D image)
+            {
+                vec3 a = tap(image, -2.0, 2.0), b = tap(image, 0.0, 2.0), c = tap(image, 2.0, 2.0);
+                vec3 d = tap(image, -2.0, 0.0), e = tap(image, 0.0, 0.0), f = tap(image, 2.0, 0.0);
+                vec3 g = tap(image, -2.0, -2.0), h = tap(image, 0.0, -2.0), i = tap(image, 2.0, -2.0);
+                vec3 j = tap(image, -1.0, 1.0), k = tap(image, 1.0, 1.0), l = tap(image, -1.0, -1.0), m = tap(image, 1.0, -1.0);
+                return max(e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125, vec3(0.0));
+            }
 
             void main()
             {
-                vec3 a = tap(-2.0, 2.0), b = tap(0.0, 2.0), c = tap(2.0, 2.0);
-                vec3 d = tap(-2.0, 0.0), e = tap(0.0, 0.0), f = tap(2.0, 0.0);
-                vec3 g = tap(-2.0, -2.0), h = tap(0.0, -2.0), i = tap(2.0, -2.0);
-                vec3 j = tap(-1.0, 1.0), k = tap(1.0, 1.0), l = tap(-1.0, -1.0), m = tap(1.0, -1.0);
-
-                vec3 color = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
-                color = max(color, vec3(0.0));
+                vec3 color = halve(source);
 
                 if (post.threshold > 0.0)
                 {
@@ -838,6 +862,7 @@ namespace Vertex.Rendering.Shaders
                     float soft = clamp(brightness - post.threshold + knee, 0.0, 2.0 * knee);
                     soft = soft * soft / (4.0 * knee + 1e-5);
                     color *= max(soft, brightness - post.threshold) / max(brightness, 1e-5);
+                    color += min(halve(bloomImage) * post.exposure, vec3(64.0));
                 }
 
                 FragColor = vec4(color, 1.0);

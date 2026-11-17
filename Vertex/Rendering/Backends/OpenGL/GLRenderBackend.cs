@@ -259,6 +259,7 @@ namespace Vertex.Rendering.OpenGL
             float* none = stackalloc float[4] { 0f, 0f, 0f, 0f };
             _gl.ClearBuffer(BufferKind.Color, 0, color);
             _gl.ClearBuffer(BufferKind.Color, 1, none);
+            _gl.ClearBuffer(BufferKind.Color, 2, none);
             _gl.Clear(ClearBufferMask.DepthBufferBit);
 
             _shadowMaps.Bind(_shadowUnit);
@@ -357,7 +358,7 @@ namespace Vertex.Rendering.OpenGL
                 foreach ((uint framebuffer, uint texture, int levelWidth, int levelHeight) in views.BloomLevels)
                 {
                     post.TexelSize = new Vector2(1f / sourceWidth, 1f / sourceHeight);
-                    RunPost(_bloomDown, framebuffer, levelWidth, levelHeight, post, source);
+                    RunPost(_bloomDown, framebuffer, levelWidth, levelHeight, post, source, bloom: views.Glow);
                     source = texture;
                     sourceWidth = levelWidth;
                     sourceHeight = levelHeight;

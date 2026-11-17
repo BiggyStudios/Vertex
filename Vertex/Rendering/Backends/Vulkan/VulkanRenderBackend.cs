@@ -238,7 +238,7 @@ namespace Vertex.Rendering.Vulkan
             ShaderModule composite = Shader("composite.frag", fragment, ShaderLibrary.CompositeFragment);
             ShaderModule antiAlias = Shader("antialias.frag", fragment, ShaderLibrary.AntiAliasFragment);
 
-            Format[] sceneFormats = [VkViewTargets.HdrFormat, VkViewTargets.HdrFormat];
+            Format[] sceneFormats = [VkViewTargets.HdrFormat, VkViewTargets.HdrFormat, VkViewTargets.HdrFormat];
             (uint, Format, uint)[] meshAttributes =
             [
                 (0, Format.R32G32B32Sfloat, 0),
@@ -835,11 +835,12 @@ namespace Vertex.Rendering.Vulkan
             // Whatever read these last (the previous view's post passes) finishes first; what was in them doesn't matter.
             _context.Transition(commands, views.Color!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
             _context.Transition(commands, views.Ambient!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
+            _context.Transition(commands, views.Glow!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
             _context.Transition(commands, views.Depth!, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput, discard: true);
 
             Vector4 clear = uniforms.ClearColor;
             VkPipelines.BeginRendering(_context, commands, frame.Width, frame.Height,
-                [(views.Color!, new ClearColorValue(clear.X, clear.Y, clear.Z, 1f)), (views.Ambient!, new ClearColorValue(0f, 0f, 0f, 0f))],
+                [(views.Color!, new ClearColorValue(clear.X, clear.Y, clear.Z, 1f)), (views.Ambient!, new ClearColorValue(0f, 0f, 0f, 0f)), (views.Glow!, new ClearColorValue(0f, 0f, 0f, 0f))],
                 views.Depth);
             VkPipelines.SetViewport(_context, commands, frame.Width, frame.Height, flipped: true);
             _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 0, 1, &frameSet, 0, null);
@@ -903,6 +904,7 @@ namespace Vertex.Rendering.Vulkan
 
             _context.Transition(commands, views.Color!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
             _context.Transition(commands, views.Ambient!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+            _context.Transition(commands, views.Glow!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
             _context.Transition(commands, views.Depth!, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
         }
 
@@ -1001,7 +1003,7 @@ namespace Vertex.Rendering.Vulkan
             foreach (VkImageResource level in views.BloomLevels)
             {
                 post.TexelSize = new Vector2(1f / source.Width, 1f / source.Height);
-                RunPost(commands, _bloomDown, level, post, source);
+                RunPost(commands, _bloomDown, level, post, source, bloom: views.Glow);
                 source = level;
                 post.Threshold = 0f;
             }

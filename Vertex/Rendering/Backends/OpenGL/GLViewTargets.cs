@@ -4,7 +4,7 @@ namespace Vertex.Rendering.OpenGL
 {
     /// <summary>
     /// The images a view is drawn through before it's finished, each with a framebuffer to draw into: the scene in
-    /// linear light (half floats, so bright things stay bright) with the part of it that's soft light from all around,
+    /// linear light (half floats, so bright things stay bright) with the part of it that's soft light from all around and what glows,
     /// and depth; ambient occlusion and a second image to blur it through; bloom (the bright parts halved again and
     /// again); and the finished picture before anti-aliasing. One set for the screen and one for each render texture, as
     /// they're sized to match. Like the Vulkan backend's VkViewTargets.
@@ -21,6 +21,7 @@ namespace Vertex.Rendering.OpenGL
         public uint SceneFramebuffer { get; private set; }
         public uint Color { get; private set; }
         public uint Ambient { get; private set; }
+        public uint Glow { get; private set; }
         public uint Depth { get; private set; }
 
         public uint OcclusionFramebuffer { get; private set; }
@@ -53,11 +54,12 @@ namespace Vertex.Rendering.OpenGL
 
             Color = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
             Ambient = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
+            Glow = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
 
             // A texture rather than a renderbuffer, so ambient occlusion and the outlines can read it.
             Depth = CreateTexture(width, height, InternalFormat.DepthComponent24, PixelFormat.DepthComponent, PixelType.UnsignedInt, nearest: true);
 
-            SceneFramebuffer = CreateFramebuffer("Scene", Color, Ambient, Depth);
+            SceneFramebuffer = CreateFramebuffer("Scene", Color, depth: Depth, more: [Ambient, Glow]);
 
             Occlusion = CreateTexture(width, height, InternalFormat.R8, PixelFormat.Red, PixelType.UnsignedByte);
             OcclusionFramebuffer = CreateFramebuffer("Occlusion", Occlusion);
@@ -97,17 +99,22 @@ namespace Vertex.Rendering.OpenGL
             return texture;
         }
 
-        /// <summary>A framebuffer drawing into <paramref name="color"/> (and a second colour image and depth, if given).</summary>
-        private uint CreateFramebuffer(string name, uint color, uint secondColor = 0, uint depth = 0)
+        /// <summary>A framebuffer drawing into <paramref name="color"/> (and <paramref name="more"/> colour images, and depth, if given).</summary>
+        private uint CreateFramebuffer(string name, uint color, uint depth = 0, uint[]? more = null)
         {
             uint framebuffer = _gl.GenFramebuffer();
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
             _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, color, 0);
-            if (secondColor != 0)
+            if (more != null)
             {
-                _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment1, TextureTarget.Texture2D, secondColor, 0);
-                GLEnum* buffers = stackalloc GLEnum[2] { GLEnum.ColorAttachment0, GLEnum.ColorAttachment1 };
-                _gl.DrawBuffers(2, buffers);
+                GLEnum* buffers = stackalloc GLEnum[more.Length + 1];
+                buffers[0] = GLEnum.ColorAttachment0;
+                for (int i = 0; i < more.Length; i++)
+                {
+                    _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment1 + i, TextureTarget.Texture2D, more[i], 0);
+                    buffers[i + 1] = GLEnum.ColorAttachment1 + i;
+                }
+                _gl.DrawBuffers((uint)more.Length + 1, buffers);
             }
             if (depth != 0) _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D, depth, 0);
 

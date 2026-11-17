@@ -146,12 +146,6 @@ namespace Vertex.Rendering.Shaders
     [StructLayout(LayoutKind.Sequential)]
     internal struct MaterialUniforms
     {
-        /// <summary>
-        /// How much brighter emission is than its colour: at strength 1 it outshines a white surface in sunlight, enough to
-        /// bloom (see <see cref="PostUniforms.BloomThreshold"/>), as glowing things should.
-        /// </summary>
-        public const float EmissionScale = 3f;
-
         public Vector4 Color;
         public Vector4 Emission;
         public Vector4 Surface;
@@ -161,7 +155,7 @@ namespace Vertex.Rendering.Shaders
         public static MaterialUniforms Create(Material material) => new()
         {
             Color = FrameUniforms.Linear(material.Color, material.Color.A),
-            Emission = new Vector4(FrameUniforms.ToLinear(material.Emission) * MathF.Max(material.EmissionStrength, 0f) * EmissionScale, 0f),
+            Emission = new Vector4(FrameUniforms.ToLinear(material.Emission) * MathF.Max(material.EmissionStrength, 0f), 0f),
             Surface = new Vector4(Math.Clamp(material.Roughness, 0f, 1f), Math.Clamp(material.Metallic, 0f, 1f),
                 Math.Clamp(material.Specular, 0f, 1f), material.Texture != null ? 1f : 0f),
             UVTransform = new Vector4(material.TextureScale, material.TextureOffset.X, material.TextureOffset.Y),
@@ -193,7 +187,8 @@ namespace Vertex.Rendering.Shaders
 
         /// <summary>
         /// How bright (after exposure) something must be before it blooms: brighter than a white surface in full sun, so
-        /// only the sun, glowing things and the glints off shiny ones do, not everything sunlit.
+        /// only the sun and glints off shiny things do, not everything sunlit. Glowing things bloom through the glow they
+        /// draw as well (see ShaderLibrary's GlowColor), so they keep their colour.
         /// </summary>
         public const float BloomThreshold = 2.2f;
 

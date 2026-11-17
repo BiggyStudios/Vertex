@@ -6,7 +6,7 @@ namespace Vertex.Rendering.Vulkan
 {
     /// <summary>
     /// The images a view is drawn through before it's finished: the scene in linear light (half floats, so bright
-    /// things stay bright), the part of it that's soft light from all around (for ambient occlusion to take from), depth,
+    /// things stay bright), the part of it that's soft light from all around (for ambient occlusion to take from), what glows (for bloom), depth,
     /// the occlusion itself, bloom (the bright parts halved again and again), and the finished picture before anti-aliasing.
     /// One set for the screen and one for each render texture, as they're sized to match. Like the OpenGL backend's GLViewTargets.
     /// </summary>
@@ -25,6 +25,7 @@ namespace Vertex.Rendering.Vulkan
 
         public VkImageResource? Color { get; private set; }
         public VkImageResource? Ambient { get; private set; }
+        public VkImageResource? Glow { get; private set; }
         public VkImageResource? Depth { get; private set; }
         public VkImageResource? Occlusion { get; private set; }
         public VkImageResource? OcclusionBlur { get; private set; }
@@ -50,6 +51,7 @@ namespace Vertex.Rendering.Vulkan
             const ImageUsageFlags attachment = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit;
             Color = _context.CreateImage(width, height, HdrFormat, attachment);
             Ambient = _context.CreateImage(width, height, HdrFormat, attachment);
+            Glow = _context.CreateImage(width, height, HdrFormat, attachment);
             Depth = _context.CreateImage(width, height, _context.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit);
             Occlusion = _context.CreateImage(width, height, OcclusionFormat, attachment);
             OcclusionBlur = _context.CreateImage(width, height, OcclusionFormat, attachment);
@@ -69,13 +71,13 @@ namespace Vertex.Rendering.Vulkan
         public void Release(Action<Action> deleteLater)
         {
             var images = new List<VkImageResource>(BloomLevels);
-            foreach (VkImageResource? image in new[] { Color, Ambient, Depth, Occlusion, OcclusionBlur, Finished })
+            foreach (VkImageResource? image in new[] { Color, Ambient, Glow, Depth, Occlusion, OcclusionBlur, Finished })
             {
                 if (image != null) images.Add(image);
             }
 
             BloomLevels.Clear();
-            Color = Ambient = Depth = Occlusion = OcclusionBlur = Finished = null;
+            Color = Ambient = Glow = Depth = Occlusion = OcclusionBlur = Finished = null;
             Width = Height = 0;
 
             if (images.Count > 0) deleteLater(() => images.ForEach(image => image.Destroy(_context)));
