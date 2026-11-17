@@ -38,6 +38,18 @@ namespace Vertex.Rendering.OpenGL
         private static readonly string[] _pointColorNames = UniformNames("uPointLights", "color", GLShaderSources.MaxPointLights);
         private static readonly string[] _pointRangeNames = UniformNames("uPointLights", "range", GLShaderSources.MaxPointLights);
 
+        public string Name => "OpenGL";
+
+        // OpenGL 3.3 has no compute shaders, so the engine runs GPU particles on the CPU and sends them as ordinary ones.
+        public bool SupportsGpuParticles => false;
+
+        public void BeginFrame() {}
+
+        public void UpdateParticles(GpuParticleUpdate update) {}
+
+        // OpenGL shows the frame itself once the window's Render event returns.
+        public void EndFrame() {}
+
         public WindowOptions ConfigureWindow(WindowOptions options)
         {
             return options with

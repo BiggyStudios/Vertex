@@ -9,18 +9,33 @@ namespace Vertex.Tests
     public class RendererTests : EngineTest
     {
         /// <summary>A backend that draws nothing, only notes what each frame it was given held.</summary>
-        private sealed class RecordingBackend : IRenderBackend
+        internal sealed class RecordingBackend : IRenderBackend
         {
             public readonly List<(RenderTexture? Target, bool HasCamera, int Width, int Height, int Draws, int CanvasQuads)> Frames = new();
 
+            public readonly List<GpuParticleUpdate> ParticleUpdates = new();
+            public int Begins, Ends;
+            public bool GpuParticles;
+
+            /// <summary>Particles in the last frame drawn.</summary>
+            public List<ParticleData> LastParticles = new();
+
+            public string Name => "Recording";
+            public bool SupportsGpuParticles => GpuParticles;
             public WindowOptions ConfigureWindow(WindowOptions options) => options;
             public void Initialise(IWindow window) {}
             public void Resize(int width, int height) {}
             public void Dispose() {}
+            public void BeginFrame() => Begins++;
+            public void EndFrame() => Ends++;
+            public void UpdateParticles(GpuParticleUpdate update) => ParticleUpdates.Add(update);
 
             // The frame is reused, so copy out what's needed now.
-            public void Render(RenderFrame frame) =>
+            public void Render(RenderFrame frame)
+            {
                 Frames.Add((frame.Target, frame.HasCamera, frame.Width, frame.Height, frame.DrawCalls.Count, frame.CanvasQuads.Count));
+                LastParticles = frame.Particles.ToList();
+            }
         }
 
         private static Camera AddCamera(string name, Vector3 position)

@@ -20,6 +20,13 @@ namespace Vertex.Rendering
         // Cameras drawing into textures this frame; kept to reuse.
         private readonly List<Camera> _targetCameras = new();
 
+        private readonly GpuParticleManager _gpuParticles = new();
+
+        // The GPU particles' simulation run here instead, for backends without compute shaders. Null for the frame if
+        // there's nothing to simulate here.
+        private CpuParticlePool? _cpuParticlePool;
+        private CpuParticlePool? _cpuParticles;
+
         // Any order that keeps draws with the same material, and within that the same mesh, next to each other.
         private static readonly Comparison<DrawCall> _byMaterialThenMesh = (a, b) =>
         {
@@ -59,6 +66,22 @@ namespace Vertex.Rendering
         /// </summary>
         internal void Render(Scene scene)
         {
+            Backend.BeginFrame();
+
+            // GPU particles move once a frame, whatever number of views draw them: on the GPU if the backend can,
+            // otherwise here, and then they're handed over with the other particles.
+            GpuParticleUpdate particles = _gpuParticles.Gather(scene, Time.TotalTime);
+            _cpuParticles = null;
+            if (Backend.SupportsGpuParticles)
+            {
+                Backend.UpdateParticles(particles);
+            }
+            else if (particles.PoolSize > 0)
+            {
+                _cpuParticles = _cpuParticlePool ??= new CpuParticlePool();
+                _cpuParticles.Apply(particles);
+            }
+
             // Gathered first, so the scene isn't being searched while the backend draws.
             foreach (Camera camera in scene.FindComponents<Camera>())
             {
@@ -76,6 +99,7 @@ namespace Vertex.Rendering
 
             Collect(scene, Camera.Main, Width, Height, target: null);
             Backend.Render(_frame);
+            Backend.EndFrame();
         }
 
         /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
@@ -139,6 +163,7 @@ namespace Vertex.Rendering
             _unlitDraws.Clear();
 
             foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
+            _cpuParticles?.Collect(_frame.ParticleList);
 
             // Furthest first, so nearer dust and smoke covers what's behind it. Additive ones don't mind the order.
             Vector3 eye = _frame.CameraPosition;
