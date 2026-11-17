@@ -54,13 +54,21 @@ namespace Vertex.Rendering.Vulkan
             return index;
         }
 
-        /// <summary>Shows image <paramref name="index"/> once it's drawn. False if the swapchain needs making again.</summary>
-        public bool Present(uint index)
+        /// <summary>For waiting on presents (see <see cref="VkContext.PresentWait"/>).</summary>
+        public SwapchainKHR Handle => _swapchain;
+
+        /// <summary>
+        /// Shows image <paramref name="index"/> once it's drawn, tagged with <paramref name="presentId"/> (0 for none) to
+        /// wait on later. False if the swapchain needs making again.
+        /// </summary>
+        public bool Present(uint index, ulong presentId = 0)
         {
             SwapchainKHR swapchain = _swapchain;
             VkSemaphore wait = RenderFinished[index];
+            PresentIdKHR id = new() { SType = VkContext.PresentIdType, SwapchainCount = 1, PPresentIds = &presentId };
             PresentInfoKHR info = new()
             {
+                PNext = presentId != 0 ? &id : null,
                 SType = StructureType.PresentInfoKhr,
                 WaitSemaphoreCount = 1,
                 PWaitSemaphores = &wait,
@@ -104,8 +112,9 @@ namespace Vertex.Rendering.Vulkan
                     Math.Clamp((uint)width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width),
                     Math.Clamp((uint)height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height));
 
-            // One more than the least, so there's always an image free to draw into while one's shown and one waits.
-            uint imageCount = capabilities.MinImageCount + 1;
+            // As few as the driver allows (two where it can): one on screen and one being drawn. Every extra image is
+            // another finished frame that can queue up in front of the screen, a whole refresh of input lag each.
+            uint imageCount = Math.Max(capabilities.MinImageCount, 2);
             if (capabilities.MaxImageCount > 0) imageCount = Math.Min(imageCount, capabilities.MaxImageCount);
 
             CompositeAlphaFlagsKHR alpha = (capabilities.SupportedCompositeAlpha & CompositeAlphaFlagsKHR.OpaqueBitKhr) != 0

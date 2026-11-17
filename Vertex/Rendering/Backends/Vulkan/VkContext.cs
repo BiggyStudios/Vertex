@@ -32,6 +32,30 @@ namespace Vertex.Rendering.Vulkan
         public readonly PhysicalDeviceProperties Properties;
         public readonly string DeviceName;
 
+        /// <summary>
+        /// VK_KHR_present_wait, if the driver has it (with VK_KHR_present_id): waits until a given present has reached the
+        /// screen. Null where it isn't supported.
+        /// </summary>
+        public readonly KhrPresentWait? PresentWait;
+
+        private const string PresentIdExtension = "VK_KHR_present_id";
+        private const string PresentWaitExtension = "VK_KHR_present_wait";
+
+        // Silk.NET's StructureType doesn't list VK_KHR_present_id's two; these are their values from the Vulkan spec.
+        public const StructureType PresentIdType = (StructureType)1000294000;
+        private const StructureType PresentIdFeaturesType = (StructureType)1000294001;
+
+        private bool SupportsPresentWait(PhysicalDevice device)
+        {
+            if (!HasDeviceExtension(device, PresentIdExtension) || !HasDeviceExtension(device, PresentWaitExtension)) return false;
+
+            PhysicalDevicePresentWaitFeaturesKHR presentWait = new() { SType = StructureType.PhysicalDevicePresentWaitFeaturesKhr };
+            PhysicalDevicePresentIdFeaturesKHR presentId = new() { SType = PresentIdFeaturesType, PNext = &presentWait };
+            PhysicalDeviceFeatures2 features = new() { SType = StructureType.PhysicalDeviceFeatures2, PNext = &presentId };
+            Vk.GetPhysicalDeviceFeatures2(device, &features);
+            return presentId.PresentId && presentWait.PresentWait;
+        }
+
         /// <summary>The depth format for the shadow map and scene: 32-bit float if it can be filtered for soft shadows.</summary>
         public readonly Format DepthFormat;
 
@@ -180,7 +204,16 @@ namespace Vertex.Rendering.Vulkan
                 Synchronization2 = true
             };
 
-            nint deviceExtensions = SilkMarshal.StringArrayToPtr([KhrSwapchain.ExtensionName]);
+            // Present wait: being told when a frame has actually reached the screen, which lets the backend keep frames
+            // from queueing up in front of it (see VulkanRenderBackend.WaitForNextFrame). Used wherever it's there.
+            bool presentTiming = SupportsPresentWait(PhysicalDevice);
+            PhysicalDevicePresentWaitFeaturesKHR presentWait = new() { SType = StructureType.PhysicalDevicePresentWaitFeaturesKhr, PresentWait = true };
+            PhysicalDevicePresentIdFeaturesKHR presentId = new() { SType = PresentIdFeaturesType, PresentId = true, PNext = &presentWait };
+            if (presentTiming) features13.PNext = &presentId;
+
+            nint deviceExtensions = SilkMarshal.StringArrayToPtr(presentTiming
+                ? [KhrSwapchain.ExtensionName, PresentIdExtension, PresentWaitExtension]
+                : [KhrSwapchain.ExtensionName]);
             try
             {
                 DeviceCreateInfo deviceInfo = new()
@@ -189,7 +222,7 @@ namespace Vertex.Rendering.Vulkan
                     PNext = &features13,
                     QueueCreateInfoCount = 1,
                     PQueueCreateInfos = &queueInfo,
-                    EnabledExtensionCount = 1,
+                    EnabledExtensionCount = presentTiming ? 3u : 1u,
                     PpEnabledExtensionNames = (byte**)deviceExtensions
                 };
 
@@ -199,6 +232,8 @@ namespace Vertex.Rendering.Vulkan
             {
                 SilkMarshal.Free(deviceExtensions);
             }
+
+            if (presentTiming && Vk.TryGetDeviceExtension(Instance, Device, out KhrPresentWait wait)) PresentWait = wait;
 
             Vk.GetDeviceQueue(Device, QueueFamily, 0, out Queue);
             if (!Vk.TryGetDeviceExtension(Instance, Device, out KhrSwapchain))
