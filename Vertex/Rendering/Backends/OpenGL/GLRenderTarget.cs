@@ -4,7 +4,7 @@ namespace Vertex.Rendering.OpenGL
 {
     /// <summary>
     /// The GPU side of a <see cref="RenderTexture"/>: a colour texture with a framebuffer to draw the finished picture
-    /// into, and bloom images of its own, since those are sized to match what they draw into.
+    /// into, and view images of its own, since those are sized to match what they draw into.
     /// </summary>
     internal sealed class GLRenderTarget : IDisposable
     {
@@ -12,15 +12,15 @@ namespace Vertex.Rendering.OpenGL
 
         public GLTexture Color { get; private set; } = null!;
         public uint Framebuffer { get; private set; }
-        public GLBloom Bloom { get; }
+        public GLViewTargets Views { get; }
 
         /// <summary>The <see cref="Texture.Version"/> the images were made for: a resize bumps it.</summary>
         public int Version { get; private set; }
 
-        public GLRenderTarget(GL gl, RenderTexture texture, uint emptyVertexArray)
+        public GLRenderTarget(GL gl, RenderTexture texture)
         {
             _gl = gl;
-            Bloom = new GLBloom(gl, emptyVertexArray);
+            Views = new GLViewTargets(gl);
             Create(texture);
         }
 
@@ -65,7 +65,7 @@ namespace Vertex.Rendering.OpenGL
         public void Dispose()
         {
             DeleteImages();
-            Bloom.Dispose();
+            Views.Dispose();
         }
     }
 }

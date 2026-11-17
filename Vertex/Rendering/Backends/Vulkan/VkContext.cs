@@ -59,6 +59,9 @@ namespace Vertex.Rendering.Vulkan
         /// <summary>The depth format for the shadow map and scene: 32-bit float if it can be filtered for soft shadows.</summary>
         public readonly Format DepthFormat;
 
+        /// <summary>How sharply textures can be filtered on surfaces seen at a slant (anisotropic filtering); 1 if the GPU can't.</summary>
+        public readonly float MaxAnisotropy = 1f;
+
         private readonly PhysicalDeviceMemoryProperties _memory;
         private readonly ExtDebugUtils? _debugUtils;
         private readonly DebugUtilsMessengerEXT _messenger;
@@ -214,12 +217,18 @@ namespace Vertex.Rendering.Vulkan
             nint deviceExtensions = SilkMarshal.StringArrayToPtr(presentTiming
                 ? [KhrSwapchain.ExtensionName, PresentIdExtension, PresentWaitExtension]
                 : [KhrSwapchain.ExtensionName]);
+            // Sharper textures on surfaces seen at a slant, wherever the GPU has it (every desktop one does).
+            PhysicalDeviceFeatures supported = Vk.GetPhysicalDeviceFeatures(PhysicalDevice);
+            PhysicalDeviceFeatures enabled = new() { SamplerAnisotropy = supported.SamplerAnisotropy };
+            if (supported.SamplerAnisotropy) MaxAnisotropy = MathF.Min(8f, Properties.Limits.MaxSamplerAnisotropy);
+
             try
             {
                 DeviceCreateInfo deviceInfo = new()
                 {
                     SType = StructureType.DeviceCreateInfo,
                     PNext = &features13,
+                    PEnabledFeatures = &enabled,
                     QueueCreateInfoCount = 1,
                     PQueueCreateInfos = &queueInfo,
                     EnabledExtensionCount = presentTiming ? 3u : 1u,
@@ -401,8 +410,11 @@ namespace Vertex.Rendering.Vulkan
             return new VkBufferResource(buffer, memory, info.Size, mapped);
         }
 
-        /// <summary>A 2D image with its own memory and a view of every mip level, in <see cref="ImageLayout.Undefined"/>.</summary>
-        public VkImageResource CreateImage(int width, int height, Format format, ImageUsageFlags usage, uint mipLevels = 1)
+        /// <summary>
+        /// A 2D image with its own memory and a view of every mip level, in <see cref="ImageLayout.Undefined"/>. With more
+        /// than one <paramref name="layers"/> it's an array, viewed whole; see <see cref="CreateLayerView"/> to draw into one.
+        /// </summary>
+        public VkImageResource CreateImage(int width, int height, Format format, ImageUsageFlags usage, uint mipLevels = 1, uint layers = 1)
         {
             ImageCreateInfo info = new()
             {
@@ -411,7 +423,7 @@ namespace Vertex.Rendering.Vulkan
                 Format = format,
                 Extent = new Extent3D((uint)Math.Max(width, 1), (uint)Math.Max(height, 1), 1),
                 MipLevels = mipLevels,
-                ArrayLayers = 1,
+                ArrayLayers = layers,
                 Samples = SampleCountFlags.Count1Bit,
                 Tiling = ImageTiling.Optimal,
                 Usage = usage,
@@ -435,18 +447,37 @@ namespace Vertex.Rendering.Vulkan
             {
                 SType = StructureType.ImageViewCreateInfo,
                 Image = image,
-                ViewType = ImageViewType.Type2D,
+                ViewType = layers > 1 ? ImageViewType.Type2DArray : ImageViewType.Type2D,
                 Format = format,
-                SubresourceRange = new ImageSubresourceRange(aspect, 0, mipLevels, 0, 1)
+                SubresourceRange = new ImageSubresourceRange(aspect, 0, mipLevels, 0, layers)
             };
             Check(Vk.CreateImageView(Device, &viewInfo, null, out ImageView view), "create an image view");
 
-            return new VkImageResource(image, memory, view, format, aspect, width, height, mipLevels);
+            return new VkImageResource(image, memory, view, format, aspect, width, height, mipLevels) { Layers = layers };
+        }
+
+        /// <summary>
+        /// A view of one layer of an image array, to draw into. It shares the array's image: destroying it only frees the
+        /// view, and the array's own <see cref="VkImageResource.Layout"/> is the one that counts.
+        /// </summary>
+        public VkImageResource CreateLayerView(VkImageResource array, uint layer)
+        {
+            ImageViewCreateInfo viewInfo = new()
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = array.Image,
+                ViewType = ImageViewType.Type2D,
+                Format = array.Format,
+                SubresourceRange = new ImageSubresourceRange(array.Aspect, 0, 1, layer, 1)
+            };
+            Check(Vk.CreateImageView(Device, &viewInfo, null, out ImageView view), "create an image layer view");
+            return new VkImageResource(array.Image, default, view, array.Format, array.Aspect, array.Width, array.Height, 1) { Owned = false };
         }
 
         public static bool IsDepth(Format format) => format is Format.D32Sfloat or Format.X8D24UnormPack32 or Format.D16Unorm;
 
-        public Sampler CreateSampler(Filter filter, SamplerAddressMode address, bool mipmaps, bool compare = false)
+        /// <param name="anisotropic">Filter sharply on surfaces seen at a slant, where the GPU can.</param>
+        public Sampler CreateSampler(Filter filter, SamplerAddressMode address, bool mipmaps, bool compare = false, bool anisotropic = false)
         {
             SamplerCreateInfo info = new()
             {
@@ -458,6 +489,8 @@ namespace Vertex.Rendering.Vulkan
                 AddressModeV = address,
                 AddressModeW = address,
                 MaxLod = mipmaps ? Vk.LodClampNone : 0f,
+                AnisotropyEnable = anisotropic && MaxAnisotropy > 1f,
+                MaxAnisotropy = anisotropic ? MaxAnisotropy : 1f,
                 CompareEnable = compare,
                 CompareOp = CompareOp.LessOrEqual,
                 BorderColor = BorderColor.FloatOpaqueWhite
@@ -508,7 +541,7 @@ namespace Vertex.Rendering.Vulkan
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 Image = image.Image,
-                SubresourceRange = new ImageSubresourceRange(image.Aspect, baseMip, mipCount, 0, 1)
+                SubresourceRange = new ImageSubresourceRange(image.Aspect, baseMip, mipCount, 0, image.Layers)
             };
 
             DependencyInfo dependency = new() { SType = StructureType.DependencyInfo, ImageMemoryBarrierCount = 1, PImageMemoryBarriers = &barrier };
@@ -532,7 +565,7 @@ namespace Vertex.Rendering.Vulkan
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 Image = image.Image,
-                SubresourceRange = new ImageSubresourceRange(image.Aspect, baseMip, mipCount, 0, 1)
+                SubresourceRange = new ImageSubresourceRange(image.Aspect, baseMip, mipCount, 0, image.Layers)
             };
 
             DependencyInfo dependency = new() { SType = StructureType.DependencyInfo, ImageMemoryBarrierCount = 1, PImageMemoryBarriers = &barrier };
@@ -612,6 +645,9 @@ namespace Vertex.Rendering.Vulkan
         public readonly int Width = width;
         public readonly int Height = height;
         public readonly uint MipLevels = mipLevels;
+
+        /// <summary>How many layers: more than 1 for an image array, like the shadow cascades.</summary>
+        public uint Layers { get; init; } = 1;
 
         /// <summary>The layout every mip level is in, as far as the commands recorded so far go.</summary>
         public ImageLayout Layout = ImageLayout.Undefined;

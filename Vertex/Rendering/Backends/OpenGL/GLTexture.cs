@@ -26,8 +26,18 @@ namespace Vertex.Rendering.OpenGL
             gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
             gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
 
+            // Sharper on surfaces seen at a slant, like a floor stretching away, where the driver has it.
+            if (MaxAnisotropy > 1f) gl.TexParameter(TextureTarget.Texture2D, (TextureParameterName)TextureMaxAnisotropy, MaxAnisotropy);
+
             Upload(texture);
         }
+
+        // GL_TEXTURE_MAX_ANISOTROPY and its limit, from EXT/ARB_texture_filter_anisotropic (core only from OpenGL 4.6).
+        public const int TextureMaxAnisotropy = 0x84FE;
+        public const int MaxTextureMaxAnisotropy = 0x84FF;
+
+        /// <summary>How sharply textures are filtered at a slant; 1 for not at all. Set by the backend from what the driver can do.</summary>
+        public static float MaxAnisotropy { get; set; } = 1f;
 
         /// <summary>An empty texture for a framebuffer to draw into: no mipmaps, and it doesn't repeat past its edges.</summary>
         public unsafe GLTexture(GL gl, int width, int height)

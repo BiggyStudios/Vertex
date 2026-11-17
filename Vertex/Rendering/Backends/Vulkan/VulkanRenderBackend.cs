@@ -6,17 +6,18 @@ using Silk.NET.Shaderc;
 using Silk.NET.Vulkan;
 using Silk.NET.Windowing;
 
+using Vertex.Rendering.Shaders;
+
 using VkBuffer = Silk.NET.Vulkan.Buffer;
-using VkSemaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Vertex.Rendering.Vulkan
 {
     /// <summary>
     /// The Vulkan 1.3 implementation of <see cref="IRenderBackend"/>, and Vertex's main renderer. It draws exactly what the
-    /// OpenGL backend does (the sun's shadow map, a gradient sky, Blinn-Phong lighting with fog, cel shading and filmic
-    /// tone mapping, bloom, outlines, particles and the 2D canvas, into the screen or render textures), and simulates
-    /// <see cref="GpuParticleSystem"/>s with compute shaders. Two frames are in flight: the CPU records one while the GPU
-    /// draws the other.
+    /// OpenGL backend does, with the same shaders (see <see cref="ShaderLibrary"/>), into the screen or render textures:
+    /// the sun's shadow cascades, the sky, physically based lighting with fog, particles, ambient occlusion, bloom, tone
+    /// mapping and anti-aliasing, then the 2D canvas. It also simulates <see cref="GpuParticleSystem"/>s with compute
+    /// shaders. Two frames are in flight: the CPU records one while the GPU draws the other.
     /// </summary>
     public sealed unsafe class VulkanRenderBackend : IRenderBackend
     {
@@ -24,57 +25,10 @@ namespace Vertex.Rendering.Vulkan
         private const int _particleFloats = 11; // position xyz, corner xy, colour rgba, glow, additive
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct FrameData
-        {
-            public Matrix4x4 View;
-            public Matrix4x4 Projection;
-            public Matrix4x4 LightSpace;
-            public Matrix4x4 InverseViewProjection;
-            public Vector4 CameraPosition;
-            public Vector4 SkyColor;
-            public Vector4 HorizonColor;
-            public Vector4 GroundColor;
-            public Vector4 FogColor;
-            public Vector4 SunDirection;
-            public Vector4 SunColor;
-            public Vector4 Shadow;
-            public int DirectionalCount, PointCount, Unused0, Unused1;
-            public Vectors4 DirectionalDirection;
-            public Vectors4 DirectionalColor;
-            public Vectors8 PointPositionRange;
-            public Vectors8 PointColor;
-        }
-
-        [InlineArray(VkShaderSources.MaxDirectionalLights)]
-        private struct Vectors4 { private Vector4 _first; }
-
-        [InlineArray(VkShaderSources.MaxPointLights)]
-        private struct Vectors8 { private Vector4 _first; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MaterialData
-        {
-            public Vector4 Color;
-            public Vector4 Emission;
-            public Vector4 Params;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
         private struct DrawConstants
         {
             public Matrix4x4 Model;
             public Matrix4x4 NormalMatrix;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct PostConstants
-        {
-            public Vector2 TexelSize;
-            public float BloomStrength;
-            public float Outlines;
-            public float ProjectionZ;
-            public float ProjectionW;
-            public Vector2 OutlineStep;
         }
 
         /// <summary>The GPU copy of a <see cref="Mesh"/>: vertices then indices, in one buffer.</summary>
@@ -131,15 +85,17 @@ namespace Vertex.Rendering.Vulkan
         private PipelineLayout _canvasLayout;
         private PipelineLayout _postLayout;
 
-        private Pipeline _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp;
-        private Pipeline _compositeToScreen, _compositeToTexture;
+        private Pipeline _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas;
+        private Pipeline _bloomDown, _bloomUp, _occlusion, _occlusionBlur;
+        private Pipeline _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture;
         private readonly List<ShaderModule> _shaders = new();
 
         private Sampler _repeatSampler;
         private Sampler _clampSampler;
         private Sampler _shadowSampler;
 
-        private VkShadowMap _shadowMap = null!;
+        private VkShadowMaps _shadowMaps = null!;
+        private readonly ShadowCascades _cascades = new();
         private VkViewTargets _screenViews = null!;
         private VkGpuParticles _gpuParticlePool = null!;
         private VkTexture _white = null!;
@@ -191,7 +147,7 @@ namespace Vertex.Rendering.Vulkan
             for (int i = 0; i < _framesInFlight; i++) _frames[i] = new VkFrame(_context);
             _frame = _frames[0];
 
-            _repeatSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.Repeat, mipmaps: true);
+            _repeatSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.Repeat, mipmaps: true, anisotropic: true);
             _clampSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.ClampToEdge, mipmaps: false);
             _shadowSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.ClampToBorder, mipmaps: false, compare: true);
 
@@ -199,22 +155,23 @@ namespace Vertex.Rendering.Vulkan
             _gpuParticlePool = new VkGpuParticles(_context, _compiler);
             CreatePipelines();
 
-            _shadowMap = new VkShadowMap(_context);
+            _shadowMaps = new VkShadowMaps(_context);
             _screenViews = new VkViewTargets(_context);
 
-            // White, already premultiplied, for untextured canvas shapes; and the shadow map starts fully lit, so it's
-            // ready to be read before anything's drawn into it.
+            // White, already premultiplied, for untextured canvas shapes and images a pass doesn't use; and the shadow
+            // maps start fully lit, so they're ready to be read before anything's drawn into them.
             _white = new VkTexture(_context.CreateImage(1, 1, Format.R8G8B8A8Unorm,
                 ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.TransferSrcBit), 0);
             _context.RunNow(commands =>
             {
                 Upload(commands, _white.Image, [255, 255, 255, 255], deleteLater: null);
 
-                _context.Transition(commands, _shadowMap.Image, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
+                VkImageResource shadows = _shadowMaps.Array;
+                _context.Transition(commands, shadows, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
                 ClearDepthStencilValue clear = new(1f, 0);
-                ImageSubresourceRange range = new(ImageAspectFlags.DepthBit, 0, 1, 0, 1);
-                _context.Vk.CmdClearDepthStencilImage(commands, _shadowMap.Image.Image, ImageLayout.TransferDstOptimal, &clear, 1, &range);
-                _context.Transition(commands, _shadowMap.Image, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
+                ImageSubresourceRange range = new(ImageAspectFlags.DepthBit, 0, 1, 0, shadows.Layers);
+                _context.Vk.CmdClearDepthStencilImage(commands, shadows.Image, ImageLayout.TransferDstOptimal, &clear, 1, &range);
+                _context.Transition(commands, shadows, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
             });
 
             Console.WriteLine($"[Vertex] Rendering with Vulkan on {_context.DeviceName}.");
@@ -223,28 +180,35 @@ namespace Vertex.Rendering.Vulkan
         private void CreateLayouts()
         {
             const ShaderStageFlags vertexAndFragment = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit;
+            const ShaderStageFlags fragment = ShaderStageFlags.FragmentBit;
 
             _frameSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, vertexAndFragment),
-                (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit));
+                (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
-                (DescriptorType.UniformBuffer, ShaderStageFlags.FragmentBit),
-                (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit));
-            _textureSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit));
+                (DescriptorType.UniformBuffer, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment));
+            _textureSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.CombinedImageSampler, fragment));
             _postSetLayout = VkDescriptors.CreateLayout(_context,
-                (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit),
-                (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit),
-                (DescriptorType.CombinedImageSampler, ShaderStageFlags.FragmentBit));
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment));
 
             _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), ShaderStageFlags.VertexBit);
             _shadowLayout = VkDescriptors.CreatePipelineLayout(_context, [], (uint)sizeof(Matrix4x4), ShaderStageFlags.VertexBit);
             _canvasLayout = VkDescriptors.CreatePipelineLayout(_context, [_textureSetLayout], (uint)sizeof(Vector2), ShaderStageFlags.VertexBit);
-            _postLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout], (uint)sizeof(PostConstants), ShaderStageFlags.FragmentBit);
+            _postLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout], (uint)sizeof(PostUniforms), fragment);
         }
 
-        private ShaderModule Shader(string name, ShaderKind kind, string source)
+        /// <summary>One of the shared shaders, built for Vulkan.</summary>
+        private ShaderModule Shader(string name, ShaderKind kind, string source) => Module(name, kind, ShaderLibrary.Build(ShaderTarget.Vulkan, source));
+
+        private ShaderModule Module(string name, ShaderKind kind, string fullSource)
         {
-            ShaderModule module = _compiler.Create(name, kind, source);
+            ShaderModule module = _compiler.Create(name, kind, fullSource);
             _shaders.Add(module);
             return module;
         }
@@ -253,23 +217,28 @@ namespace Vertex.Rendering.Vulkan
         {
             _gpuParticleLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _gpuParticlePool.DrawSetLayout], 0, 0);
 
-            ShaderModule litVertex = Shader("lit.vert", ShaderKind.VertexShader, VkShaderSources.LitVertex);
-            ShaderModule litFragment = Shader("lit.frag", ShaderKind.FragmentShader, VkShaderSources.LitFragment);
-            ShaderModule unlitFragment = Shader("unlit.frag", ShaderKind.FragmentShader, VkShaderSources.UnlitFragment);
-            ShaderModule shadowVertex = Shader("shadow.vert", ShaderKind.VertexShader, VkShaderSources.ShadowVertex);
-            ShaderModule skyVertex = Shader("sky.vert", ShaderKind.VertexShader, VkShaderSources.SkyVertex);
-            ShaderModule skyFragment = Shader("sky.frag", ShaderKind.FragmentShader, VkShaderSources.SkyFragment);
-            ShaderModule particleVertex = Shader("particle.vert", ShaderKind.VertexShader, VkShaderSources.ParticleVertex);
-            ShaderModule gpuParticleVertex = Shader("gpuparticle.vert", ShaderKind.VertexShader, VkShaderSources.GpuParticleVertex);
-            ShaderModule particleFragment = Shader("particle.frag", ShaderKind.FragmentShader, VkShaderSources.ParticleFragment);
-            ShaderModule canvasVertex = Shader("canvas.vert", ShaderKind.VertexShader, VkShaderSources.CanvasVertex);
-            ShaderModule canvasFragment = Shader("canvas.frag", ShaderKind.FragmentShader, VkShaderSources.CanvasFragment);
-            ShaderModule fullscreen = Shader("fullscreen.vert", ShaderKind.VertexShader, VkShaderSources.FullscreenVertex);
-            ShaderModule bloomDown = Shader("bloomdown.frag", ShaderKind.FragmentShader, VkShaderSources.BloomDownsampleFragment);
-            ShaderModule bloomUp = Shader("bloomup.frag", ShaderKind.FragmentShader, VkShaderSources.BloomUpsampleFragment);
-            ShaderModule composite = Shader("composite.frag", ShaderKind.FragmentShader, VkShaderSources.CompositeFragment);
+            const ShaderKind vertex = ShaderKind.VertexShader;
+            const ShaderKind fragment = ShaderKind.FragmentShader;
+            ShaderModule meshVertex = Shader("mesh.vert", vertex, ShaderLibrary.MeshVertex);
+            ShaderModule litFragment = Shader("lit.frag", fragment, ShaderLibrary.LitFragment);
+            ShaderModule unlitFragment = Shader("unlit.frag", fragment, ShaderLibrary.UnlitFragment);
+            ShaderModule shadowVertex = Shader("shadow.vert", vertex, ShaderLibrary.ShadowVertex);
+            ShaderModule skyVertex = Shader("sky.vert", vertex, ShaderLibrary.SkyVertex);
+            ShaderModule skyFragment = Shader("sky.frag", fragment, ShaderLibrary.SkyFragment);
+            ShaderModule particleVertex = Shader("particle.vert", vertex, ShaderLibrary.ParticleVertex);
+            ShaderModule gpuParticleVertex = Shader("gpuparticle.vert", vertex, ShaderLibrary.GpuParticleVertex);
+            ShaderModule particleFragment = Shader("particle.frag", fragment, ShaderLibrary.ParticleFragment);
+            ShaderModule canvasVertex = Module("canvas.vert", vertex, VkShaderSources.CanvasVertex);
+            ShaderModule canvasFragment = Module("canvas.frag", fragment, VkShaderSources.CanvasFragment);
+            ShaderModule fullscreen = Shader("fullscreen.vert", vertex, ShaderLibrary.FullscreenVertex);
+            ShaderModule bloomDown = Shader("bloomdown.frag", fragment, ShaderLibrary.BloomDownsampleFragment);
+            ShaderModule bloomUp = Shader("bloomup.frag", fragment, ShaderLibrary.BloomUpsampleFragment);
+            ShaderModule occlusion = Shader("occlusion.frag", fragment, ShaderLibrary.OcclusionFragment);
+            ShaderModule occlusionBlur = Shader("occlusionblur.frag", fragment, ShaderLibrary.OcclusionBlurFragment);
+            ShaderModule composite = Shader("composite.frag", fragment, ShaderLibrary.CompositeFragment);
+            ShaderModule antiAlias = Shader("antialias.frag", fragment, ShaderLibrary.AntiAliasFragment);
 
-            Format[] sceneFormats = [VkViewTargets.ColorFormat, VkViewTargets.GlowFormat];
+            Format[] sceneFormats = [VkViewTargets.HdrFormat, VkViewTargets.HdrFormat];
             (uint, Format, uint)[] meshAttributes =
             [
                 (0, Format.R32G32B32Sfloat, 0),
@@ -277,11 +246,11 @@ namespace Vertex.Rendering.Vulkan
                 (2, Format.R32G32Sfloat, 24)
             ];
 
-            VkPipelineDescription Scene(ShaderModule vertex, ShaderModule fragment) => new()
+            VkPipelineDescription Scene(ShaderModule fragmentShader) => new()
             {
                 Layout = _sceneLayout,
-                Vertex = vertex,
-                Fragment = fragment,
+                Vertex = meshVertex,
+                Fragment = fragmentShader,
                 VertexStride = (uint)sizeof(MeshVertex),
                 Attributes = meshAttributes,
                 Cull = CullModeFlags.BackBit,
@@ -291,8 +260,8 @@ namespace Vertex.Rendering.Vulkan
                 DepthFormat = _context.DepthFormat
             };
 
-            _lit = VkPipelines.CreateGraphics(_context, Scene(litVertex, litFragment));
-            _unlit = VkPipelines.CreateGraphics(_context, Scene(litVertex, unlitFragment));
+            _lit = VkPipelines.CreateGraphics(_context, Scene(litFragment));
+            _unlit = VkPipelines.CreateGraphics(_context, Scene(unlitFragment));
 
             // Behind everything: drawn without depth, and everything else is drawn over it.
             _sky = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
@@ -360,19 +329,24 @@ namespace Vertex.Rendering.Vulkan
                 ColorFormats = [_swapchain.Format]
             });
 
-            VkPipelineDescription Post(ShaderModule fragment, Format format, VkBlend blend) => new()
-            {
-                Layout = _postLayout,
-                Vertex = fullscreen,
-                Fragment = fragment,
-                Blend = blend,
-                ColorFormats = [format]
-            };
+            Pipeline Post(ShaderModule fragmentShader, Format format, VkBlend blend = VkBlend.None) =>
+                VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+                {
+                    Layout = _postLayout,
+                    Vertex = fullscreen,
+                    Fragment = fragmentShader,
+                    Blend = blend,
+                    ColorFormats = [format]
+                });
 
-            _bloomDown = VkPipelines.CreateGraphics(_context, Post(bloomDown, VkViewTargets.GlowFormat, VkBlend.None));
-            _bloomUp = VkPipelines.CreateGraphics(_context, Post(bloomUp, VkViewTargets.GlowFormat, VkBlend.Additive));
-            _compositeToScreen = VkPipelines.CreateGraphics(_context, Post(composite, _swapchain.Format, VkBlend.None));
-            _compositeToTexture = VkPipelines.CreateGraphics(_context, Post(composite, VkViewTargets.ColorFormat, VkBlend.None));
+            _bloomDown = Post(bloomDown, VkViewTargets.HdrFormat);
+            _bloomUp = Post(bloomUp, VkViewTargets.HdrFormat, VkBlend.Additive);
+            _occlusion = Post(occlusion, VkViewTargets.OcclusionFormat);
+            _occlusionBlur = Post(occlusionBlur, VkViewTargets.OcclusionFormat);
+            _compositeToScreen = Post(composite, _swapchain.Format);
+            _compositeToTexture = Post(composite, VkViewTargets.OutputFormat);
+            _antiAliasToScreen = Post(antiAlias, _swapchain.Format);
+            _antiAliasToTexture = Post(antiAlias, VkViewTargets.OutputFormat);
         }
 
         public void Resize(int width, int height)
@@ -467,25 +441,23 @@ namespace Vertex.Rendering.Vulkan
 
             VkImageResource output;
             VkViewTargets views;
-            Pipeline composite;
-            if (frame.Target != null)
+            bool toScreen = frame.Target == null;
+            if (!toScreen)
             {
-                VkRenderTarget target = GetRenderTarget(frame.Target);
+                VkRenderTarget target = GetRenderTarget(frame.Target!);
                 output = target.Color;
                 views = target.Views;
-                composite = _compositeToTexture;
             }
             else
             {
                 output = _swapchain.Images[_imageIndex];
                 views = _screenViews;
-                composite = _compositeToScreen;
                 _screenDrawn = true;
             }
 
             // The screen's image waits for the swapchain to hand it over (the submit waits at colour output for that);
             // a render texture waits for anything still reading what it showed before.
-            Stage outputAfter = frame.Target == null ? new Stage(PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.None) : Stage.FragmentRead;
+            Stage outputAfter = toScreen ? new Stage(PipelineStageFlags2.ColorAttachmentOutputBit, AccessFlags2.None) : Stage.FragmentRead;
 
             // The view is drawn at the frame's size, but the swapchain's images can come out a slightly different size
             // than the window asked for; the finished picture is stretched to whatever the output really is.
@@ -493,32 +465,60 @@ namespace Vertex.Rendering.Vulkan
 
             if (frame.HasCamera)
             {
-                bool shadows = frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < VkShaderSources.MaxDirectionalLights &&
+                bool shadows = frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < ShaderLibrary.MaxDirectionalLights &&
                                frame.ShadowLightIndex < frame.DirectionalLights.Count;
                 if (shadows) DrawShadows(commands, frame);
 
-                DescriptorSet frameSet = WriteFrameData(frame, shadows);
+                FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? _cascades : null);
+                DescriptorSet frameSet = WriteFrameData(in uniforms);
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
-                DrawScene(commands, frame, views, frameSet);
-                Bloom(commands, frame, views);
+                DrawScene(commands, frame, views, frameSet, in uniforms);
 
-                _context.Transition(commands, output, ImageLayout.ColorAttachmentOptimal, outputAfter, Stage.ColorOutput, discard: true);
-                VkPipelines.BeginRendering(_context, commands, outputWidth, outputHeight, [(output, (ClearColorValue?)null)]);
-                Composite(commands, frame, views, composite, outputWidth, outputHeight);
+                EnvironmentData environment = frame.Environment;
+                PostUniforms post = PostUniforms.ForView(frame);
+                bool occlusion = environment.AmbientOcclusion > 0f;
+                if (occlusion) Occlusion(commands, views, post);
+                bool bloom = Bloom(commands, frame, views, post);
+
+                post.Occlusion = occlusion ? environment.AmbientOcclusion : 0f;
+                post.BloomStrength = bloom ? PostUniforms.BloomScale(frame.Bloom, views.BloomLevels.Count) : 0f;
+                VkImageResource bloomImage = bloom ? views.BloomLevels[0] : _white.Image;
+                VkImageResource occlusionImage = occlusion ? views.Occlusion! : _white.Image;
+
+                if (environment.AntiAliasing)
+                {
+                    // Finished into an image of its own first, which the anti-aliasing reads to smooth into the output.
+                    RunPost(commands, _compositeToTexture, views.Finished!, post, views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
+
+                    post.TexelSize = new Vector2(1f / views.Finished!.Width, 1f / views.Finished.Height);
+                    BeginOutput(commands, output, outputAfter, null);
+                    PostDraw(commands, toScreen ? _antiAliasToScreen : _antiAliasToTexture, outputWidth, outputHeight, post, views.Finished);
+                }
+                else
+                {
+                    BeginOutput(commands, output, outputAfter, null);
+                    PostDraw(commands, toScreen ? _compositeToScreen : _compositeToTexture, outputWidth, outputHeight, post,
+                        views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
+                }
             }
             else
             {
                 Color clear = frame.ClearColor;
-                _context.Transition(commands, output, ImageLayout.ColorAttachmentOptimal, outputAfter, Stage.ColorOutput, discard: true);
-                VkPipelines.BeginRendering(_context, commands, outputWidth, outputHeight, [(output, new ClearColorValue(clear.R, clear.G, clear.B, clear.A))]);
+                BeginOutput(commands, output, outputAfter, new ClearColorValue(clear.R, clear.G, clear.B, clear.A));
             }
 
             // The 2D layer goes on top of the screen, camera or not.
-            if (frame.Target == null) DrawCanvas(commands, frame, outputWidth, outputHeight);
+            if (toScreen) DrawCanvas(commands, frame, outputWidth, outputHeight);
             _context.Vk.CmdEndRendering(commands);
 
-            if (frame.Target != null)
+            if (!toScreen)
                 _context.Transition(commands, output, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+        }
+
+        private void BeginOutput(CommandBuffer commands, VkImageResource output, Stage after, ClearColorValue? clear)
+        {
+            _context.Transition(commands, output, ImageLayout.ColorAttachmentOptimal, after, Stage.ColorOutput, discard: true);
+            VkPipelines.BeginRendering(_context, commands, output.Width, output.Height, [(output, clear)]);
         }
 
         public void EndFrame()
@@ -593,6 +593,7 @@ namespace Vertex.Rendering.Vulkan
             {
                 GetMesh(commands, draws[i].Mesh);
                 if (draws[i].Material.Texture is { } texture) GetTexture(commands, texture);
+                if (draws[i].Material.NormalMap is { } normalMap) GetTexture(commands, normalMap);
             }
 
             foreach (CanvasQuad quad in frame.CanvasQuads)
@@ -694,7 +695,7 @@ namespace Vertex.Rendering.Vulkan
         // Black until a camera first draws into it, rather than whatever the GPU's memory held.
         private VkImageResource CreateRenderTargetImage(CommandBuffer commands, RenderTexture texture)
         {
-            VkImageResource color = _context.CreateImage(texture.Width, texture.Height, VkViewTargets.ColorFormat,
+            VkImageResource color = _context.CreateImage(texture.Width, texture.Height, VkViewTargets.OutputFormat,
                 ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit);
 
             _context.Transition(commands, color, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
@@ -757,40 +758,45 @@ namespace Vertex.Rendering.Vulkan
             else _frame.DeleteLater(() => staging.Destroy(_context));
         }
 
+        /// <summary>The sun's view of everything that casts shadows, into each cascade in turn (see <see cref="ShadowCascades"/>).</summary>
         private void DrawShadows(CommandBuffer commands, RenderFrame frame)
         {
-            Vector3 sunDirection = Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction);
-            _shadowMap.Place(frame.CameraPosition, frame.CameraForward, sunDirection, frame.ShadowDistance);
+            _cascades.Place(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction));
 
-            // Whatever read the shadow map last (an earlier view, or last frame) finishes before it's drawn again.
-            _context.Transition(commands, _shadowMap.Image, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput, discard: true);
-            VkPipelines.BeginRendering(_context, commands, VkShadowMap.Size, VkShadowMap.Size, [], _shadowMap.Image);
-            VkPipelines.SetViewport(_context, commands, VkShadowMap.Size, VkShadowMap.Size, flipped: true);
-            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
+            // Whatever read the shadow maps last (an earlier view, or last frame) finishes before they're drawn again.
+            _context.Transition(commands, _shadowMaps.Array, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput, discard: true);
 
-            Matrix4x4 lightSpace = _shadowMap.LightSpace;
-            Mesh? currentMesh = null;
             IReadOnlyList<DrawCall> draws = frame.DrawCalls;
-            for (int i = 0; i < draws.Count; i++)
+            for (int cascade = 0; cascade < ShadowCascades.Count; cascade++)
             {
-                DrawCall draw = draws[i];
-                if (!draw.CastShadows) continue;
+                VkPipelines.BeginRendering(_context, commands, ShadowCascades.Size, ShadowCascades.Size, [], _shadowMaps.Layers[cascade]);
+                VkPipelines.SetViewport(_context, commands, ShadowCascades.Size, ShadowCascades.Size, flipped: true);
+                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
 
-                Matrix4x4 lightModel = draw.WorldMatrix * lightSpace;
-                _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
-
-                VkMesh mesh = _meshes.TryGetValue(draw.Mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
-                if (draw.Mesh != currentMesh)
+                Matrix4x4 lightSpace = _cascades.Matrices[cascade];
+                Mesh? currentMesh = null;
+                for (int i = 0; i < draws.Count; i++)
                 {
-                    BindMesh(commands, mesh);
-                    currentMesh = draw.Mesh;
+                    DrawCall draw = draws[i];
+                    if (!draw.CastShadows) continue;
+
+                    Matrix4x4 lightModel = draw.WorldMatrix * lightSpace;
+                    _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
+
+                    VkMesh mesh = _meshes.TryGetValue(draw.Mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
+                    if (draw.Mesh != currentMesh)
+                    {
+                        BindMesh(commands, mesh);
+                        currentMesh = draw.Mesh;
+                    }
+
+                    _context.Vk.CmdDrawIndexed(commands, mesh.IndexCount, 1, 0, 0, 0);
                 }
 
-                _context.Vk.CmdDrawIndexed(commands, mesh.IndexCount, 1, 0, 0, 0);
+                _context.Vk.CmdEndRendering(commands);
             }
 
-            _context.Vk.CmdEndRendering(commands);
-            _context.Transition(commands, _shadowMap.Image, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
+            _context.Transition(commands, _shadowMaps.Array, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
         }
 
         private void BindMesh(CommandBuffer commands, VkMesh mesh)
@@ -801,56 +807,12 @@ namespace Vertex.Rendering.Vulkan
             _context.Vk.CmdBindIndexBuffer(commands, buffer, mesh.IndexOffset, IndexType.Uint32);
         }
 
-        /// <summary>The view's uniforms: camera, lights, sky, fog and shadow, as <see cref="VkShaderSources"/>' FrameData.</summary>
-        private DescriptorSet WriteFrameData(RenderFrame frame, bool shadows)
+        private DescriptorSet WriteFrameData(in FrameUniforms data)
         {
-            EnvironmentData environment = frame.Environment;
-            Matrix4x4.Invert(frame.ViewMatrix * frame.ProjectionMatrix, out Matrix4x4 inverseViewProjection);
-            Color fog = environment.DrawSky ? environment.HorizonColor : frame.ClearColor;
-
-            var data = new FrameData
-            {
-                View = frame.ViewMatrix,
-                Projection = frame.ProjectionMatrix,
-                LightSpace = _shadowMap.LightSpace,
-                InverseViewProjection = inverseViewProjection,
-                CameraPosition = new Vector4(frame.CameraPosition, 1f),
-                SkyColor = ToVector(environment.SkyColor, environment.AmbientIntensity),
-                HorizonColor = ToVector(environment.HorizonColor, environment.FogDensity),
-                GroundColor = ToVector(environment.GroundColor, environment.Exposure),
-                FogColor = ToVector(fog, environment.CelShading),
-                Shadow = new Vector4(1f / VkShadowMap.Size, _shadowMap.TexelWorldSize * 1.5f, shadows ? frame.ShadowLightIndex : -1, 0f)
-            };
-
-            // The sun is drawn where the shadow-casting light (or else the first directional light) comes from.
-            int sun = frame.ShadowLightIndex >= 0 ? frame.ShadowLightIndex : 0;
-            if (frame.DirectionalLights.Count > sun)
-            {
-                DirectionalLightData light = frame.DirectionalLights[sun];
-                data.SunDirection = new Vector4(-Vector3.Normalize(light.Direction), 1f);
-                data.SunColor = ToVector(light.Color, 1f);
-            }
-
-            data.DirectionalCount = Math.Min(frame.DirectionalLights.Count, VkShaderSources.MaxDirectionalLights);
-            for (int i = 0; i < data.DirectionalCount; i++)
-            {
-                DirectionalLightData light = frame.DirectionalLights[i];
-                data.DirectionalDirection[i] = new Vector4(light.Direction, 0f);
-                data.DirectionalColor[i] = ToVector(light.Color, 1f);
-            }
-
-            data.PointCount = Math.Min(frame.PointLights.Count, VkShaderSources.MaxPointLights);
-            for (int i = 0; i < data.PointCount; i++)
-            {
-                PointLightData light = frame.PointLights[i];
-                data.PointPositionRange[i] = new Vector4(light.Position, light.Range);
-                data.PointColor[i] = ToVector(light.Color, 1f);
-            }
-
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write(in data);
             DescriptorSet set = _frame.Descriptors.Allocate(_frameSetLayout);
-            VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(FrameData));
-            VkDescriptors.WriteImage(_context, set, 1, _shadowMap.Image.View, _shadowSampler);
+            VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(FrameUniforms));
+            VkDescriptors.WriteImage(_context, set, 1, _shadowMaps.Array.View, _shadowSampler);
             return set;
         }
 
@@ -858,31 +820,26 @@ namespace Vertex.Rendering.Vulkan
         {
             if (_materialSets.TryGetValue(material, out DescriptorSet set)) return set;
 
-            var data = new MaterialData
-            {
-                Color = ToVector(material.Color, material.Color.A),
-                Emission = ToVector(material.Emission, material.EmissionStrength),
-                Params = new Vector4(material.Specular, material.Shininess, material.Texture != null ? 1f : 0f, 0f)
-            };
-
+            MaterialUniforms data = MaterialUniforms.Create(material);
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write(in data);
             set = _frame.Descriptors.Allocate(_materialSetLayout);
-            VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(MaterialData));
+            VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(MaterialUniforms));
             VkDescriptors.WriteImage(_context, set, 1, TextureImage(material.Texture).View, _repeatSampler);
+            VkDescriptors.WriteImage(_context, set, 2, TextureImage(material.NormalMap).View, _repeatSampler);
             _materialSets.Add(material, set);
             return set;
         }
 
-        private void DrawScene(CommandBuffer commands, RenderFrame frame, VkViewTargets views, DescriptorSet frameSet)
+        private void DrawScene(CommandBuffer commands, RenderFrame frame, VkViewTargets views, DescriptorSet frameSet, in FrameUniforms uniforms)
         {
-            // Whatever read these last (the previous composite) finishes first; what was in them doesn't matter.
+            // Whatever read these last (the previous view's post passes) finishes first; what was in them doesn't matter.
             _context.Transition(commands, views.Color!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
-            _context.Transition(commands, views.Glow!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
+            _context.Transition(commands, views.Ambient!, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
             _context.Transition(commands, views.Depth!, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput, discard: true);
 
-            Color clear = frame.Environment.DrawSky ? frame.Environment.HorizonColor : frame.ClearColor;
+            Vector4 clear = uniforms.ClearColor;
             VkPipelines.BeginRendering(_context, commands, frame.Width, frame.Height,
-                [(views.Color!, new ClearColorValue(clear.R, clear.G, clear.B, clear.A)), (views.Glow!, new ClearColorValue(0f, 0f, 0f, 0f))],
+                [(views.Color!, new ClearColorValue(clear.X, clear.Y, clear.Z, 1f)), (views.Ambient!, new ClearColorValue(0f, 0f, 0f, 0f))],
                 views.Depth);
             VkPipelines.SetViewport(_context, commands, frame.Width, frame.Height, flipped: true);
             _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 0, 1, &frameSet, 0, null);
@@ -925,7 +882,6 @@ namespace Vertex.Rendering.Vulkan
                     currentMesh = draw.Mesh;
                 }
 
-                // Only lighting needs the normals turned to match.
                 Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
                 var constants = new DrawConstants { Model = draw.WorldMatrix, NormalMatrix = Matrix4x4.Transpose(inverseModel) };
                 _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(DrawConstants), &constants);
@@ -946,7 +902,7 @@ namespace Vertex.Rendering.Vulkan
             _context.Vk.CmdEndRendering(commands);
 
             _context.Transition(commands, views.Color!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
-            _context.Transition(commands, views.Glow!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+            _context.Transition(commands, views.Ambient!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
             _context.Transition(commands, views.Depth!, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
         }
 
@@ -1020,70 +976,75 @@ namespace Vertex.Rendering.Vulkan
             offset += _particleFloats;
         }
 
-        /// <summary>Blurs the glow: halved again and again, then built back up, each size adding onto the next.</summary>
-        private void Bloom(CommandBuffer commands, RenderFrame frame, VkViewTargets views)
+        /// <summary>Ambient occlusion from the depth, then blurred across and down (see <see cref="ShaderLibrary.OcclusionFragment"/>).</summary>
+        private void Occlusion(CommandBuffer commands, VkViewTargets views, PostUniforms post)
         {
-            if (frame.Bloom <= 0f || views.BloomLevels.Count == 0) return;
+            post.TexelSize = new Vector2(1f / views.Width, 1f / views.Height);
+            RunPost(commands, _occlusion, views.Occlusion!, post, _white.Image, depth: views.Depth);
 
-            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _bloomDown);
-            VkImageResource source = views.Glow!;
+            post.Direction = Vector2.UnitX;
+            RunPost(commands, _occlusionBlur, views.OcclusionBlur!, post, views.Occlusion!, depth: views.Depth);
+            post.Direction = Vector2.UnitY;
+            RunPost(commands, _occlusionBlur, views.Occlusion!, post, views.OcclusionBlur!, depth: views.Depth);
+        }
+
+        /// <summary>
+        /// Blurs what's brighter than white: halved again and again (the first step keeps only the bright parts), then
+        /// built back up, each size adding onto the next. False if there's no bloom this view.
+        /// </summary>
+        private bool Bloom(CommandBuffer commands, RenderFrame frame, VkViewTargets views, PostUniforms post)
+        {
+            if (frame.Bloom <= 0f || views.BloomLevels.Count == 0) return false;
+
+            VkImageResource source = views.Color!;
+            post.Threshold = PostUniforms.BloomThreshold;
             foreach (VkImageResource level in views.BloomLevels)
             {
-                _context.Transition(commands, level, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
-                VkPipelines.BeginRendering(_context, commands, level.Width, level.Height, [(level, (ClearColorValue?)null)]);
-                PostPass(commands, level.Width, level.Height, source, source, source,
-                    new PostConstants { TexelSize = new Vector2(1f / source.Width, 1f / source.Height) });
-                _context.Vk.CmdEndRendering(commands);
-                _context.Transition(commands, level, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+                post.TexelSize = new Vector2(1f / source.Width, 1f / source.Height);
+                RunPost(commands, _bloomDown, level, post, source);
                 source = level;
+                post.Threshold = 0f;
             }
 
-            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _bloomUp);
             for (int i = views.BloomLevels.Count - 1; i > 0; i--)
             {
                 VkImageResource smaller = views.BloomLevels[i];
-                VkImageResource target = views.BloomLevels[i - 1];
+                post.TexelSize = new Vector2(1f / smaller.Width, 1f / smaller.Height);
 
                 // Added onto what the way down left there, so it's kept.
-                _context.Transition(commands, target, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput);
-                VkPipelines.BeginRendering(_context, commands, target.Width, target.Height, [(target, (ClearColorValue?)null)]);
-                PostPass(commands, target.Width, target.Height, smaller, smaller, smaller,
-                    new PostConstants { TexelSize = new Vector2(1f / smaller.Width, 1f / smaller.Height) });
-                _context.Vk.CmdEndRendering(commands);
-                _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+                RunPost(commands, _bloomUp, views.BloomLevels[i - 1], post, smaller, keep: true);
             }
+
+            return true;
         }
 
-        /// <summary>The finished view, with outlines and bloom, into whatever rendering has begun.</summary>
-        private void Composite(CommandBuffer commands, RenderFrame frame, VkViewTargets views, Pipeline pipeline, int outputWidth, int outputHeight)
+        /// <summary>One post pass into <paramref name="target"/>, which is then ready to be read by the next.</summary>
+        private void RunPost(CommandBuffer commands, Pipeline pipeline, VkImageResource target, in PostUniforms post, VkImageResource source,
+            VkImageResource? bloom = null, VkImageResource? depth = null, VkImageResource? occlusion = null, VkImageResource? ambient = null,
+            bool keep = false)
         {
-            bool bloom = frame.Bloom > 0f && views.BloomLevels.Count > 0;
-            Matrix4x4 projection = frame.ProjectionMatrix;
-
-            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
-            PostPass(commands, outputWidth, outputHeight, views.Color!, bloom ? views.BloomLevels[0] : views.Glow!, views.Depth!, new PostConstants
-            {
-                // Each level adds the glow once more, so share the strength between them.
-                BloomStrength = bloom ? frame.Bloom * 3.5f / views.BloomLevels.Count : 0f,
-                Outlines = frame.Environment.Outlines,
-                ProjectionZ = projection.M33,
-                ProjectionW = projection.M43,
-                // One pixel wide at 720 lines, wider on bigger screens.
-                OutlineStep = new Vector2(1f / frame.Width, 1f / frame.Height) * MathF.Max(1f, MathF.Round(frame.Height / 720f))
-            });
+            _context.Transition(commands, target, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: !keep);
+            VkPipelines.BeginRendering(_context, commands, target.Width, target.Height, [(target, (ClearColorValue?)null)]);
+            PostDraw(commands, pipeline, target.Width, target.Height, post, source, bloom, depth, occlusion, ambient);
+            _context.Vk.CmdEndRendering(commands);
+            _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
         }
 
-        private void PostPass(CommandBuffer commands, int width, int height, VkImageResource source, VkImageResource bloom, VkImageResource depth,
-            PostConstants constants)
+        /// <summary>Draws a post pass into whatever rendering has begun. Images it doesn't need are left as white.</summary>
+        private void PostDraw(CommandBuffer commands, Pipeline pipeline, int width, int height, PostUniforms post, VkImageResource source,
+            VkImageResource? bloom = null, VkImageResource? depth = null, VkImageResource? occlusion = null, VkImageResource? ambient = null)
         {
             DescriptorSet set = _frame.Descriptors.Allocate(_postSetLayout);
             VkDescriptors.WriteImage(_context, set, 0, source.View, _clampSampler);
-            VkDescriptors.WriteImage(_context, set, 1, bloom.View, _clampSampler);
-            VkDescriptors.WriteImage(_context, set, 2, depth.View, _clampSampler);
+            VkDescriptors.WriteImage(_context, set, 1, (bloom ?? _white.Image).View, _clampSampler);
+            VkDescriptors.WriteImage(_context, set, 2, (depth ?? _white.Image).View, _clampSampler);
+            VkDescriptors.WriteImage(_context, set, 3, (occlusion ?? _white.Image).View, _clampSampler);
+            VkDescriptors.WriteImage(_context, set, 4, (ambient ?? _white.Image).View, _clampSampler);
 
+            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
             VkPipelines.SetViewport(_context, commands, width, height, flipped: false);
             _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _postLayout, 0, 1, &set, 0, null);
-            _context.Vk.CmdPushConstants(commands, _postLayout, ShaderStageFlags.FragmentBit, 0, (uint)sizeof(PostConstants), &constants);
+            _context.Vk.CmdPushConstants(commands, _postLayout, ShaderStageFlags.FragmentBit, 0, (uint)sizeof(PostUniforms), &post);
             _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
         }
 
@@ -1159,8 +1120,6 @@ namespace Vertex.Rendering.Vulkan
             vertex++;
         }
 
-        private static Vector4 ToVector(Color color, float w) => new(color.R, color.G, color.B, w);
-
         private void OnMeshDisposed(Mesh mesh)
         {
             if (!_meshes.TryGetValue(mesh, out VkMesh? gpu)) return;
@@ -1205,12 +1164,16 @@ namespace Vertex.Rendering.Vulkan
             _renderTargets.Clear();
 
             _screenViews.Release(delete => delete());
-            _shadowMap.Image.Destroy(_context);
+            _shadowMaps.Destroy(_context);
             _white.Image.Destroy(_context);
             _gpuParticlePool.Dispose();
 
-            foreach (Pipeline pipeline in new[] { _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp, _compositeToScreen, _compositeToTexture })
-                _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
+            Pipeline[] pipelines =
+            [
+                _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
+                _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture
+            ];
+            foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
             foreach (ShaderModule shader in _shaders) _context.Vk.DestroyShaderModule(_context.Device, shader, null);
             foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _postLayout })
                 _context.Vk.DestroyPipelineLayout(_context.Device, layout, null);

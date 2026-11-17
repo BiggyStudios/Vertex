@@ -2,6 +2,8 @@ using System.Numerics;
 
 using Silk.NET.OpenGL;
 
+using Vertex.Rendering.Shaders;
+
 namespace Vertex.Rendering.OpenGL
 {
     /// <summary>
@@ -21,7 +23,8 @@ namespace Vertex.Rendering.OpenGL
         public GLParticles(GL gl)
         {
             _gl = gl;
-            _shader = new GLShader(gl, GLShaderSources.ParticleVertex, GLShaderSources.ParticleFragment);
+            _shader = GLShader.FromLibrary(gl, ShaderLibrary.ParticleVertex, ShaderLibrary.ParticleFragment);
+            _shader.BindBlock("FrameData", 0);
 
             _vao = gl.GenVertexArray();
             gl.BindVertexArray(_vao);
@@ -90,13 +93,8 @@ namespace Vertex.Rendering.OpenGL
                 AddVertex(ref offset, p - x + y, -1f, 1f, particle);
             }
 
-            EnvironmentData environment = frame.Environment;
+            // Camera and fog come from the frame's uniform block, already bound.
             _shader.Use();
-            _shader.SetMatrix4("uView", frame.ViewMatrix);
-            _shader.SetMatrix4("uProjection", frame.ProjectionMatrix);
-            _shader.SetVector3("uCameraPosition", frame.CameraPosition);
-            _shader.SetFloat("uFogDensity", environment.FogDensity);
-            _shader.SetColor3("uFogColor", environment.DrawSky ? environment.HorizonColor : frame.ClearColor);
 
             _gl.Enable(EnableCap.Blend);
             _gl.BlendFunc(BlendingFactor.One, BlendingFactor.OneMinusSrcAlpha);

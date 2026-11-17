@@ -114,12 +114,11 @@ namespace Vertex.Rendering
             if (target == null) _frame.CanvasQuadList.AddRange(UI.Canvas.ReadyQuads);
 
             Lighting lighting = scene.Lighting;
-            _frame.Environment = new EnvironmentData(lighting.SkyColor, lighting.HorizonColor, lighting.GroundColor,
-                lighting.AmbientIntensity, lighting.FogDensity, lighting.Exposure, lighting.DrawSky, Math.Clamp(lighting.CelShading, 0f, 1f),
-                Math.Clamp(lighting.Outlines, 0f, 1f));
+            _frame.Environment = EnvironmentData.From(lighting);
             _frame.ShadowDistance = lighting.ShadowDistance;
             _frame.ShadowLightIndex = -1;
-            _frame.Bloom = lighting.Bloom;
+            _frame.Bloom = MathF.Max(lighting.Bloom, 0f);
+            _frame.Time = Time.TotalTime;
 
             _frame.ClearColor = camera?.ClearColor ?? Color.Black;
             _frame.HasCamera = camera != null && width > 0 && height > 0;

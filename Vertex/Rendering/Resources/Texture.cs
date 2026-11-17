@@ -76,6 +76,38 @@ namespace Vertex.Rendering
         }
 
         /// <summary>
+        /// A normal map (see <see cref="Material.NormalMap"/>) from a height map: brighter is higher, by its red channel.
+        /// Light catches the slopes between high and low as if they were really there. <paramref name="strength"/> is
+        /// how steep they look. The map repeats at its edges, so it tiles if the height map does.
+        /// </summary>
+        public static Texture CreateNormalMap(Texture heightMap, float strength = 2f)
+        {
+            int width = heightMap.Width, height = heightMap.Height;
+            byte[] heights = heightMap.Pixels;
+            float Height(int x, int y) => heights[(((y + height) % height) * width + (x + width) % width) * 4] / 255f;
+
+            byte[] pixels = new byte[width * height * 4];
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    // How the height changes across (u) and down (v, the way the rows go), and the surface tilted to match.
+                    float slopeU = (Height(x + 1, y) - Height(x - 1, y)) * strength;
+                    float slopeV = (Height(x, y + 1) - Height(x, y - 1)) * strength;
+                    var normal = System.Numerics.Vector3.Normalize(new System.Numerics.Vector3(-slopeU, -slopeV, 1f));
+
+                    int i = (y * width + x) * 4;
+                    pixels[i] = (byte)MathF.Round((normal.X * 0.5f + 0.5f) * 255f);
+                    pixels[i + 1] = (byte)MathF.Round((normal.Y * 0.5f + 0.5f) * 255f);
+                    pixels[i + 2] = (byte)MathF.Round((normal.Z * 0.5f + 0.5f) * 255f);
+                    pixels[i + 3] = 255;
+                }
+            }
+
+            return new Texture(width, height, pixels);
+        }
+
+        /// <summary>
         /// Replaces a rectangle of pixels (RGBA, top row first). The renderer re-uploads the texture before it's next drawn.
         /// </summary>
         public void SetPixels(int x, int y, int width, int height, ReadOnlySpan<byte> rgbaPixels)

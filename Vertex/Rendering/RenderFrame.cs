@@ -6,8 +6,44 @@ namespace Vertex.Rendering
     public readonly record struct DrawCall(Mesh Mesh, Material Material, Matrix4x4 WorldMatrix, bool CastShadows);
 
     /// <summary>The scene's <see cref="Rendering.Lighting"/> settings for this frame. Colours are as authored (sRGB).</summary>
-    public readonly record struct EnvironmentData(Color SkyColor, Color HorizonColor, Color GroundColor,
-        float AmbientIntensity, float FogDensity, float Exposure, bool DrawSky, float CelShading = 0f, float Outlines = 0f);
+    public readonly record struct EnvironmentData
+    {
+        public SkyStyle Sky { get; init; }
+        public Color SkyColor { get; init; }
+        public Color HorizonColor { get; init; }
+        public Color GroundColor { get; init; }
+        public float CloudCover { get; init; }
+        public float AmbientIntensity { get; init; }
+        public float FogDensity { get; init; }
+        public float Exposure { get; init; }
+        public bool DrawSky { get; init; }
+        public float CelShading { get; init; }
+        public float Outlines { get; init; }
+        public float AmbientOcclusion { get; init; }
+        public float AmbientOcclusionRadius { get; init; }
+        public bool AntiAliasing { get; init; }
+        public float Vignette { get; init; }
+
+        /// <summary>A snapshot of <paramref name="lighting"/>, with its settings kept in range.</summary>
+        public static EnvironmentData From(Lighting lighting) => new()
+        {
+            Sky = lighting.Sky,
+            SkyColor = lighting.SkyColor,
+            HorizonColor = lighting.HorizonColor,
+            GroundColor = lighting.GroundColor,
+            CloudCover = Math.Clamp(lighting.CloudCover, 0f, 1f),
+            AmbientIntensity = MathF.Max(lighting.AmbientIntensity, 0f),
+            FogDensity = MathF.Max(lighting.FogDensity, 0f),
+            Exposure = MathF.Max(lighting.Exposure, 0f),
+            DrawSky = lighting.DrawSky,
+            CelShading = Math.Clamp(lighting.CelShading, 0f, 1f),
+            Outlines = Math.Clamp(lighting.Outlines, 0f, 1f),
+            AmbientOcclusion = Math.Clamp(lighting.AmbientOcclusion, 0f, 1f),
+            AmbientOcclusionRadius = MathF.Max(lighting.AmbientOcclusionRadius, 0.01f),
+            AntiAliasing = lighting.AntiAliasing,
+            Vignette = Math.Clamp(lighting.Vignette, 0f, 1f)
+        };
+    }
 
     /// <summary>A directional light. Color already includes intensity.</summary>
     public readonly record struct DirectionalLightData(Vector3 Direction, Color Color);
@@ -77,6 +113,9 @@ namespace Vertex.Rendering
 
         public Vector3 CameraPosition { get; internal set; }
         public Vector3 CameraForward { get; internal set; }
+
+        /// <summary>Seconds since the game started, for things that move on their own, like clouds.</summary>
+        public float Time { get; internal set; }
 
         public IReadOnlyList<DrawCall> DrawCalls => DrawCallList;
         public IReadOnlyList<DirectionalLightData> DirectionalLights => DirectionalLightList;

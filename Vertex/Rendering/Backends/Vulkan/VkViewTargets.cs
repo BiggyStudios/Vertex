@@ -1,18 +1,22 @@
-using System.Numerics;
-
 using Silk.NET.Vulkan;
+
+using Vertex.Rendering.Shaders;
 
 namespace Vertex.Rendering.Vulkan
 {
     /// <summary>
-    /// The images a view is drawn into before it's finished: the scene's colour, what glows, and depth, then the glow
-    /// halved several times for bloom. One set for the screen and one for each render texture, as they're sized to match.
-    /// Like the OpenGL backend's GLBloom.
+    /// The images a view is drawn through before it's finished: the scene in linear light (half floats, so bright
+    /// things stay bright), the part of it that's soft light from all around (for ambient occlusion to take from), depth,
+    /// the occlusion itself, bloom (the bright parts halved again and again), and the finished picture before anti-aliasing.
+    /// One set for the screen and one for each render texture, as they're sized to match. Like the OpenGL backend's GLViewTargets.
     /// </summary>
     internal sealed class VkViewTargets
     {
-        public const Format ColorFormat = Format.R8G8B8A8Unorm;
-        public const Format GlowFormat = Format.R16G16B16A16Sfloat;
+        public const Format HdrFormat = Format.R16G16B16A16Sfloat;
+        public const Format OcclusionFormat = Format.R8Unorm;
+
+        /// <summary>The finished picture: render textures, and the one anti-aliasing reads.</summary>
+        public const Format OutputFormat = Format.R8G8B8A8Unorm;
 
         // Each one is half the size of the one before, so the last is 1/64 of the view and the glow spreads wide.
         private const int _maxLevels = 6;
@@ -20,8 +24,11 @@ namespace Vertex.Rendering.Vulkan
         private readonly VkContext _context;
 
         public VkImageResource? Color { get; private set; }
-        public VkImageResource? Glow { get; private set; }
+        public VkImageResource? Ambient { get; private set; }
         public VkImageResource? Depth { get; private set; }
+        public VkImageResource? Occlusion { get; private set; }
+        public VkImageResource? OcclusionBlur { get; private set; }
+        public VkImageResource? Finished { get; private set; }
         public List<VkImageResource> BloomLevels { get; } = new();
         public int Width { get; private set; }
         public int Height { get; private set; }
@@ -41,16 +48,19 @@ namespace Vertex.Rendering.Vulkan
             Height = height;
 
             const ImageUsageFlags attachment = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit;
-            Color = _context.CreateImage(width, height, ColorFormat, attachment);
-            Glow = _context.CreateImage(width, height, GlowFormat, attachment);
+            Color = _context.CreateImage(width, height, HdrFormat, attachment);
+            Ambient = _context.CreateImage(width, height, HdrFormat, attachment);
             Depth = _context.CreateImage(width, height, _context.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit);
+            Occlusion = _context.CreateImage(width, height, OcclusionFormat, attachment);
+            OcclusionBlur = _context.CreateImage(width, height, OcclusionFormat, attachment);
+            Finished = _context.CreateImage(width, height, OutputFormat, attachment);
 
             int levelWidth = width, levelHeight = height;
             for (int i = 0; i < _maxLevels; i++)
             {
                 levelWidth = Math.Max(levelWidth / 2, 1);
                 levelHeight = Math.Max(levelHeight / 2, 1);
-                BloomLevels.Add(_context.CreateImage(levelWidth, levelHeight, GlowFormat, attachment));
+                BloomLevels.Add(_context.CreateImage(levelWidth, levelHeight, HdrFormat, attachment));
 
                 if (levelWidth <= 2 || levelHeight <= 2) break;
             }
@@ -59,11 +69,13 @@ namespace Vertex.Rendering.Vulkan
         public void Release(Action<Action> deleteLater)
         {
             var images = new List<VkImageResource>(BloomLevels);
-            if (Color != null) images.Add(Color);
-            if (Glow != null) images.Add(Glow);
-            if (Depth != null) images.Add(Depth);
+            foreach (VkImageResource? image in new[] { Color, Ambient, Depth, Occlusion, OcclusionBlur, Finished })
+            {
+                if (image != null) images.Add(image);
+            }
+
             BloomLevels.Clear();
-            Color = Glow = Depth = null;
+            Color = Ambient = Depth = Occlusion = OcclusionBlur = Finished = null;
             Width = Height = 0;
 
             if (images.Count > 0) deleteLater(() => images.ForEach(image => image.Destroy(_context)));
@@ -71,50 +83,28 @@ namespace Vertex.Rendering.Vulkan
     }
 
     /// <summary>
-    /// Shadows from the sun: the scene's depth drawn from the sun's point of view, covering an area that follows the
-    /// camera. The same placement as the OpenGL backend's GLShadowMap.
+    /// The sun's shadow maps: one depth image array, a layer per cascade (see <see cref="ShadowCascades"/>), read
+    /// whole by the scene shaders and drawn into a layer at a time.
     /// </summary>
-    internal sealed class VkShadowMap
+    internal sealed class VkShadowMaps
     {
-        public const int Size = 2048;
+        public VkImageResource Array { get; }
+        public VkImageResource[] Layers { get; }
 
-        // How far the sun "sees", centred on the shadowed area. Tall enough for the surf map and anything above it.
-        private const float _depthRange = 300f;
-
-        public VkImageResource Image { get; }
-
-        /// <summary>World to shadow-map space, from the last <see cref="Place"/>.</summary>
-        public Matrix4x4 LightSpace { get; private set; }
-
-        /// <summary>The size of one shadow-map pixel in world units, from the last <see cref="Place"/>.</summary>
-        public float TexelWorldSize { get; private set; }
-
-        public VkShadowMap(VkContext context)
+        public VkShadowMaps(VkContext context)
         {
-            Image = context.CreateImage(Size, Size, context.DepthFormat,
-                ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit);
+            Array = context.CreateImage(ShadowCascades.Size, ShadowCascades.Size, context.DepthFormat,
+                ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
+                layers: ShadowCascades.Count);
+
+            Layers = new VkImageResource[ShadowCascades.Count];
+            for (uint i = 0; i < Layers.Length; i++) Layers[i] = context.CreateLayerView(Array, i);
         }
 
-        /// <summary>Works out where the shadowed area is this view: around the camera, a little ahead of it.</summary>
-        public void Place(Vector3 cameraPosition, Vector3 cameraForward, Vector3 sunDirection, float distance)
+        public void Destroy(VkContext context)
         {
-            float halfSize = MathF.Max(distance, 1f);
-            TexelWorldSize = halfSize * 2f / Size;
-
-            Vector3 centre = cameraPosition + (cameraForward with { Y = 0f }) * (halfSize * 0.4f);
-            Vector3 up = MathF.Abs(sunDirection.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
-
-            // Snap the centre to whole shadow-map pixels, so shadow edges don't shimmer as the camera moves.
-            Matrix4x4 rotation = Matrix4x4.CreateLookAt(Vector3.Zero, sunDirection, up);
-            Vector3 local = Vector3.Transform(centre, rotation);
-            local.X = MathF.Round(local.X / TexelWorldSize) * TexelWorldSize;
-            local.Y = MathF.Round(local.Y / TexelWorldSize) * TexelWorldSize;
-            Matrix4x4.Invert(rotation, out Matrix4x4 inverseRotation);
-            centre = Vector3.Transform(local, inverseRotation);
-
-            Matrix4x4 view = Matrix4x4.CreateLookAt(centre - sunDirection * (_depthRange * 0.5f), centre, up);
-            Matrix4x4 projection = Matrix4x4.CreateOrthographic(halfSize * 2f, halfSize * 2f, 0f, _depthRange);
-            LightSpace = view * projection;
+            foreach (VkImageResource layer in Layers) layer.Destroy(context);
+            Array.Destroy(context);
         }
     }
 }
