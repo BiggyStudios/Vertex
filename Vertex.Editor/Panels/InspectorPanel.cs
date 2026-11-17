@@ -61,6 +61,7 @@ namespace Vertex.Editor.Panels
 
             if (_context.Selection.Object is { } selected) y = DrawObject(selected, x, y, width);
             else if (_context.Selection.Scene) y = DrawScene(x, y, width);
+            else if (_context.Selection.Asset is { } asset) y = DrawAsset(asset, x, y, width);
             else DrawNothing(content);
 
             Ui.Opacity = 1f;
@@ -88,6 +89,65 @@ namespace Vertex.Editor.Panels
 
             Lighting lighting = _context.Scene.Lighting;
             return Card(lighting, "Lighting & Sky", Icons.Light, x, y, width, removable: false, body: (cy) => _grid.Draw(lighting, x + 12f, cy, width - 24f));
+        }
+
+        // ---------------------------------------------------------------- An asset
+
+        private readonly Dictionary<string, (int Width, int Height)> _imageSizes = new();
+
+        private float DrawAsset(AssetEntry asset, float x, float y, float width)
+        {
+            var header = new Rect(x, y, width, 30f);
+            AssetsPanel.DrawPicture(asset, header.TakeLeft(30f));
+            Ui.Text(header.CutLeft(40f), asset.Name, Theme.Text, bold: true, size: Theme.TitleSize);
+            y += 34f;
+            Ui.Text(new Rect(x, y, width, 18f), _context.Assets?.Relative(asset.Path) ?? asset.Path, Theme.TextFaint, size: Theme.SmallTextSize);
+            y += 28f;
+
+            switch (asset.Kind)
+            {
+                case AssetKind.Texture:
+                {
+                    var preview = new Rect(x, y, width, width);
+                    Ui.Rect(preview, Theme.Field, 6f);
+                    AssetsPanel.DrawPicture(asset, preview.Shrink(6f));
+                    y += width + 10f;
+
+                    if (!_imageSizes.TryGetValue(asset.Path, out var size))
+                    {
+                        try
+                        {
+                            using FileStream stream = File.OpenRead(asset.Path);
+                            var info = StbImageSharp.ImageInfo.FromStream(stream);
+                            size = info is { } read ? (read.Width, read.Height) : (0, 0);
+                        }
+                        catch (Exception)
+                        {
+                            size = (0, 0);
+                        }
+
+                        _imageSizes[asset.Path] = size;
+                    }
+
+                    Ui.Text(new Rect(x, y, width, 20f), $"{size.Width} × {size.Height} pixels", Theme.TextDim);
+                    y += 26f;
+                    Ui.Text(new Rect(x, y, width, 20f), "Drag onto a texture slot, or onto an object in the scene.", Theme.TextFaint, size: Theme.SmallTextSize);
+                    y += 24f;
+                    break;
+                }
+
+                case AssetKind.Scene:
+                    if (Widgets.Button(Ui.Id("asset.open"), new Rect(x, y, width, 30f), "Open Scene", ButtonStyle.Primary)) _context.OpenScene(asset.Path);
+                    y += 40f;
+                    break;
+
+                case AssetKind.Model:
+                    if (Widgets.Button(Ui.Id("asset.add"), new Rect(x, y, width, 30f), "Add to Scene", ButtonStyle.Primary)) AssetsPanel.AddModel(_context, asset.Path, _context.SpawnPoint);
+                    y += 40f;
+                    break;
+            }
+
+            return y;
         }
 
         // ---------------------------------------------------------------- An object

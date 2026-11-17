@@ -63,3 +63,16 @@ namespace Vertex.Editor.Tests
         }
     }
 }
+
+namespace Vertex.Editor.Tests
+{
+    /// <summary>A script that notes which of its lifecycle methods ran, in order.</summary>
+    public sealed class Recorder : Component
+    {
+        [Vertex.Serialization.DontSave]
+        public List<string> Calls { get; set; } = new();
+
+        protected internal override void Start() => Calls.Add("Start");
+        protected internal override void Update() => Calls.Add("Update");
+    }
+}

@@ -179,6 +179,63 @@ namespace Vertex.Editor.Editing
         private static float Divide(float a, float b) => MathF.Abs(b) > 1e-6f ? a / b : a;
     }
 
+    /// <summary>
+    /// Moving an object to another place in the hierarchy: under <c>newParent</c> (or to the top level), at
+    /// <c>index</c> among what's there. It stays where it is in the world.
+    /// </summary>
+    public sealed class MoveInHierarchy : IUndoable
+    {
+        private readonly Transform _transform;
+        private readonly Transform? _oldParent, _newParent;
+        private readonly int _oldIndex, _newIndex;
+        private readonly (Vector3, Quaternion, Vector3) _oldLocal;
+        private (Vector3, Quaternion, Vector3)? _newLocal;
+
+        public string Name { get; }
+
+        public MoveInHierarchy(GameObject gameObject, Transform? newParent, int index)
+        {
+            _transform = gameObject.Transform;
+            _oldParent = _transform.Parent;
+            _newParent = newParent;
+            _oldIndex = _transform.SiblingIndex;
+            _newIndex = index;
+            _oldLocal = SetPose.Of(_transform);
+            Name = newParent == _oldParent ? $"Reorder {gameObject.Name}" : newParent == null ? $"Unparent {gameObject.Name}" : $"Parent {gameObject.Name} to {newParent.GameObject.Name}";
+        }
+
+        public void Redo()
+        {
+            if (_newParent != _oldParent)
+            {
+                if (_newLocal is { } local)
+                {
+                    _transform.Parent = _newParent;
+                    (_transform.Position, _transform.Rotation, _transform.Scale) = local;
+                }
+                else
+                {
+                    var keep = new Reparent(_transform.GameObject, _newParent);
+                    keep.Redo();
+                    _newLocal = SetPose.Of(_transform);
+                }
+            }
+
+            _transform.SiblingIndex = _newIndex;
+        }
+
+        public void Undo()
+        {
+            if (_newParent != _oldParent)
+            {
+                _transform.Parent = _oldParent;
+                (_transform.Position, _transform.Rotation, _transform.Scale) = _oldLocal;
+            }
+
+            _transform.SiblingIndex = _oldIndex;
+        }
+    }
+
     /// <summary>Several changes as one: undone in reverse order.</summary>
     public sealed class ChangeGroup(string name, IReadOnlyList<IUndoable> changes) : IUndoable
     {

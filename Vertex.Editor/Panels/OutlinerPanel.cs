@@ -30,6 +30,10 @@ namespace Vertex.Editor.Panels
         private Vector2 _pressedAt;
         private GameObject? _dragging;
         private GameObject? _dropTarget;
+
+        // Where on the target it would go: before it, after it, or under it.
+        private enum DropZone { Before, Inside, After }
+        private DropZone _dropZone;
         private bool _dropOnRoot;
 
         // The rows drawn last frame, in order, for the arrow keys.
@@ -51,6 +55,7 @@ namespace Vertex.Editor.Panels
         public OutlinerPanel(EditorContext context)
         {
             _context = context;
+            context.RenameRequested += BeginRename;
         }
 
         public void Draw(Rect rect)
@@ -188,6 +193,9 @@ namespace Vertex.Editor.Panels
             bool selected = _context.Selection.Object == gameObject;
             if (selected) _selectedY = row.Y;
 
+            // Rows scrolled out of sight take their place but aren't drawn: big scenes have thousands.
+            if (Vertex.UI.Canvas.ClipRect is var (clipAt, clipSize) && (row.Bottom < clipAt.Y || row.Y > clipAt.Y + clipSize.Y)) return y + _rowHeight;
+
             float indent = depth * _indent;
             bool hasChildren = gameObject.Transform.Children.Count > 0;
 
@@ -216,10 +224,26 @@ namespace Vertex.Editor.Panels
 
             // Where a dragged object would go.
             bool dropHere = _dragging != null && _dragging != gameObject && row.Contains(Ui.Mouse) && Canvas_InClip() && !IsUnder(gameObject, _dragging);
-            if (dropHere) _dropTarget = gameObject;
+            if (dropHere)
+            {
+                _dropTarget = gameObject;
+                float along = (Ui.Mouse.Y - row.Y) / row.Height;
+                _dropZone = along < 0.28f ? DropZone.Before : along > 0.72f ? DropZone.After : DropZone.Inside;
+            }
 
             if (!selected) HoverBackground(Ui.Id(id, "row"), row, interaction.Hovered && _dragging == null);
-            if (dropHere) Ui.Outline(row, Theme.Accent, 4f, 1.5f);
+            if (dropHere)
+            {
+                // A line between rows to go there, or an outline to go under this one.
+                float lineX = row.X + indent + 16f;
+                if (_dropZone == DropZone.Inside) Ui.Outline(row, Theme.Accent, 4f, 1.5f);
+                else
+                {
+                    float lineY = _dropZone == DropZone.Before ? row.Y : row.Bottom;
+                    Ui.Rect(new Rect(lineX, lineY - 1f, row.Right - lineX, 2f), Theme.Accent, 1f);
+                    Ui.Circle(new Vector2(lineX, lineY), 3f, Theme.Accent);
+                }
+            }
 
             bool active = gameObject.ActiveInHierarchy;
             Color textColor = selected ? Color.White : active ? Theme.Text : Theme.TextFaint;
@@ -300,6 +324,7 @@ namespace Vertex.Editor.Panels
 
         private void BeginRename(GameObject gameObject)
         {
+            for (Transform? parent = gameObject.Transform.Parent; parent != null; parent = parent.Parent) _expanded.Add(parent.GameObject);
             _renaming = gameObject;
             _renameText = gameObject.Name;
             TextInput.Focus(Ui.Id("outliner.rename"), selectAll: true);
@@ -414,8 +439,7 @@ namespace Vertex.Editor.Panels
             {
                 if (_dropTarget != null)
                 {
-                    _context.History.Do(new Reparent(_dragging, _dropTarget.Transform));
-                    _expanded.Add(_dropTarget);
+                    Drop(_dragging, _dropTarget, _dropZone);
                 }
                 else if (_dropOnRoot && _dragging.Transform.Parent != null)
                 {
@@ -425,6 +449,28 @@ namespace Vertex.Editor.Panels
 
             _pressed = null;
             _dragging = null;
+        }
+
+        /// <summary>Puts <paramref name="dragged"/> before, after or under <paramref name="target"/>, keeping where it is in the world.</summary>
+        private void Drop(GameObject dragged, GameObject target, DropZone zone)
+        {
+            Transform? parent = zone == DropZone.Inside ? target.Transform : target.Transform.Parent;
+            int index;
+            if (zone == DropZone.Inside)
+            {
+                index = target.Transform.Children.Count - (dragged.Transform.Parent == target.Transform ? 1 : 0);
+                _expanded.Add(target);
+            }
+            else
+            {
+                // Counted as if the dragged object were already out of the way.
+                index = target.Transform.SiblingIndex;
+                if (dragged.Transform.Parent == parent && dragged.Transform.SiblingIndex < index) index--;
+                if (zone == DropZone.After) index++;
+            }
+
+            if (dragged.Transform.Parent == parent && dragged.Transform.SiblingIndex == index) return;
+            _context.History.Do(new MoveInHierarchy(dragged, parent, index));
         }
 
         /// <summary>Whether <paramref name="gameObject"/> is <paramref name="ancestor"/> or somewhere under it.</summary>

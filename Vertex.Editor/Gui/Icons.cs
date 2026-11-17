@@ -153,10 +153,17 @@ namespace Vertex.Editor.Gui
         /// <summary>A circling arrow: the rotate tool.</summary>
         public static void Rotate(Vector2 centre, float size, Color color)
         {
-            float r = size * 0.3f;
-            Vertex.UI.Canvas.DrawArc(centre, r, -60f, 290f, 1.4f, Ui.Fade(color));
-            Vector2 end = centre + new Vector2(MathF.Cos(-60f * MathF.PI / 180f), MathF.Sin(-60f * MathF.PI / 180f)) * r;
-            Chevron(end + new Vector2(0f, size * 0.02f), size * 0.5f, color, -150f);
+            // Most of a circle, with an arrowhead where it ends pointing on round.
+            float r = size * 0.28f;
+            const float start = -40f, sweep = 270f;
+            Vertex.UI.Canvas.DrawArc(centre, r, start, sweep, 1.5f, Ui.Fade(color));
+
+            float end = (start + sweep) * MathF.PI / 180f;
+            var radial = new Vector2(MathF.Cos(end), MathF.Sin(end));
+            var along = new Vector2(-radial.Y, radial.X);
+            Vector2 at = centre + radial * r;
+            Vertex.UI.Canvas.DrawTriangle(at + along * size * 0.16f, at + radial * size * 0.13f - along * size * 0.02f,
+                at - radial * size * 0.13f - along * size * 0.02f, Ui.Fade(color));
         }
 
         /// <summary>A box with a corner pulled out: the scale tool.</summary>
@@ -203,6 +210,96 @@ namespace Vertex.Editor.Gui
             Ui.Line(centre + new Vector2(-w * 1.25f, -size * 0.22f), centre + new Vector2(w * 1.25f, -size * 0.22f), color, 1.3f);
             Ui.Line(centre + new Vector2(-w * 0.4f, -size * 0.3f), centre + new Vector2(w * 0.4f, -size * 0.3f), color, 1.3f);
             Ui.Outline(new Rect(centre.X - w, centre.Y - size * 0.16f, w * 2f, size * 0.46f), color, 2f, 1.3f);
+        }
+
+        public static void Folder(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.42f, h = size * 0.3f;
+            var body = new Rect(centre.X - w, centre.Y - h * 0.75f, w * 2f, h * 1.85f);
+            Ui.Rect(new Rect(body.X, body.Y - size * 0.1f, w * 0.85f, size * 0.2f), color, 2f);
+            Ui.Rect(body, color, 2.5f);
+        }
+
+        /// <summary>A picture: a frame with a hill and a sun.</summary>
+        public static void Image(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.4f, h = size * 0.32f;
+            Ui.Outline(new Rect(centre.X - w, centre.Y - h, w * 2f, h * 2f), color, 2f, 1.3f);
+            Ui.Line(centre + new Vector2(-w * 0.7f, h * 0.6f), centre + new Vector2(-w * 0.15f, -h * 0.1f), color, 1.3f);
+            Ui.Line(centre + new Vector2(-w * 0.15f, -h * 0.1f), centre + new Vector2(w * 0.7f, h * 0.6f), color, 1.3f);
+            Ui.Circle(centre + new Vector2(w * 0.45f, -h * 0.45f), size * 0.06f, color);
+        }
+
+        /// <summary>A sound wave.</summary>
+        public static void Sound(Vector2 centre, float size, Color color)
+        {
+            float[] heights = [0.3f, 0.65f, 1f, 0.55f, 0.8f, 0.4f];
+            for (int i = 0; i < heights.Length; i++)
+            {
+                float x = centre.X + (i - 2.5f) * size * 0.14f;
+                float h = heights[i] * size * 0.32f;
+                Ui.Line(new Vector2(x, centre.Y - h), new Vector2(x, centre.Y + h), color, 1.6f);
+            }
+        }
+
+        /// <summary>A page with a folded corner: any other file.</summary>
+        public static void File(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.3f, h = size * 0.4f, fold = size * 0.14f;
+            Vector2 tl = centre + new Vector2(-w, -h), tr = centre + new Vector2(w - fold, -h), corner = centre + new Vector2(w, -h + fold);
+            Vector2 br = centre + new Vector2(w, h), bl = centre + new Vector2(-w, h);
+            Ui.Line(tl, tr, color, 1.3f);
+            Ui.Line(tr, corner, color, 1.3f);
+            Ui.Line(corner, br, color, 1.3f);
+            Ui.Line(br, bl, color, 1.3f);
+            Ui.Line(bl, tl, color, 1.3f);
+        }
+
+        public static void Play(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.3f;
+            Vertex.UI.Canvas.DrawTriangle(centre + new Vector2(-h * 0.8f, -h), centre + new Vector2(h * 1.05f, 0f), centre + new Vector2(-h * 0.8f, h), Ui.Fade(color));
+        }
+
+        public static void Pause(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.28f, w = size * 0.1f;
+            Ui.Rect(new Rect(centre.X - w * 2.2f, centre.Y - h, w * 1.6f, h * 2f), color, 1f);
+            Ui.Rect(new Rect(centre.X + w * 0.6f, centre.Y - h, w * 1.6f, h * 2f), color, 1f);
+        }
+
+        public static void Stop(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.25f;
+            Ui.Rect(new Rect(centre.X - h, centre.Y - h, h * 2f, h * 2f), color, 2f);
+        }
+
+        public static void Minimize(Vector2 centre, float size, Color color) =>
+            Ui.Line(centre + new Vector2(-size * 0.28f, 0f), centre + new Vector2(size * 0.28f, 0f), color, 1.2f);
+
+        public static void Maximize(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.26f;
+            Ui.Outline(new Rect(centre.X - h, centre.Y - h, h * 2f, h * 2f), color, 1.5f, 1.2f);
+        }
+
+        /// <summary>Two overlapping windows: restore a maximised window.</summary>
+        public static void Restore(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.21f, o = size * 0.08f;
+            Ui.Outline(new Rect(centre.X - h - o, centre.Y - h + o, h * 2f, h * 2f), color, 1.5f, 1.2f);
+            Ui.Line(centre + new Vector2(-h + o, -h - o), centre + new Vector2(h + o, -h - o), color, 1.2f);
+            Ui.Line(centre + new Vector2(h + o, -h - o), centre + new Vector2(h + o, h - o), color, 1.2f);
+        }
+
+        /// <summary>A horseshoe magnet: snapping.</summary>
+        public static void Magnet(Vector2 centre, float size, Color color)
+        {
+            float r = size * 0.22f;
+            Vertex.UI.Canvas.DrawArc(centre + new Vector2(0f, size * 0.04f), r, 0f, 180f, size * 0.13f, Ui.Fade(color));
+            Vector2 left = centre + new Vector2(-r, size * 0.04f), right = centre + new Vector2(r, size * 0.04f);
+            Ui.Line(left, left - new Vector2(0f, size * 0.3f), color, size * 0.13f);
+            Ui.Line(right, right - new Vector2(0f, size * 0.3f), color, size * 0.13f);
         }
 
         // A ring, thin enough for an icon.

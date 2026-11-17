@@ -152,6 +152,10 @@ namespace Vertex.Editor.Gui
         /// <summary>Draws the overlays (popups, tooltips), then forgets animations no control has asked for in a while.</summary>
         public static void EndFrame()
         {
+            // A dialog first: popups it opens (a dropdown in it) are overlays, drawn after it.
+            _idStack.Clear();
+            Dialog.Draw();
+
             // Overlays can add more overlays (a menu opening a submenu); they go after.
             for (int i = 0; i < _overlays.Count; i++)
             {
@@ -166,6 +170,7 @@ namespace Vertex.Editor.Gui
 
             Menu.Draw();
             DrawTooltip();
+            DragDrop.Update();
             TextInput.Tidy();
 
             if (!InputSystem.GetMouseButton(MouseButton.Left) && !InputSystem.GetMouseButton(MouseButton.Right) &&

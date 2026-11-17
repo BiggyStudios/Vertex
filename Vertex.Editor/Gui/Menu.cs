@@ -246,6 +246,8 @@ namespace Vertex.Editor.Gui
         private static float _openedAt;
         private static int _shownFrame;
 
+        public static bool AnyOpen => _openId != 0 && _shownFrame >= Ui.Frame - 1;
+
         public static bool IsOpen(int id) => _openId == id && (_shownFrame >= Ui.Frame - 1 || _openedAt == Ui.Time);
 
         /// <summary>Opens popup <paramref name="id"/> next to <paramref name="anchor"/> (below it, or above if there's no room).</summary>
@@ -285,10 +287,11 @@ namespace Vertex.Editor.Gui
                 var rect = new Rect(x, y + (1f - shown) * -8f, size.X, size.Y);
 
                 Interaction outside = Ui.Interact(Ui.Id(id, "outside"), new Rect(0f, 0f, Canvas.Width, Canvas.Height));
-                if (outside.Pressed || (InputSystem.GetKeyDown(Key.Escape) && Ui.FocusId == 0))
+                if (outside.Pressed || InputSystem.GetKeyDown(Key.Escape))
                 {
                     InputSystem.Consume(Key.Escape);
                     Close();
+                    Ui.FocusId = 0;
                     return;
                 }
 

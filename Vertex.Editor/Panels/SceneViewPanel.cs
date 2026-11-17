@@ -1,6 +1,8 @@
 using System.Numerics;
 
+using Vertex.Editor.Editing;
 using Vertex.Editor.Gui;
+using Vertex.Editor.Inspection;
 using Vertex.Editor.SceneEditing;
 using Vertex.Input;
 using Vertex.Rendering;
@@ -18,22 +20,37 @@ namespace Vertex.Editor.Panels
         private readonly EditorContext _context;
         private readonly TransformHandles _handles = new();
         private RenderTexture? _texture;
+        private RenderTexture? _gameTexture;
 
         private bool _looking, _panning, _orbiting;
         private bool _pickPending;
         private Vector2 _pressedAt;
         private float _speedChangedAt = -10f;
 
+        // Which tab shows: the editor's view of the scene, or the game's own camera.
+        private bool _gameTab;
+        private bool _wasPlaying;
+
+        // Where the game's picture was last frame, in UI units, to tell clicks in it from clicks elsewhere.
+        private Rect _gameRect;
+        private bool _gameRectShown;
+
+        private const float _tabsHeight = 34f;
+
         public EditorCamera Camera { get; }
 
         /// <summary>Whether the right mouse is held to look and fly, so WASD belong to the camera, not shortcuts.</summary>
         public bool Looking => _looking;
 
-        /// <summary>The picture for the renderer to draw this frame, or null while the view has no room.</summary>
-        public RenderView? View => _texture != null ? new RenderView(Camera.Camera, _texture, ShowGrid) : null;
-
-        /// <summary>Whether the grid on the ground shows. Toggled from the view's toolbar.</summary>
-        public bool ShowGrid { get; set; } = true;
+        /// <summary>The pictures for the renderer to draw this frame: the scene view's, or the game's while its tab shows.</summary>
+        public RenderView[] Views
+        {
+            get
+            {
+                if (_gameTab) return _gameTexture != null && Vertex.Rendering.Camera.Main is { } main ? [new RenderView(main, _gameTexture)] : [];
+                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid)] : [];
+            }
+        }
 
         public SceneViewPanel(EditorContext context)
         {
@@ -41,20 +58,165 @@ namespace Vertex.Editor.Panels
 
             // The camera lives in a scene of the editor's own, which is never run or drawn by itself.
             Camera = new EditorCamera(new Scene());
+            Camera.FlySpeed = context.Preferences.FlySpeed;
+        }
+
+        /// <summary>
+        /// Decides, before anything reads input this frame, whether the game or the editor has it: Shift+F1 gives it back
+        /// to the editor, as does clicking outside the game's picture; clicking the picture gives it to the game.
+        /// </summary>
+        public void RouteInput()
+        {
+            PlayMode play = _context.Play;
+            if (!play.Playing)
+            {
+                play.GameFocused = false;
+                return;
+            }
+
+            bool shift = InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+            if (play.GameFocused && shift && InputSystem.GetKeyDown(Key.F1))
+            {
+                play.GameFocused = false;
+                InputSystem.CursorLocked = false;
+                InputSystem.Consume(Key.F1);
+                _context.Notify("The editor has the mouse: click the game to give it back");
+                return;
+            }
+
+            bool pressed = InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButtonDown(MouseButton.Right);
+            bool inGame = _gameTab && _gameRectShown && _gameRect.Contains(Canvas.MousePosition);
+            if (pressed && !InputSystem.CursorLocked)
+            {
+                if (play.GameFocused && !inGame) play.GameFocused = false;
+                else if (!play.GameFocused && inGame && !Dialog.IsOpen && !Menu.IsAnyOpen) play.GameFocused = true;
+            }
         }
 
         public void Draw(Rect rect)
         {
-            Ui.Rect(rect, Theme.Background, Theme.PanelRadius);
-            Rect viewport = rect;
+            PlayMode play = _context.Play;
 
-            // Drawn into a texture the size of the view, in real pixels.
-            int width = (int)MathF.Round(viewport.Width * Canvas.Scale), height = (int)MathF.Round(viewport.Height * Canvas.Scale);
-            if (width > 0 && height > 0)
+            // Playing shows the game; stopping goes back to the scene.
+            if (play.Playing && !_wasPlaying) _gameTab = true;
+            if (!play.Playing && _wasPlaying) _gameTab = false;
+            _wasPlaying = play.Playing;
+
+            Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);
+            DrawTabs(rect.TakeTop(_tabsHeight));
+            Rect viewport = rect.CutTop(_tabsHeight).Shrink(1f);
+            Ui.Rect(viewport, Theme.Background);
+
+            if (_gameTab) DrawGame(viewport);
+            else DrawScene(viewport);
+
+            // The game runs every frame while playing, whichever tab shows; with the scene showing, its UI goes nowhere.
+            if (play.Playing && !_gameTab) StepGame(viewport, visible: false);
+
+            Color outline = play.Playing ? Theme.Accent.WithAlpha(0.75f) : Theme.Border;
+            Ui.Outline(rect, outline, Theme.PanelRadius, play.Playing ? 1.5f : 1f);
+
+            if (_context.Busy is { } busy) DrawBusy(viewport, busy);
+        }
+
+        private void DrawTabs(Rect tabs)
+        {
+            float x = tabs.X + 8f;
+            foreach ((string name, bool game) in new[] { ("Scene", false), ("Game", true) })
             {
-                if (_texture == null) _texture = new RenderTexture(width, height);
-                else _texture.Resize(width, height);
+                float width = Ui.TextWidth(name) + 40f;
+                var tab = new Rect(x, tabs.Y + 5f, width, tabs.Height - 10f);
+                int id = Ui.Id("viewTab." + name);
+                Interaction interaction = Ui.Interact(id, tab);
+                if (interaction.Clicked) _gameTab = game;
+
+                bool on = _gameTab == game;
+                Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
+                if (game) Icons.Play(new Vector2(tab.X + 15f, tab.Centre.Y), 13f, on ? Theme.AccentText : Theme.TextFaint);
+                else Icons.Cube(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? Theme.AccentText : Theme.TextFaint);
+                Ui.Text(tab.CutLeft(28f), name, on ? Theme.Text : Theme.TextDim);
+                x += width + 4f;
             }
+
+            if (_context.Play.Playing)
+            {
+                PlayMode play = _context.Play;
+                string hint = play.Paused ? "Paused" : play.GameFocused ? "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
+                Ui.Text(tabs.Shrink(12f, 0f), hint, play.Paused ? Theme.AccentText : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+            }
+        }
+
+        // ---------------------------------------------------------------- The game
+
+        private void DrawGame(Rect viewport)
+        {
+            if (!Resize(ref _gameTexture, viewport)) return;
+
+            _gameRect = viewport;
+            _gameRectShown = true;
+
+            if (Vertex.Rendering.Camera.Main == null)
+            {
+                Ui.Text(new Rect(viewport.X, viewport.Centre.Y - 20f, viewport.Width, 20f), "No camera to show the game through", Theme.TextDim, align: 0.5f);
+                Ui.Text(new Rect(viewport.X, viewport.Centre.Y + 2f, viewport.Width, 18f), "Add a Camera component to an object", Theme.TextFaint,
+                    align: 0.5f, size: Theme.SmallTextSize);
+            }
+            else
+            {
+                Canvas.DrawImage(_gameTexture, viewport.Position, viewport.Size, Vector2.Zero, Vector2.One, Color.White);
+            }
+
+            // Clicking the picture gives the game the mouse (see RouteInput); the editor's controls leave it alone.
+            Ui.Block(Ui.Id("gameView"), viewport);
+            if (_context.Play.Playing) StepGame(viewport, visible: true);
+        }
+
+        /// <summary>Runs the game's frame, with its 2D layer drawn into the game's picture as if that were the whole screen.</summary>
+        private void StepGame(Rect viewport, bool visible)
+        {
+            PlayMode play = _context.Play;
+            Vector2 origin = viewport.Position * Canvas.Scale;
+            Canvas.BeginView(origin, Math.Max((int)(viewport.Width * Canvas.Scale), 1), Math.Max((int)(viewport.Height * Canvas.Scale), 1));
+            if (!visible) Canvas.PushClip(new Vector2(-10f), Vector2.Zero);
+
+            bool editorMuted = InputSystem.Muted;
+            InputSystem.Muted = !play.GameFocused;
+            play.Step();
+            InputSystem.Muted = editorMuted;
+
+            Canvas.EndView();
+        }
+
+        private static bool Resize(ref RenderTexture? texture, Rect viewport)
+        {
+            int width = (int)MathF.Round(viewport.Width * Canvas.Scale), height = (int)MathF.Round(viewport.Height * Canvas.Scale);
+            if (width <= 0 || height <= 0) return false;
+
+            if (texture == null) texture = new RenderTexture(width, height);
+            else texture.Resize(width, height);
+            return true;
+        }
+
+        private static void DrawBusy(Rect viewport, string busy)
+        {
+            var chip = new Rect(viewport.Centre.X - 130f, viewport.Y + 16f, 260f, 34f);
+            Ui.Shadow(chip, 17f, 16f, 0.6f);
+            Ui.Rect(chip, Theme.Popup, 17f);
+            Ui.Outline(chip, Theme.BorderStrong, 17f);
+
+            // A spinner: an arc going round.
+            var centre = new Vector2(chip.X + 22f, chip.Centre.Y);
+            Canvas.DrawArc(centre, 7f, Ui.Time * 360f, 270f, 2f, Ui.Fade(Theme.AccentText));
+            Ui.Text(chip.CutLeft(38f), busy, Theme.Text);
+        }
+
+        // ---------------------------------------------------------------- The scene
+
+        private void DrawScene(Rect viewport)
+        {
+            _gameRectShown = false;
+            Resize(ref _texture, viewport);
+            Camera.Smoothing = _context.Preferences.CameraSmoothing;
 
             int id = Ui.Id("sceneView");
             Interaction interaction = Ui.Interact(id, viewport);
@@ -65,8 +227,7 @@ namespace Vertex.Editor.Panels
             _context.SpawnPoint = Round(Camera.Pivot, 0.5f);
 
             // This frame's picture: the renderer draws the views before the 2D layer.
-            if (_texture != null) Canvas.DrawImage(_texture, viewport.Position, viewport.Size, Vector2.Zero, Vector2.One, Color.White, Theme.PanelRadius);
-            Ui.Outline(rect, Theme.Border, Theme.PanelRadius);
+            if (_texture != null) Canvas.DrawImage(_texture, viewport.Position, viewport.Size, Vector2.Zero, Vector2.One, Color.White);
 
             var view = new ViewProjection(Camera, viewport);
             Ui.PushClip(viewport);
@@ -77,8 +238,8 @@ namespace Vertex.Editor.Panels
 
             GameObject? clickedIcon = DrawObjectIcons(view, hovered && !_looking);
 
-            bool mouseFree = hovered && !_looking && !_panning && !_orbiting && !Alt;
-            bool handleTookPress = selected != null && _handles.Draw(selected.Transform, _context.Tool, view, _context.History, mouseFree);
+            bool mouseFree = hovered && !_looking && !_panning && !_orbiting && !Alt && !DragDrop.Dragging;
+            bool handleTookPress = selected != null && _handles.Draw(selected.Transform, _context.Tool, view, _context.History, _context.Snap, mouseFree);
 
             // A click (pressed and let go without dragging) selects what's under it.
             if (mouseFree && Ui.MousePressed() && !handleTookPress)
@@ -95,11 +256,44 @@ namespace Vertex.Editor.Panels
 
             if (!Ui.MouseHeld() && !Ui.MouseReleased()) _pickPending = false;
 
+            HandleDrop(view, viewport);
             Ui.PopClip();
 
             DrawToolbar(viewport);
             DrawAxes(viewport);
             DrawSpeed(viewport);
+        }
+
+        /// <summary>Things dragged in from the assets: a model goes where it's dropped, a texture onto the object it's dropped on.</summary>
+        private void HandleDrop(ViewProjection view, Rect viewport)
+        {
+            if (!DragDrop.Dragging || DragDrop.Payload is not AssetEntry asset || !viewport.Contains(Ui.Mouse)) return;
+
+            (Vector3 origin, Vector3 direction) = view.Ray(Ui.Mouse);
+            var hit = Picking.Pick(_context.Scene, origin, direction);
+
+            if (asset.Kind == AssetKind.Texture && hit is (GameObject target, _) && target.GetComponent<MeshRenderer>() is { } renderer)
+            {
+                DrawSelectionOutline(view, target);
+                if (DragDrop.Dropped)
+                {
+                    Texture texture = Assets.LoadTexture(asset.Path);
+                    SetValue.Apply(_context.History, "Set Texture", renderer.Material, typeof(Material).GetProperty(nameof(Material.Texture))!, texture);
+                    _context.Selection.Select(target);
+                }
+            }
+            else if (asset.Kind == AssetKind.Model && DragDrop.Dropped)
+            {
+                // On whatever's under the mouse, or on the ground, or in front of the camera.
+                Vector3 at = hit is (_, float distance) ? origin + direction * distance
+                    : TransformHandles.PlaneHit(Vector3.Zero, Vector3.UnitY, origin, direction) is Vector3 ground && Vector3.Distance(ground, origin) < 500f ? ground
+                    : origin + direction * 10f;
+                AssetsPanel.AddModel(_context, asset.Path, at);
+            }
+            else if (asset.Kind == AssetKind.Scene && DragDrop.Dropped)
+            {
+                _context.OpenScene(asset.Path);
+            }
         }
 
         private static bool Alt => InputSystem.GetKey(Key.AltLeft) || InputSystem.GetKey(Key.AltRight);
@@ -326,8 +520,8 @@ namespace Vertex.Editor.Panels
 
         private void DrawToolbar(Rect viewport)
         {
-            // Move, turn and scale, and world or local axes, floating in the corner.
-            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 3f * 30f + 8f + 62f + 9f + 30f, 36f);
+            // Move, turn and scale, world or local axes, snapping and the grid, floating in the corner.
+            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 3f * 30f + 8f + 62f + 9f + 30f + 18f + 9f + 30f, 36f);
             Ui.Shadow(bar, 8f, 14f, 0.5f);
             Ui.Rect(bar, Theme.Panel.WithAlpha(0.92f), 8f);
             Ui.Outline(bar, Theme.Border, 8f);
@@ -363,10 +557,35 @@ namespace Vertex.Editor.Panels
                 _handles.Space = local ? HandleSpace.World : HandleSpace.Local;
             }
 
+            // Snapping: the magnet turns it on and off, the arrow beside it opens its steps.
             Ui.Rect(new Rect(space.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
-            var grid = new Rect(space.Right + 9f, bar.Y + 4f, 28f, 28f);
-            if (Widgets.IconButton(Ui.Id("sceneView.grid"), grid, Icons.Grid, ShowGrid ? "Hide the grid" : "Show the grid", selected: ShowGrid)) ShowGrid = !ShowGrid;
+            SnapSettings snap = _context.Snap;
+            var magnet = new Rect(space.Right + 9f, bar.Y + 4f, 28f, 28f);
+            string snapTip = snap.Enabled
+                ? $"Snapping on: {snap.Move:0.##} m, {snap.Rotate:0.#}°, {snap.Scale:0.##} (Ctrl while dragging for free movement)"
+                : "Snapping off (Ctrl while dragging snaps)";
+            if (Widgets.IconButton(Ui.Id("sceneView.snap"), magnet, Icons.Magnet, snapTip, selected: snap.Enabled))
+            {
+                snap.Enabled = !snap.Enabled;
+                _context.Preferences.Save();
+            }
+
+            int snapMenu = Ui.Id("sceneView.snapSettings");
+            var arrow = new Rect(magnet.Right, bar.Y + 4f, 18f, 28f);
+            if (Widgets.IconButton(snapMenu, arrow, (c, s, col) => Icons.Chevron(c, s, col, 90f), "Snapping steps")) Popup.Open(snapMenu, arrow);
+            Popup.Show(snapMenu, new Vector2(320f, 136f), inner => _snapGrid.Draw(snap, inner.X, inner.Y, inner.Width));
+
+            Ui.Rect(new Rect(arrow.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
+            var grid = new Rect(arrow.Right + 9f, bar.Y + 4f, 28f, 28f);
+            bool showGrid = _context.Preferences.ShowGrid;
+            if (Widgets.IconButton(Ui.Id("sceneView.grid"), grid, Icons.Grid, showGrid ? "Hide the grid" : "Show the grid", selected: showGrid))
+            {
+                _context.Preferences.ShowGrid = !showGrid;
+            }
         }
+
+        private PropertyGrid _snapGrid => _snapGridValue ??= new PropertyGrid(new UndoHistory(), _context.Notify);
+        private PropertyGrid? _snapGridValue;
 
         private void DrawAxes(Rect viewport)
         {

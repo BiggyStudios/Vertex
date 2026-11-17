@@ -180,6 +180,29 @@ namespace Vertex.Editor.Gui
             return changed;
         }
 
+        /// <summary>A slim slider without a number: a line with a knob, for settings like a size where the number doesn't matter.</summary>
+        public static bool ThinSlider(int id, Rect rect, ref float value, float min, float max, string? tooltip = null)
+        {
+            Interaction interaction = Ui.Interact(id, rect);
+            bool changed = false;
+            if (interaction.Held && max > min)
+            {
+                float next = min + (max - min) * Math.Clamp((Ui.Mouse.X - rect.X - 6f) / (rect.Width - 12f), 0f, 1f);
+                changed = next != value;
+                value = next;
+            }
+
+            float t = max > min ? Math.Clamp((value - min) / (max - min), 0f, 1f) : 0f;
+            var track = new Rect(rect.X + 6f, rect.Centre.Y - 1.5f, rect.Width - 12f, 3f);
+            Ui.Rect(track, Theme.Control, 1.5f);
+            Ui.Rect(track.TakeLeft(track.Width * t), Theme.Accent.WithAlpha(0.8f), 1.5f);
+            float knob = Ui.Smooth(Ui.Id(id, "knob"), interaction.Hovered ? 6.5f : 5.5f, 20f);
+            Ui.Circle(new Vector2(track.X + track.Width * t, track.Centre.Y), knob, interaction.Hovered ? Color.White : Theme.Text);
+
+            Ui.Tooltip(id, tooltip);
+            return changed;
+        }
+
         /// <summary>
         /// A divider to drag, for resizing panels: <paramref name="value"/> follows the mouse along X (or Y when
         /// <paramref name="vertical"/>), kept between <paramref name="min"/> and <paramref name="max"/>. Lights up under the mouse.

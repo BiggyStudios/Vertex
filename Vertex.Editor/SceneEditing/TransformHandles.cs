@@ -62,7 +62,7 @@ namespace Vertex.Editor.SceneEditing
         /// <paramref name="mouseFree"/> (nothing else on screen has it) or a drag is under way. Returns true when it took
         /// a press, so the view doesn't also select whatever's under the mouse.
         /// </summary>
-        public bool Draw(Transform transform, TransformTool tool, in ViewProjection view, UndoHistory history, bool mouseFree)
+        public bool Draw(Transform transform, TransformTool tool, in ViewProjection view, UndoHistory history, SnapSettings snap, bool mouseFree)
         {
             Vector3 origin = transform.WorldPosition;
             if (view.ToScreen(origin) is not Vector2 centre) return false;
@@ -92,7 +92,7 @@ namespace Vertex.Editor.SceneEditing
             }
             else if (Ui.MouseHeld())
             {
-                Drag(transform, tool, view, length, history);
+                Drag(transform, tool, view, length, history, snap);
             }
             else
             {
@@ -127,9 +127,10 @@ namespace Vertex.Editor.SceneEditing
             _lastAngleVector = _startHit - origin;
         }
 
-        private void Drag(Transform transform, TransformTool tool, in ViewProjection view, float length, UndoHistory history)
+        private void Drag(Transform transform, TransformTool tool, in ViewProjection view, float length, UndoHistory history, SnapSettings settings)
         {
-            bool snap = InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
+            // Snapping as set, or the opposite while Ctrl is held.
+            bool snap = settings.Enabled ^ (InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight));
             (Vector3 rayOrigin, Vector3 rayDirection) = view.Ray(Ui.Mouse);
             Vector3 origin = _startWorldPosition;
             string name;
@@ -139,9 +140,9 @@ namespace Vertex.Editor.SceneEditing
                 case TransformTool.Move:
                 {
                     if (HitPoint(tool, _dragging, view, origin, _dragAxis, rayOrigin, rayDirection) is not Vector3 hit) return;
-                    Vector3 delta = hit - _startHit;
-                    if (snap) delta = new Vector3(Snap(delta.X, 0.5f), Snap(delta.Y, 0.5f), Snap(delta.Z, 0.5f));
-                    transform.WorldPosition = origin + delta;
+                    Vector3 position = origin + (hit - _startHit);
+                    if (snap) position = SnapPosition(position, origin, settings.Move);
+                    transform.WorldPosition = position;
                     name = $"Move {transform.GameObject.Name}";
                     break;
                 }
@@ -161,7 +162,7 @@ namespace Vertex.Editor.SceneEditing
                         _angle += Ui.MouseDelta.X * 0.01f;
                     }
 
-                    float angle = snap ? Snap(_angle, MathF.PI / 12f) : _angle;
+                    float angle = snap ? Snap(_angle, MathF.Max(settings.Rotate, 0.1f) * MathF.PI / 180f) : _angle;
                     transform.WorldRotation = Quaternion.Normalize(Quaternion.Concatenate(_startWorldRotation, Quaternion.CreateFromAxisAngle(axis, angle)));
                     name = $"Rotate {transform.GameObject.Name}";
                     break;
@@ -173,14 +174,14 @@ namespace Vertex.Editor.SceneEditing
                     if (_dragging == Part.Centre)
                     {
                         float factor = MathF.Max(1f + (Ui.Mouse.X - _startMouse.X) / 120f, 0.01f);
-                        if (snap) factor = MathF.Max(Snap(factor, 0.1f), 0.1f);
+                        if (snap) factor = MathF.Max(Snap(factor, MathF.Max(settings.Scale, 0.001f)), MathF.Max(settings.Scale, 0.001f));
                         scale *= factor;
                     }
                     else if (HitPoint(TransformTool.Move, _dragging, view, origin, _dragAxis, rayOrigin, rayDirection) is Vector3 hit)
                     {
                         float along = Vector3.Dot(hit - _startHit, _dragAxis);
                         float factor = MathF.Max(1f + along / length, 0.01f);
-                        if (snap) factor = MathF.Max(Snap(factor, 0.1f), 0.1f);
+                        if (snap) factor = MathF.Max(Snap(factor, MathF.Max(settings.Scale, 0.001f)), MathF.Max(settings.Scale, 0.001f));
                         if (_dragging == Part.X) scale.X *= factor;
                         if (_dragging == Part.Y) scale.Y *= factor;
                         if (_dragging == Part.Z) scale.Z *= factor;
@@ -228,6 +229,26 @@ namespace Vertex.Editor.SceneEditing
 
             float t = Vector3.Dot(point - rayOrigin, normal) / facing;
             return t > 0f ? rayOrigin + rayDirection * t : null;
+        }
+
+        /// <summary>
+        /// Where a dragged position snaps to: with the world's axes, onto the grid of <paramref name="step"/>-sized cells (only
+        /// along the axes being dragged); with the object's own, moved in whole steps from where it started.
+        /// </summary>
+        private Vector3 SnapPosition(Vector3 position, Vector3 start, float step)
+        {
+            step = MathF.Max(step, 0.001f);
+            if (Space == HandleSpace.Local)
+            {
+                Vector3 moved = position - start;
+                if (_dragging is Part.X or Part.Y or Part.Z) return start + _dragAxis * Snap(Vector3.Dot(moved, _dragAxis), step);
+                return start + new Vector3(Snap(moved.X, step), Snap(moved.Y, step), Snap(moved.Z, step));
+            }
+
+            bool x = _dragging is Part.X or Part.PlaneXY or Part.PlaneXZ or Part.Centre;
+            bool y = _dragging is Part.Y or Part.PlaneXY or Part.PlaneYZ or Part.Centre;
+            bool z = _dragging is Part.Z or Part.PlaneXZ or Part.PlaneYZ or Part.Centre;
+            return new Vector3(x ? Snap(position.X, step) : start.X, y ? Snap(position.Y, step) : start.Y, z ? Snap(position.Z, step) : start.Z);
         }
 
         private static float SignedAngle(Vector3 from, Vector3 to, Vector3 axis) =>
