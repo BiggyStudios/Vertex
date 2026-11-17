@@ -21,6 +21,11 @@ namespace Vertex
 
         public Renderer Renderer { get; }
 
+        private RenderStatsOverlay _stats = null!;
+
+        /// <summary>The numbers <c>r_showstats</c> last showed, as text (empty while it's off), for logging.</summary>
+        public string StatsSummary => _stats?.LastSummary ?? "";
+
         public int Width => _window.FramebufferSize.X;
         public int Height => _window.FramebufferSize.Y;
 
@@ -67,12 +72,26 @@ namespace Vertex
             DevConsole.AddCommand("r_backend", "Says which graphics API is rendering. Start with -opengl or -vulkan to choose.",
                 _ => DevConsole.Print(Renderer.Backend is VulkanRenderBackend vulkan ? $"Vulkan on {vulkan.DeviceName}" : Renderer.Backend.Name));
 
+            _stats = new RenderStatsOverlay(Renderer);
+            _loop.DrawingOverlays += _stats.Update;
+            DevConsole.AddVariable("r_showstats", "Shows the frame rate, what drawing takes on the CPU and GPU (by pass), and how many draws. 1 on, 0 off.",
+                () => _stats.Visible ? 1f : 0f,
+                value =>
+                {
+                    _stats.Visible = value >= 0.5f;
+                    Renderer.MeasureGpuTime = _stats.Visible;
+                });
+            DevConsole.AddVariable("r_shadowresolution", "How detailed the sun's shadows are: 2048 normally, 1024 for faster drawing on integrated graphics (from 256 to 4096).",
+                () => Renderer.ShadowResolution, value => Renderer.ShadowResolution = Math.Clamp((int)value, 256, 4096));
+
             _loop.Load();
         }
 
         private void OnUpdate(double deltaTime)
         {
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
             _loop.Update(deltaTime, Renderer.Width, Renderer.Height, _window.Size.Y);
+            _stats.UpdateMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         }
 
         private void OnRender(double deltaTime)

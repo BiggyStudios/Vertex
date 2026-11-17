@@ -28,6 +28,12 @@ namespace Vertex.Rendering
         public MeshVertex[] Vertices { get; }
         public uint[] Indices { get; }
 
+        /// <summary>The middle of the box the vertices fit in, in the mesh's own space.</summary>
+        public Vector3 BoundsCentre { get; }
+
+        /// <summary>Half that box's size along each axis. Things whose box is out of view aren't drawn.</summary>
+        public Vector3 BoundsExtents { get; }
+
         /// <summary>Raised by <see cref="Dispose"/> so renderers can free their GPU copy.</summary>
         public event Action<Mesh>? Disposed;
 
@@ -35,6 +41,16 @@ namespace Vertex.Rendering
         {
             Vertices = vertices;
             Indices = indices;
+
+            if (vertices.Length == 0) return;
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            foreach (MeshVertex vertex in vertices)
+            {
+                min = Vector3.Min(min, vertex.Position);
+                max = Vector3.Max(max, vertex.Position);
+            }
+            BoundsCentre = (min + max) * 0.5f;
+            BoundsExtents = (max - min) * 0.5f;
         }
 
         /// <summary>Frees the GPU copy. The mesh is uploaded again if it is drawn afterwards.</summary>

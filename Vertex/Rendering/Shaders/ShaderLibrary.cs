@@ -509,13 +509,14 @@ namespace Vertex.Rendering.Shaders
 
         // One triangle covering the view, behind everything.
         public const string SkyVertex = """
+            // At the far plane (depth 1 in both APIs), so it only fills what nothing else covers.
             VARYING(0) out vec2 vScreen;
 
             void main()
             {
                 vec2 corner = vec2((VERTEX_ID << 1) & 2, VERTEX_ID & 2) * 2.0 - 1.0;
                 vScreen = corner;
-                gl_Position = vec4(corner, 0.5, 1.0);
+                gl_Position = vec4(corner, 1.0, 1.0);
             }
             """;
 
@@ -531,21 +532,13 @@ namespace Vertex.Rendering.Shaders
             // ---- Clouds -----------------------------------------------------------------------------------------
             // A layer of cloud overhead: smooth noise, layered at finer and finer scales, cut off below a level set by
             // how cloudy it is. Thick parts are greyer underneath and edges facing the sun glow.
-            float hash(vec2 p)
-            {
-                uvec2 q = uvec2(ivec2(p) + 32768);
-                uint h = (q.x * 1597334673u) ^ (q.y * 3812015801u);
-                h = (h ^ (h >> 16u)) * 2246822519u;
-                h ^= h >> 13u;
-                return float(h) * (1.0 / 4294967295.0);
-            }
+            //
+            // The noise is worked out once and looked up (see CloudNoise.cs), repeating every 64 units.
+            TEXTURE(0, 2) sampler2D cloudNoise;
 
             float noise(vec2 p)
             {
-                vec2 i = floor(p);
-                vec2 f = fract(p);
-                vec2 u = f * f * (3.0 - 2.0 * f);
-                return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+                return textureLod(cloudNoise, p * (1.0 / 64.0), 0.0).r;
             }
 
             float layered(vec2 p)
@@ -885,21 +878,28 @@ namespace Vertex.Rendering.Shaders
         // Ambient occlusion: how much of the open space round each point is blocked by what's drawn near it, so corners,
         // creases and the ground under things get less of the soft light from all around. From the depth image alone:
         // points in a half-ball over the surface are checked against the depth there.
+        //
+        // Worked out at half the view's size (a quarter of the pixels), as it's soft and blurred after anyway. Writes how
+        // open each point is in red and how far away it is in green, for the blur and the scaling back up to go by.
         public const string OcclusionFragment = Post + """
             const int SAMPLES = 12;
 
             void main()
             {
-                float depth = viewDepth(vUV);
-                if (depth > 150.0) { FragColor = vec4(1.0); return; }
+                // From one of the full-size pixels this covers, not blended between them, which at edges would make up a
+                // surface between the near one and the far one.
+                vec2 texel = 1.0 / vec2(textureSize(depthImage, 0));
+                vec2 uv = (floor(vUV / texel - 0.25) + 0.5) * texel;
+
+                float depth = viewDepth(uv);
+                if (depth > 150.0) { FragColor = vec4(1.0, min(depth, 60000.0), 0.0, 0.0); return; }
 
                 // The surface's direction, from the nearer of its neighbours on each side, so edges don't smear it.
-                vec3 p = viewPosition(vUV);
-                vec2 texel = post.texelSize;
-                vec3 right = viewPosition(vUV + vec2(texel.x, 0.0)) - p;
-                vec3 left = p - viewPosition(vUV - vec2(texel.x, 0.0));
-                vec3 up = viewPosition(vUV + vec2(0.0, texel.y)) - p;
-                vec3 down = p - viewPosition(vUV - vec2(0.0, texel.y));
+                vec3 p = viewPosition(uv);
+                vec3 right = viewPosition(uv + vec2(texel.x, 0.0)) - p;
+                vec3 left = p - viewPosition(uv - vec2(texel.x, 0.0));
+                vec3 up = viewPosition(uv + vec2(0.0, texel.y)) - p;
+                vec3 down = p - viewPosition(uv - vec2(0.0, texel.y));
                 vec3 dx = abs(right.z) < abs(left.z) ? right : left;
                 vec3 dy = abs(up.z) < abs(down.z) ? up : down;
                 vec3 n = normalize(cross(dx, dy));
@@ -929,26 +929,27 @@ namespace Vertex.Rendering.Shaders
                 }
 
                 float open = 1.0 - occluded / float(SAMPLES);
-                FragColor = vec4(mix(open * open, 1.0, smoothstep(100.0, 150.0, depth)));
+                FragColor = vec4(mix(open * open, 1.0, smoothstep(100.0, 150.0, depth)), depth, 0.0, 0.0);
             }
             """;
 
-        // Blurs the occlusion one way, only across the same surface (similar depth), so it doesn't bleed past edges.
+        // Blurs the occlusion one way, only across the same surface (similar depth), so it doesn't bleed past edges. The
+        // depth comes with it (see OcclusionFragment), and goes on with it.
         public const string OcclusionBlurFragment = Post + """
             void main()
             {
-                float centre = viewDepth(vUV);
+                float centre = texture(source, vUV).g;
                 float sum = 0.0;
                 float weights = 0.0;
                 for (int i = -4; i <= 4; i++)
                 {
-                    vec2 uv = vUV + post.direction * post.texelSize * float(i);
-                    float similar = max(0.0, 1.0 - abs(viewDepth(uv) - centre) / (centre * 0.04 + 0.05));
+                    vec2 s = texture(source, vUV + post.direction * post.texelSize * float(i)).rg;
+                    float similar = max(0.0, 1.0 - abs(s.g - centre) / (centre * 0.04 + 0.05));
                     float weight = exp(-float(i * i) / 8.0) * similar;
-                    sum += texture(source, uv).r * weight;
+                    sum += s.r * weight;
                     weights += weight;
                 }
-                FragColor = vec4(sum / max(weights, 1e-4));
+                FragColor = vec4(sum / max(weights, 1e-4), centre, 0.0, 0.0);
             }
             """;
 
@@ -973,6 +974,31 @@ namespace Vertex.Rendering.Shaders
                 return smoothstep(0.003, 0.02, strength) * (1.0 - smoothstep(25.0, 80.0, distance));
             }
 
+            // Ambient occlusion is worked out at half size. Each pixel blends the four nearest, as a smooth scaling up
+            // would, but favouring those as far away as itself, so it doesn't bleed across the edges of things.
+            float occlusionAt(vec2 uv)
+            {
+                vec2 size = vec2(textureSize(occlusionImage, 0));
+                vec2 position = uv * size - 0.5;
+                vec2 base = floor(position);
+                vec2 f = position - base;
+                float depth = viewDepth(uv);
+
+                float sum = 0.0;
+                float weights = 0.0;
+                for (int i = 0; i < 4; i++)
+                {
+                    vec2 corner = vec2(float(i & 1), float(i >> 1));
+                    vec2 s = texture(occlusionImage, (base + corner + 0.5) / size).rg;
+                    vec2 near = mix(1.0 - f, f, corner);
+                    float similar = max(1e-3, 1.0 - abs(s.g - depth) / (depth * 0.04 + 0.05));
+                    float weight = near.x * near.y * similar;
+                    sum += s.r * weight;
+                    weights += weight;
+                }
+                return sum / max(weights, 1e-6);
+            }
+
             // ACES filmic tone mapping (Hill's fit): bright areas roll off smoothly instead of clipping to flat white.
             vec3 toneMap(vec3 color)
             {
@@ -990,7 +1016,7 @@ namespace Vertex.Rendering.Shaders
 
                 if (post.occlusion > 0.0)
                 {
-                    float open = mix(1.0, texture(occlusionImage, vUV).r, post.occlusion);
+                    float open = mix(1.0, occlusionAt(vUV), post.occlusion);
                     scene = max(scene - texture(ambientImage, vUV).rgb * (1.0 - open), vec3(0.0));
                 }
 

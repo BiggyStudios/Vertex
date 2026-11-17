@@ -50,5 +50,15 @@ namespace Vertex.Rendering
 
         /// <summary>Finishes the frame: everything's been drawn, so show it.</summary>
         void EndFrame();
+
+        /// <summary>Whether to time each pass on the GPU. Backends that can't leave it off.</summary>
+        bool MeasureGpuTime { get => false; set { } }
+
+        /// <summary>
+        /// Fills <paramref name="into"/> with the GPU's time for each pass of the latest frame it has finished, while
+        /// <see cref="MeasureGpuTime"/> is on; called after <see cref="EndFrame"/>. Left as it was if no newer frame
+        /// has finished since.
+        /// </summary>
+        void ReadGpuTimes(List<GpuPassTime> into) => into.Clear();
     }
 }

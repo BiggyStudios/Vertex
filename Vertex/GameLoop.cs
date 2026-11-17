@@ -18,6 +18,9 @@ namespace Vertex
         private readonly Game _game;
         private float _fixedTimeAccumulator;
 
+        /// <summary>Raised each frame once the game has drawn its UI, before the console, for things drawn over the top (like <c>r_showstats</c>).</summary>
+        public event Action? DrawingOverlays;
+
         public GameLoop(Game game)
         {
             _game = game;
@@ -67,6 +70,7 @@ namespace Vertex
             Scene.Active.Update();
 
             // Over the top of the game's own UI.
+            DrawingOverlays?.Invoke();
             DevConsole.Draw();
 
             // After everything has moved, so sounds come from where things are drawn.

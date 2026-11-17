@@ -32,6 +32,9 @@ namespace Vertex.Rendering.Vulkan
         public readonly PhysicalDeviceProperties Properties;
         public readonly string DeviceName;
 
+        /// <summary>Nanoseconds per GPU timestamp tick, or 0 if this queue can't take timestamps.</summary>
+        public readonly float TimestampPeriod;
+
         /// <summary>
         /// VK_KHR_present_wait, if the driver has it (with VK_KHR_present_id): waits until a given present has reached the
         /// screen. Null where it isn't supported.
@@ -58,6 +61,18 @@ namespace Vertex.Rendering.Vulkan
 
         /// <summary>The depth format for the shadow map and scene: 32-bit float if it can be filtered for soft shadows.</summary>
         public readonly Format DepthFormat;
+
+        /// <summary>
+        /// The shadow maps' depth format: 16-bit where it can be filtered, which is plenty for them and half the memory to
+        /// write and read of the scene's.
+        /// </summary>
+        public readonly Format ShadowDepthFormat;
+
+        /// <summary>
+        /// For light that's never negative and needs no alpha (the ambient and glow images, and bloom): packed floats in 4
+        /// bytes a pixel, half the size of 16-bit floats, wherever they can be drawn into and blended (every desktop GPU).
+        /// </summary>
+        public readonly Format LightFormat;
 
         /// <summary>How sharply textures can be filtered on surfaces seen at a slant (anisotropic filtering); 1 if the GPU can't.</summary>
         public readonly float MaxAnisotropy = 1f;
@@ -190,6 +205,17 @@ namespace Vertex.Rendering.Vulkan
             DeviceName = SilkMarshal.PtrToString((nint)properties.DeviceName)!;
             _memory = Vk.GetPhysicalDeviceMemoryProperties(PhysicalDevice);
             DepthFormat = PickDepthFormat();
+            ShadowDepthFormat = Supports(Format.D16Unorm, FormatFeatureFlags.DepthStencilAttachmentBit | FormatFeatureFlags.SampledImageBit |
+                                                          FormatFeatureFlags.SampledImageFilterLinearBit) ? Format.D16Unorm : DepthFormat;
+            LightFormat = Supports(Format.B10G11R11UfloatPack32, FormatFeatureFlags.ColorAttachmentBit | FormatFeatureFlags.ColorAttachmentBlendBit |
+                                                                FormatFeatureFlags.SampledImageBit | FormatFeatureFlags.SampledImageFilterLinearBit)
+                ? Format.B10G11R11UfloatPack32 : Format.R16G16B16A16Sfloat;
+
+            uint familyCount = 0;
+            Vk.GetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &familyCount, null);
+            var families = new QueueFamilyProperties[familyCount];
+            fixed (QueueFamilyProperties* familiesPointer = families) Vk.GetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &familyCount, familiesPointer);
+            if (families[QueueFamily].TimestampValidBits > 0 && properties.Limits.TimestampPeriod > 0f) TimestampPeriod = properties.Limits.TimestampPeriod;
 
             float priority = 1f;
             DeviceQueueCreateInfo queueInfo = new()
@@ -319,6 +345,12 @@ namespace Vertex.Rendering.Vulkan
 
             if (bestScore < 0) throw new InvalidOperationException("No GPU here can run Vertex's Vulkan renderer (it needs Vulkan 1.3).");
             return (best, bestFamily);
+        }
+
+        private bool Supports(Format format, FormatFeatureFlags needed)
+        {
+            Vk.GetPhysicalDeviceFormatProperties(PhysicalDevice, format, out FormatProperties properties);
+            return (properties.OptimalTilingFeatures & needed) == needed;
         }
 
         private Format PickDepthFormat()

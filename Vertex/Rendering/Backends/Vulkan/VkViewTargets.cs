@@ -13,7 +13,8 @@ namespace Vertex.Rendering.Vulkan
     internal sealed class VkViewTargets
     {
         public const Format HdrFormat = Format.R16G16B16A16Sfloat;
-        public const Format OcclusionFormat = Format.R8Unorm;
+        /// <summary>Ambient occlusion: how open each point is, and how far away (see ShaderLibrary.OcclusionFragment).</summary>
+        public const Format OcclusionFormat = Format.R16G16Sfloat;
 
         /// <summary>The finished picture: render textures, and the one anti-aliasing reads.</summary>
         public const Format OutputFormat = Format.R8G8B8A8Unorm;
@@ -50,11 +51,13 @@ namespace Vertex.Rendering.Vulkan
 
             const ImageUsageFlags attachment = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit;
             Color = _context.CreateImage(width, height, HdrFormat, attachment);
-            Ambient = _context.CreateImage(width, height, HdrFormat, attachment);
-            Glow = _context.CreateImage(width, height, HdrFormat, attachment);
+            Ambient = _context.CreateImage(width, height, _context.LightFormat, attachment);
+            Glow = _context.CreateImage(width, height, _context.LightFormat, attachment);
             Depth = _context.CreateImage(width, height, _context.DepthFormat, ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit);
-            Occlusion = _context.CreateImage(width, height, OcclusionFormat, attachment);
-            OcclusionBlur = _context.CreateImage(width, height, OcclusionFormat, attachment);
+            // At half size: it's soft, and blurred anyway.
+            int halfWidth = Math.Max((width + 1) / 2, 1), halfHeight = Math.Max((height + 1) / 2, 1);
+            Occlusion = _context.CreateImage(halfWidth, halfHeight, OcclusionFormat, attachment);
+            OcclusionBlur = _context.CreateImage(halfWidth, halfHeight, OcclusionFormat, attachment);
             Finished = _context.CreateImage(width, height, OutputFormat, attachment);
 
             int levelWidth = width, levelHeight = height;
@@ -62,7 +65,7 @@ namespace Vertex.Rendering.Vulkan
             {
                 levelWidth = Math.Max(levelWidth / 2, 1);
                 levelHeight = Math.Max(levelHeight / 2, 1);
-                BloomLevels.Add(_context.CreateImage(levelWidth, levelHeight, HdrFormat, attachment));
+                BloomLevels.Add(_context.CreateImage(levelWidth, levelHeight, _context.LightFormat, attachment));
 
                 if (levelWidth <= 2 || levelHeight <= 2) break;
             }
@@ -93,9 +96,13 @@ namespace Vertex.Rendering.Vulkan
         public VkImageResource Array { get; }
         public VkImageResource[] Layers { get; }
 
-        public VkShadowMaps(VkContext context)
+        /// <summary>How many texels across each layer is.</summary>
+        public int Size { get; }
+
+        public VkShadowMaps(VkContext context, int size)
         {
-            Array = context.CreateImage(ShadowCascades.Size, ShadowCascades.Size, context.DepthFormat,
+            Size = size;
+            Array = context.CreateImage(size, size, context.ShadowDepthFormat,
                 ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
                 layers: ShadowCascades.Count);
 

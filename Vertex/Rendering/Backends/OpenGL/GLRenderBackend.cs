@@ -23,6 +23,7 @@ namespace Vertex.Rendering.OpenGL
         private const int _textureUnit = 0;
         private const int _shadowUnit = 1;
         private const int _normalUnit = 2;
+        private const int _cloudUnit = 3;
 
         private GL _gl = null!;
         private GLShader _litShader = null!;
@@ -36,7 +37,6 @@ namespace Vertex.Rendering.OpenGL
         private GLShader _composite = null!;
         private GLShader _antiAlias = null!;
         private GLShadowMaps _shadowMaps = null!;
-        private readonly ShadowCascades _cascades = new();
         private GLViewTargets _screenViews = null!;
         private GLCanvas _canvas = null!;
         private GLParticles _particles = null!;
@@ -61,12 +61,33 @@ namespace Vertex.Rendering.OpenGL
         // OpenGL 3.3 has no compute shaders, so the engine runs GPU particles on the CPU and sends them as ordinary ones.
         public bool SupportsGpuParticles => false;
 
-        public void BeginFrame() {}
+        private GLGpuTimer _timer = null!;
+        private readonly List<GpuPassTime> _gpuTimes = new();
+        private bool _gpuTimesNew;
+
+        public bool MeasureGpuTime { get; set; }
+
+        public void BeginFrame()
+        {
+            _timer.Enabled = MeasureGpuTime;
+            if (_timer.BeginFrame(_gpuTimes)) _gpuTimesNew = true;
+        }
+
+        public void ReadGpuTimes(List<GpuPassTime> into)
+        {
+            if (!_gpuTimesNew) return;
+
+            into.Clear();
+            into.AddRange(_gpuTimes);
+            _gpuTimesNew = false;
+        }
+
+        private void Mark(string pass) => _timer.Mark(pass);
 
         public void UpdateParticles(GpuParticleUpdate update) {}
 
         // OpenGL shows the frame itself once the window's Render event returns.
-        public void EndFrame() {}
+        public void EndFrame() => Mark("");
 
         public WindowOptions ConfigureWindow(WindowOptions options)
         {
@@ -109,12 +130,13 @@ namespace Vertex.Rendering.OpenGL
             _frameBuffer = _gl.GenBuffer();
             _materialBuffer = _gl.GenBuffer();
 
-            _shadowMaps = new GLShadowMaps(_gl);
+            _shadowMaps = new GLShadowMaps(_gl, ShadowCascades.DefaultResolution);
             _screenViews = new GLViewTargets(_gl);
             _canvas = new GLCanvas(_gl);
             _emptyVertexArray = _gl.GenVertexArray();
             _particles = new GLParticles(_gl);
             _white = new GLTexture(_gl, new Texture(1, 1, [255, 255, 255, 255]));
+            _timer = new GLGpuTimer(_gl);
         }
 
         private GLShader SceneShader(string vertex, string fragment)
@@ -122,7 +144,7 @@ namespace Vertex.Rendering.OpenGL
             GLShader shader = GLShader.FromLibrary(_gl, vertex, fragment);
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
-            shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit));
+            shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit));
             return shader;
         }
 
@@ -154,17 +176,21 @@ namespace Vertex.Rendering.OpenGL
 
             if (frame.HasCamera)
             {
-                bool shadows = frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < ShaderLibrary.MaxDirectionalLights &&
-                               frame.ShadowLightIndex < frame.DirectionalLights.Count;
-                if (shadows) DrawShadows(frame);
+                bool shadows = frame.HasShadows;
+                if (shadows)
+                {
+                    Mark("Shadows");
+                    DrawShadows(frame);
+                }
 
-                FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? _cascades : null);
+                FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
                 _gl.BindBuffer(BufferTargetARB.UniformBuffer, _frameBuffer);
                 _gl.BufferData(BufferTargetARB.UniformBuffer, (nuint)sizeof(FrameUniforms), &uniforms, BufferUsageARB.StreamDraw);
                 _gl.BindBufferBase(BufferTargetARB.UniformBuffer, _frameBinding, _frameBuffer);
 
                 views.Ensure(frame.Width, frame.Height);
                 UploadMaterials(frame);
+                Mark("Scene");
                 DrawScene(frame, views, uniforms.ClearColor);
                 FinishView(frame, views, output, toTexture);
             }
@@ -183,6 +209,7 @@ namespace Vertex.Rendering.OpenGL
                 return;
             }
 
+            Mark("Canvas");
             // The 2D layer goes on top of the screen, camera or not.
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
             _gl.Viewport(0, 0, (uint)frame.Width, (uint)frame.Height);
@@ -192,7 +219,13 @@ namespace Vertex.Rendering.OpenGL
         /// <summary>The sun's view of everything that casts shadows, into each cascade in turn (see <see cref="ShadowCascades"/>).</summary>
         private void DrawShadows(RenderFrame frame)
         {
-            _cascades.Place(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction));
+            // Made again at a new size if the resolution's been changed.
+            int size = frame.Cascades.Resolution;
+            if (_shadowMaps.Size != size)
+            {
+                _shadowMaps.Dispose();
+                _shadowMaps = new GLShadowMaps(_gl, size);
+            }
 
             // Drawing back faces only keeps lit surfaces from shadowing themselves.
             _gl.CullFace(TriangleFace.Front);
@@ -203,14 +236,12 @@ namespace Vertex.Rendering.OpenGL
             for (int cascade = 0; cascade < ShadowCascades.Count; cascade++)
             {
                 _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _shadowMaps.Framebuffer(cascade));
-                _gl.Viewport(0, 0, ShadowCascades.Size, ShadowCascades.Size);
+                _gl.Viewport(0, 0, (uint)size, (uint)size);
                 _gl.Clear(ClearBufferMask.DepthBufferBit);
 
-                Matrix4x4 lightSpace = _cascades.Matrices[cascade];
-                foreach (DrawCall draw in frame.DrawCalls)
+                Matrix4x4 lightSpace = frame.Cascades.Matrices[cascade];
+                foreach (DrawCall draw in frame.ShadowCasters(cascade))
                 {
-                    if (!draw.CastShadows) continue;
-
                     _shadowShader.SetMatrix4("draw.lightModel", draw.WorldMatrix * lightSpace);
                     GetMesh(draw.Mesh).Draw();
                 }
@@ -264,18 +295,6 @@ namespace Vertex.Rendering.OpenGL
 
             _shadowMaps.Bind(_shadowUnit);
 
-            if (frame.Environment.DrawSky)
-            {
-                // Behind everything: drawn without depth, and everything else is drawn over it.
-                _skyShader.Use();
-                _gl.Disable(EnableCap.DepthTest);
-                _gl.DepthMask(false);
-                _gl.BindVertexArray(_emptyVertexArray);
-                _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
-                _gl.DepthMask(true);
-                _gl.Enable(EnableCap.DepthTest);
-            }
-
             GLShader? currentShader = null;
             Material? currentMaterial = null;
             Mesh? currentMesh = null;
@@ -318,6 +337,20 @@ namespace Vertex.Rendering.OpenGL
                 glMesh!.Draw();
             }
 
+            if (frame.Environment.DrawSky)
+            {
+                // Behind everything: drawn after the meshes at the far plane, only where none of them are, so the sky's
+                // clouds aren't worked out for pixels that are then covered.
+                GetTexture(CloudNoise.Texture).Bind(_cloudUnit);
+                _skyShader.Use();
+                _gl.DepthFunc(DepthFunction.Lequal);
+                _gl.DepthMask(false);
+                _gl.BindVertexArray(_emptyVertexArray);
+                _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
+                _gl.DepthMask(true);
+                _gl.DepthFunc(DepthFunction.Less);
+            }
+
             _particles.Draw(frame);
         }
 
@@ -339,15 +372,18 @@ namespace Vertex.Rendering.OpenGL
             bool occlusion = environment.AmbientOcclusion > 0f;
             if (occlusion)
             {
-                post.TexelSize = new Vector2(1f / width, 1f / height);
-                RunPost(_occlusion, views.OcclusionFramebuffer, width, height, post, _white.Handle, depth: views.Depth);
+                Mark("Ambient occlusion");
+                int occlusionWidth = views.OcclusionWidth, occlusionHeight = views.OcclusionHeight;
+                RunPost(_occlusion, views.OcclusionFramebuffer, occlusionWidth, occlusionHeight, post, _white.Handle, depth: views.Depth);
+                post.TexelSize = new Vector2(1f / occlusionWidth, 1f / occlusionHeight);
                 post.Direction = Vector2.UnitX;
-                RunPost(_occlusionBlur, views.OcclusionBlurFramebuffer, width, height, post, views.Occlusion, depth: views.Depth);
+                RunPost(_occlusionBlur, views.OcclusionBlurFramebuffer, occlusionWidth, occlusionHeight, post, views.Occlusion);
                 post.Direction = Vector2.UnitY;
-                RunPost(_occlusionBlur, views.OcclusionFramebuffer, width, height, post, views.OcclusionBlur, depth: views.Depth);
+                RunPost(_occlusionBlur, views.OcclusionFramebuffer, occlusionWidth, occlusionHeight, post, views.OcclusionBlur);
                 post.Direction = Vector2.Zero;
             }
 
+            Mark("Bloom");
             bool bloom = frame.Bloom > 0f && views.BloomLevels.Count > 0;
             if (bloom)
             {
@@ -385,12 +421,15 @@ namespace Vertex.Rendering.OpenGL
             // A render texture wants its top row first, as one loaded from a file has it; OpenGL's start at the bottom.
             if (environment.AntiAliasing)
             {
+                Mark("Composite");
                 RunPost(_composite, views.FinishedFramebuffer, width, height, post, views.Color, bloomImage, views.Depth, occlusionImage, views.Ambient);
                 post.TexelSize = new Vector2(1f / width, 1f / height);
+                Mark("Anti-aliasing");
                 RunPost(_antiAlias, output, frame.Width, frame.Height, post, views.Finished, flipY: toTexture);
             }
             else
             {
+                Mark("Composite");
                 RunPost(_composite, output, frame.Width, frame.Height, post, views.Color, bloomImage, views.Depth, occlusionImage, views.Ambient, flipY: toTexture);
             }
 
@@ -516,6 +555,7 @@ namespace Vertex.Rendering.OpenGL
             _canvas.Dispose();
             _particles.Dispose();
             _white.Dispose();
+            _timer.Dispose();
             _gl.DeleteBuffer(_frameBuffer);
             _gl.DeleteBuffer(_materialBuffer);
             _gl.DeleteVertexArray(_emptyVertexArray);

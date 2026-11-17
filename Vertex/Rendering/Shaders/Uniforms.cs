@@ -52,7 +52,7 @@ namespace Vertex.Rendering.Shaders
                 CameraPosition = new Vector4(frame.CameraPosition, frame.Time),
                 CameraForward = new Vector4(Vector3.Normalize(frame.CameraForward), 0f),
                 ClearColor = Linear(frame.ClearColor, 0f),
-                Shadow = new Vector4(1f / ShadowCascades.Size, -1f, 0f, 0f)
+                Shadow = new Vector4(1f / ShadowCascades.DefaultResolution, -1f, 0f, 0f)
             };
 
             if (cascades != null)
@@ -60,7 +60,7 @@ namespace Vertex.Rendering.Shaders
                 for (int i = 0; i < ShadowCascades.Count; i++) data.ShadowMatrices[i] = cascades.Matrices[i];
                 data.CascadeSplits = new Vector4(cascades.Splits[0], cascades.Splits[1], cascades.Splits[2], cascades.Splits[3]);
                 data.CascadeTexels = new Vector4(cascades.TexelSizes[0], cascades.TexelSizes[1], cascades.TexelSizes[2], cascades.TexelSizes[3]);
-                data.Shadow = new Vector4(1f / ShadowCascades.Size, frame.ShadowLightIndex, ShadowCascades.Count, 0f);
+                data.Shadow = new Vector4(1f / cascades.Resolution, frame.ShadowLightIndex, ShadowCascades.Count, 0f);
             }
 
             // The sun is where the shadow-casting light (or else the first directional light) comes from.

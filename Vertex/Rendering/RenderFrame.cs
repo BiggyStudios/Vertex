@@ -78,6 +78,19 @@ namespace Vertex.Rendering
         internal readonly List<ParticleData> ParticleList = new();
         internal readonly List<CanvasQuad> CanvasQuadList = new();
 
+        /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
+        internal readonly Shaders.ShadowCascades Cascades = new();
+
+        // What casts a shadow into each cascade: only what's inside it.
+        internal readonly List<DrawCall>[] ShadowCasterLists = CreateCasterLists();
+
+        private static List<DrawCall>[] CreateCasterLists()
+        {
+            var lists = new List<DrawCall>[Shaders.ShadowCascades.Count];
+            for (int i = 0; i < lists.Length; i++) lists[i] = new List<DrawCall>();
+            return lists;
+        }
+
         /// <summary>Size in pixels of what's being drawn into: the screen, or <see cref="Target"/>.</summary>
         public int Width { get; internal set; }
         public int Height { get; internal set; }
@@ -99,6 +112,15 @@ namespace Vertex.Rendering
 
         /// <summary>Which of <see cref="DirectionalLights"/> casts shadows, or -1 for none.</summary>
         public int ShadowLightIndex { get; internal set; } = -1;
+
+        /// <summary>
+        /// Whether the sun casts shadows this view: <see cref="ShadowLightIndex"/> is a light the shaders can take, and
+        /// the cascades have been placed for it.
+        /// </summary>
+        public bool HasShadows { get; internal set; }
+
+        /// <summary>What to draw into shadow cascade <paramref name="cascade"/>: what casts shadows and is inside it.</summary>
+        public IReadOnlyList<DrawCall> ShadowCasters(int cascade) => ShadowCasterLists[cascade];
 
         /// <summary>How far around the camera shadows reach.</summary>
         public float ShadowDistance { get; internal set; }
@@ -134,6 +156,8 @@ namespace Vertex.Rendering
             PointLightList.Clear();
             ParticleList.Clear();
             CanvasQuadList.Clear();
+            foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
+            HasShadows = false;
         }
     }
 }

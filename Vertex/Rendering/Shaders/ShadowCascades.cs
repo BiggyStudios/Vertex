@@ -15,7 +15,10 @@ namespace Vertex.Rendering.Shaders
     internal sealed class ShadowCascades
     {
         public const int Count = ShaderLibrary.MaxCascades;
-        public const int Size = 2048;
+        public const int DefaultResolution = 2048;
+
+        /// <summary>How many texels across each cascade's shadow map is (see Renderer.ShadowResolution).</summary>
+        public int Resolution { get; set; } = DefaultResolution;
 
         // How far towards the sun past its cascade something can be and still cast a shadow into it: tall enough for
         // the highest maps.
@@ -65,7 +68,7 @@ namespace Vertex.Rendering.Shaders
                 float radius = MathF.Sqrt((end - centreDepth) * (end - centreDepth) + end * end * spread);
                 radius = MathF.Ceiling(radius * 16f) / 16f;
 
-                float texel = radius * 2f / Size;
+                float texel = radius * 2f / Resolution;
                 TexelSizes[i] = texel;
 
                 // Snapped to whole texels across the sun's view.

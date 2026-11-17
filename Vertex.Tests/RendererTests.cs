@@ -20,6 +20,10 @@ namespace Vertex.Tests
             /// <summary>Particles in the last frame drawn.</summary>
             public List<ParticleData> LastParticles = new();
 
+            /// <summary>What the last frame drew, and what it drew into each shadow cascade (empty without shadows).</summary>
+            public List<DrawCall> LastDraws = new();
+            public List<List<DrawCall>> LastShadowCasters = new();
+
             public string Name => "Recording";
             public bool SupportsGpuParticles => GpuParticles;
             public WindowOptions ConfigureWindow(WindowOptions options) => options;
@@ -35,6 +39,10 @@ namespace Vertex.Tests
             {
                 Frames.Add((frame.Target, frame.HasCamera, frame.Width, frame.Height, frame.DrawCalls.Count, frame.CanvasQuads.Count));
                 LastParticles = frame.Particles.ToList();
+                LastDraws = frame.DrawCalls.ToList();
+                LastShadowCasters = frame.HasShadows
+                    ? Enumerable.Range(0, Rendering.Shaders.ShadowCascades.Count).Select(i => frame.ShadowCasters(i).ToList()).ToList()
+                    : new List<List<DrawCall>>();
             }
         }
 
@@ -61,7 +69,9 @@ namespace Vertex.Tests
             AddCube();
             AddCamera("Player", new Vector3(0f, 0f, 5f));
             var minimap = new RenderTexture(256, 128);
-            AddCamera("Minimap", new Vector3(0f, 20f, 0f)).Target = minimap;
+            Camera map = AddCamera("Minimap", new Vector3(0f, 20f, 0f));
+            map.Target = minimap;
+            map.Transform.EulerAngles = new Vector3(-90f, 0f, 0f);
             Scene.Active.Update();
 
             // Something on the 2D layer, as a HUD would have.

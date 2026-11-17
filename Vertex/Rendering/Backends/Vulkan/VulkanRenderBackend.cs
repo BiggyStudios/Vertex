@@ -95,7 +95,6 @@ namespace Vertex.Rendering.Vulkan
         private Sampler _shadowSampler;
 
         private VkShadowMaps _shadowMaps = null!;
-        private readonly ShadowCascades _cascades = new();
         private VkViewTargets _screenViews = null!;
         private VkGpuParticles _gpuParticlePool = null!;
         private VkTexture _white = null!;
@@ -116,6 +115,16 @@ namespace Vertex.Rendering.Vulkan
         public string Name => "Vulkan";
 
         public bool SupportsGpuParticles => true;
+
+        /// <inheritdoc/>
+        public bool MeasureGpuTime { get; set; }
+
+        // The GPU's times for the latest frame it finished, and whether they're newer than what was last read.
+        private readonly List<GpuPassTime> _gpuTimes = new();
+        private bool _gpuTimesNew;
+
+        // Whether this frame is being timed.
+        private bool _timing;
 
         /// <summary>
         /// How many finished frames may wait to be shown before the next is held back, which is what input lag is made
@@ -155,7 +164,7 @@ namespace Vertex.Rendering.Vulkan
             _gpuParticlePool = new VkGpuParticles(_context, _compiler);
             CreatePipelines();
 
-            _shadowMaps = new VkShadowMaps(_context);
+            _shadowMaps = new VkShadowMaps(_context, ShadowCascades.DefaultResolution);
             _screenViews = new VkViewTargets(_context);
 
             // White, already premultiplied, for untextured canvas shapes and images a pass doesn't use; and the shadow
@@ -184,6 +193,7 @@ namespace Vertex.Rendering.Vulkan
 
             _frameSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, vertexAndFragment),
+                (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
@@ -238,7 +248,7 @@ namespace Vertex.Rendering.Vulkan
             ShaderModule composite = Shader("composite.frag", fragment, ShaderLibrary.CompositeFragment);
             ShaderModule antiAlias = Shader("antialias.frag", fragment, ShaderLibrary.AntiAliasFragment);
 
-            Format[] sceneFormats = [VkViewTargets.HdrFormat, VkViewTargets.HdrFormat, VkViewTargets.HdrFormat];
+            Format[] sceneFormats = [VkViewTargets.HdrFormat, _context.LightFormat, _context.LightFormat];
             (uint, Format, uint)[] meshAttributes =
             [
                 (0, Format.R32G32B32Sfloat, 0),
@@ -263,13 +273,15 @@ namespace Vertex.Rendering.Vulkan
             _lit = VkPipelines.CreateGraphics(_context, Scene(litFragment));
             _unlit = VkPipelines.CreateGraphics(_context, Scene(unlitFragment));
 
-            // Behind everything: drawn without depth, and everything else is drawn over it.
+            // Behind everything: drawn after the meshes, at the far plane, only where none of them are, so the sky's
+            // clouds aren't worked out for pixels that are then covered.
             _sky = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
             {
                 Layout = _sceneLayout,
                 Vertex = skyVertex,
                 Fragment = skyFragment,
                 ColorFormats = sceneFormats,
+                DepthTest = true,
                 DepthFormat = _context.DepthFormat
             });
 
@@ -283,7 +295,7 @@ namespace Vertex.Rendering.Vulkan
                 Cull = CullModeFlags.FrontBit,
                 DepthTest = true,
                 DepthWrite = true,
-                DepthFormat = _context.DepthFormat
+                DepthFormat = _context.ShadowDepthFormat
             });
 
             // Depth tested against the scene but not written, so particles never hide each other.
@@ -339,8 +351,8 @@ namespace Vertex.Rendering.Vulkan
                     ColorFormats = [format]
                 });
 
-            _bloomDown = Post(bloomDown, VkViewTargets.HdrFormat);
-            _bloomUp = Post(bloomUp, VkViewTargets.HdrFormat, VkBlend.Additive);
+            _bloomDown = Post(bloomDown, _context.LightFormat);
+            _bloomUp = Post(bloomUp, _context.LightFormat, VkBlend.Additive);
             _occlusion = Post(occlusion, VkViewTargets.OcclusionFormat);
             _occlusionBlur = Post(occlusionBlur, VkViewTargets.OcclusionFormat);
             _compositeToScreen = Post(composite, _swapchain.Format);
@@ -368,6 +380,9 @@ namespace Vertex.Rendering.Vulkan
             CommandBufferBeginInfo begin = new() { SType = StructureType.CommandBufferBeginInfo, Flags = CommandBufferUsageFlags.OneTimeSubmitBit };
             _context.Vk.ResetCommandBuffer(_frame.Commands, 0);
             _context.Vk.BeginCommandBuffer(_frame.Commands, &begin);
+
+            _timing = MeasureGpuTime && _context.TimestampPeriod > 0f;
+            if (_timing) _context.Vk.CmdResetQueryPool(_frame.Commands, _frame.Timestamps, 0, VkFrame.MaxTimestamps);
             _frameStarted = true;
         }
 
@@ -395,6 +410,7 @@ namespace Vertex.Rendering.Vulkan
 
             _frame = _frames[_frameNumber % _framesInFlight];
             _frame.WaitAndReset();
+            ReadTimestamps();
             _materialSets.Clear();
             _textureSets.Clear();
 
@@ -426,9 +442,48 @@ namespace Vertex.Rendering.Vulkan
             if (result is Result.ErrorOutOfDateKhr or Result.ErrorSurfaceLostKhr) _swapchainOutOfDate = true;
         }
 
+        /// <summary>Notes the time on the GPU as <paramref name="pass"/> begins, if timing. An empty name marks the frame's end.</summary>
+        private void Mark(CommandBuffer commands, string pass)
+        {
+            if (!_timing || _frame.TimestampNames.Count >= VkFrame.MaxTimestamps) return;
+
+            _context.Vk.CmdWriteTimestamp2(commands, PipelineStageFlags2.AllCommandsBit, _frame.Timestamps, (uint)_frame.TimestampNames.Count);
+            _frame.TimestampNames.Add(pass);
+        }
+
+        /// <summary>Turns the timestamps this frame slot took last time round, now finished, into each pass's time.</summary>
+        private void ReadTimestamps()
+        {
+            List<string> names = _frame.TimestampNames;
+            if (names.Count >= 2)
+            {
+                ulong* ticks = stackalloc ulong[VkFrame.MaxTimestamps];
+                Result result = _context.Vk.GetQueryPoolResults(_context.Device, _frame.Timestamps, 0, (uint)names.Count,
+                    (nuint)(names.Count * sizeof(ulong)), ticks, sizeof(ulong), QueryResultFlags.Result64Bit);
+
+                if (result == Result.Success)
+                {
+                    GpuTimestamps.Measure(_gpuTimes, names, new ReadOnlySpan<ulong>(ticks, names.Count), _context.TimestampPeriod / 1e6);
+                    _gpuTimesNew = true;
+                }
+            }
+
+            names.Clear();
+        }
+
+        public void ReadGpuTimes(List<GpuPassTime> into)
+        {
+            if (!_gpuTimesNew) return;
+
+            into.Clear();
+            into.AddRange(_gpuTimes);
+            _gpuTimesNew = false;
+        }
+
         public void UpdateParticles(GpuParticleUpdate update)
         {
             if (!_frameStarted) return;
+            Mark(_frame.Commands, "Particles");
             _gpuParticlePool.Update(_frame.Commands, _frame, update);
         }
 
@@ -437,6 +492,7 @@ namespace Vertex.Rendering.Vulkan
             if (!_frameStarted || frame.Width <= 0 || frame.Height <= 0) return;
 
             CommandBuffer commands = _frame.Commands;
+            Mark(commands, "Uploads");
             Prepare(commands, frame);
 
             VkImageResource output;
@@ -465,19 +521,29 @@ namespace Vertex.Rendering.Vulkan
 
             if (frame.HasCamera)
             {
-                bool shadows = frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < ShaderLibrary.MaxDirectionalLights &&
-                               frame.ShadowLightIndex < frame.DirectionalLights.Count;
-                if (shadows) DrawShadows(commands, frame);
+                bool shadows = frame.HasShadows;
+                if (shadows)
+                {
+                    Mark(commands, "Shadows");
+                    DrawShadows(commands, frame);
+                }
 
-                FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? _cascades : null);
+                FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
                 DescriptorSet frameSet = WriteFrameData(in uniforms);
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
+                Mark(commands, "Scene");
                 DrawScene(commands, frame, views, frameSet, in uniforms);
 
                 EnvironmentData environment = frame.Environment;
                 PostUniforms post = PostUniforms.ForView(frame);
                 bool occlusion = environment.AmbientOcclusion > 0f;
-                if (occlusion) Occlusion(commands, views, post);
+                if (occlusion)
+                {
+                    Mark(commands, "Ambient occlusion");
+                    Occlusion(commands, views, post);
+                }
+
+                Mark(commands, "Bloom");
                 bool bloom = Bloom(commands, frame, views, post);
 
                 post.Occlusion = occlusion ? environment.AmbientOcclusion : 0f;
@@ -488,14 +554,17 @@ namespace Vertex.Rendering.Vulkan
                 if (environment.AntiAliasing)
                 {
                     // Finished into an image of its own first, which the anti-aliasing reads to smooth into the output.
+                    Mark(commands, "Composite");
                     RunPost(commands, _compositeToTexture, views.Finished!, post, views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
 
                     post.TexelSize = new Vector2(1f / views.Finished!.Width, 1f / views.Finished.Height);
+                    Mark(commands, "Anti-aliasing");
                     BeginOutput(commands, output, outputAfter, null);
                     PostDraw(commands, toScreen ? _antiAliasToScreen : _antiAliasToTexture, outputWidth, outputHeight, post, views.Finished);
                 }
                 else
                 {
+                    Mark(commands, "Composite");
                     BeginOutput(commands, output, outputAfter, null);
                     PostDraw(commands, toScreen ? _compositeToScreen : _compositeToTexture, outputWidth, outputHeight, post,
                         views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
@@ -508,7 +577,11 @@ namespace Vertex.Rendering.Vulkan
             }
 
             // The 2D layer goes on top of the screen, camera or not.
-            if (toScreen) DrawCanvas(commands, frame, outputWidth, outputHeight);
+            if (toScreen)
+            {
+                Mark(commands, "Canvas");
+                DrawCanvas(commands, frame, outputWidth, outputHeight);
+            }
             _context.Vk.CmdEndRendering(commands);
 
             if (!toScreen)
@@ -537,6 +610,7 @@ namespace Vertex.Rendering.Vulkan
                 _context.Vk.CmdEndRendering(commands);
             }
 
+            Mark(commands, "");
             _context.Transition(commands, screen, ImageLayout.PresentSrcKhr, Stage.ColorOutput, Stage.Present);
             _context.Vk.EndCommandBuffer(commands);
 
@@ -588,12 +662,21 @@ namespace Vertex.Rendering.Vulkan
         {
             _uploadedThisView = false;
 
+            GetTexture(commands, CloudNoise.Texture);
+
             IReadOnlyList<DrawCall> draws = frame.DrawCalls;
             for (int i = 0; i < draws.Count; i++)
             {
                 GetMesh(commands, draws[i].Mesh);
                 if (draws[i].Material.Texture is { } texture) GetTexture(commands, texture);
                 if (draws[i].Material.NormalMap is { } normalMap) GetTexture(commands, normalMap);
+            }
+
+            // Things out of view can still cast shadows into it.
+            for (int cascade = 0; cascade < ShadowCascades.Count; cascade++)
+            {
+                IReadOnlyList<DrawCall> casters = frame.ShadowCasters(cascade);
+                for (int i = 0; i < casters.Count; i++) GetMesh(commands, casters[i].Mesh);
             }
 
             foreach (CanvasQuad quad in frame.CanvasQuads)
@@ -761,25 +844,30 @@ namespace Vertex.Rendering.Vulkan
         /// <summary>The sun's view of everything that casts shadows, into each cascade in turn (see <see cref="ShadowCascades"/>).</summary>
         private void DrawShadows(CommandBuffer commands, RenderFrame frame)
         {
-            _cascades.Place(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction));
+            // Made again at a new size if the resolution's been changed; the old ones go once the GPU's done with them.
+            int size = frame.Cascades.Resolution;
+            if (_shadowMaps.Size != size)
+            {
+                VkShadowMaps old = _shadowMaps;
+                _frame.DeleteLater(() => old.Destroy(_context));
+                _shadowMaps = new VkShadowMaps(_context, size);
+            }
 
             // Whatever read the shadow maps last (an earlier view, or last frame) finishes before they're drawn again.
             _context.Transition(commands, _shadowMaps.Array, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput, discard: true);
 
-            IReadOnlyList<DrawCall> draws = frame.DrawCalls;
             for (int cascade = 0; cascade < ShadowCascades.Count; cascade++)
             {
-                VkPipelines.BeginRendering(_context, commands, ShadowCascades.Size, ShadowCascades.Size, [], _shadowMaps.Layers[cascade]);
-                VkPipelines.SetViewport(_context, commands, ShadowCascades.Size, ShadowCascades.Size, flipped: true);
+                IReadOnlyList<DrawCall> draws = frame.ShadowCasters(cascade);
+                VkPipelines.BeginRendering(_context, commands, size, size, [], _shadowMaps.Layers[cascade]);
+                VkPipelines.SetViewport(_context, commands, size, size, flipped: true);
                 _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
 
-                Matrix4x4 lightSpace = _cascades.Matrices[cascade];
+                Matrix4x4 lightSpace = frame.Cascades.Matrices[cascade];
                 Mesh? currentMesh = null;
                 for (int i = 0; i < draws.Count; i++)
                 {
                     DrawCall draw = draws[i];
-                    if (!draw.CastShadows) continue;
-
                     Matrix4x4 lightModel = draw.WorldMatrix * lightSpace;
                     _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
 
@@ -813,6 +901,7 @@ namespace Vertex.Rendering.Vulkan
             DescriptorSet set = _frame.Descriptors.Allocate(_frameSetLayout);
             VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(FrameUniforms));
             VkDescriptors.WriteImage(_context, set, 1, _shadowMaps.Array.View, _shadowSampler);
+            VkDescriptors.WriteImage(_context, set, 2, TextureImage(CloudNoise.Texture).View, _repeatSampler);
             return set;
         }
 
@@ -844,12 +933,6 @@ namespace Vertex.Rendering.Vulkan
                 views.Depth);
             VkPipelines.SetViewport(_context, commands, frame.Width, frame.Height, flipped: true);
             _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 0, 1, &frameSet, 0, null);
-
-            if (frame.Environment.DrawSky)
-            {
-                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _sky);
-                _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
-            }
 
             // The draws come grouped by shader, then material, then mesh (see Renderer), so each is only set up when it changes.
             Pipeline currentPipeline = default;
@@ -887,6 +970,13 @@ namespace Vertex.Rendering.Vulkan
                 var constants = new DrawConstants { Model = draw.WorldMatrix, NormalMatrix = Matrix4x4.Transpose(inverseModel) };
                 _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(DrawConstants), &constants);
                 _context.Vk.CmdDrawIndexed(commands, mesh!.IndexCount, 1, 0, 0, 0);
+            }
+
+            // After the meshes, so it only fills what they left (see the sky pipeline).
+            if (frame.Environment.DrawSky)
+            {
+                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _sky);
+                _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
             }
 
             DrawCpuParticles(commands, frame);
@@ -981,13 +1071,12 @@ namespace Vertex.Rendering.Vulkan
         /// <summary>Ambient occlusion from the depth, then blurred across and down (see <see cref="ShaderLibrary.OcclusionFragment"/>).</summary>
         private void Occlusion(CommandBuffer commands, VkViewTargets views, PostUniforms post)
         {
-            post.TexelSize = new Vector2(1f / views.Width, 1f / views.Height);
             RunPost(commands, _occlusion, views.Occlusion!, post, _white.Image, depth: views.Depth);
-
+            post.TexelSize = new Vector2(1f / views.Occlusion!.Width, 1f / views.Occlusion.Height);
             post.Direction = Vector2.UnitX;
-            RunPost(commands, _occlusionBlur, views.OcclusionBlur!, post, views.Occlusion!, depth: views.Depth);
+            RunPost(commands, _occlusionBlur, views.OcclusionBlur!, post, views.Occlusion!);
             post.Direction = Vector2.UnitY;
-            RunPost(commands, _occlusionBlur, views.Occlusion!, post, views.OcclusionBlur!, depth: views.Depth);
+            RunPost(commands, _occlusionBlur, views.Occlusion!, post, views.OcclusionBlur!);
         }
 
         /// <summary>

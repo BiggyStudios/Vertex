@@ -20,6 +20,15 @@ namespace Vertex.Rendering.Vulkan
         public readonly VkUploadRing Uploads;
         public readonly VkDescriptorAllocator Descriptors;
 
+        /// <summary>The most passes a frame can be timed in (see <see cref="Timestamps"/>).</summary>
+        public const int MaxTimestamps = 128;
+
+        /// <summary>GPU timestamps taken as each pass began, when timing (none where the GPU can't take them).</summary>
+        public readonly QueryPool Timestamps;
+
+        /// <summary>The name of the pass each timestamp recorded this frame began, in order.</summary>
+        public readonly List<string> TimestampNames = new();
+
         public VkFrame(VkContext context)
         {
             _context = context;
@@ -42,6 +51,12 @@ namespace Vertex.Rendering.Vulkan
 
             Uploads = new VkUploadRing(context);
             Descriptors = new VkDescriptorAllocator(context);
+
+            if (context.TimestampPeriod > 0f)
+            {
+                QueryPoolCreateInfo queries = new() { SType = StructureType.QueryPoolCreateInfo, QueryType = QueryType.Timestamp, QueryCount = MaxTimestamps };
+                VkContext.Check(context.Vk.CreateQueryPool(context.Device, &queries, null, out Timestamps), "create a timestamp query pool");
+            }
         }
 
         /// <summary>Waits until the GPU has finished this frame's last use, then frees what was waiting on it and starts afresh.</summary>
@@ -67,6 +82,7 @@ namespace Vertex.Rendering.Vulkan
 
             Uploads.Dispose();
             Descriptors.Dispose();
+            if (Timestamps.Handle != 0) _context.Vk.DestroyQueryPool(_context.Device, Timestamps, null);
             _context.Vk.DestroySemaphore(_context.Device, ImageAvailable, null);
             _context.Vk.DestroyFence(_context.Device, Done, null);
         }

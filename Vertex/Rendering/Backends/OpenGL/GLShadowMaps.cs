@@ -15,15 +15,20 @@ namespace Vertex.Rendering.OpenGL
         private readonly uint _texture;
         private readonly uint[] _framebuffers = new uint[ShadowCascades.Count];
 
-        public GLShadowMaps(GL gl)
+        /// <summary>How many texels across each layer is.</summary>
+        public int Size { get; }
+
+        public GLShadowMaps(GL gl, int size)
         {
             _gl = gl;
+            Size = size;
 
+            // 16-bit depth: plenty for shadow maps, and half the memory to write and read.
             _texture = gl.GenTexture();
             gl.ActiveTexture(TextureUnit.Texture0);
             gl.BindTexture(TextureTarget.Texture2DArray, _texture);
-            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.DepthComponent24, ShadowCascades.Size, ShadowCascades.Size, ShadowCascades.Count, 0,
-                PixelFormat.DepthComponent, PixelType.UnsignedInt, null);
+            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.DepthComponent16, (uint)size, (uint)size, ShadowCascades.Count, 0,
+                PixelFormat.DepthComponent, PixelType.UnsignedShort, null);
 
             gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
             gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);

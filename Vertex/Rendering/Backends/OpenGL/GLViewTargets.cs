@@ -28,6 +28,8 @@ namespace Vertex.Rendering.OpenGL
         public uint Occlusion { get; private set; }
         public uint OcclusionBlurFramebuffer { get; private set; }
         public uint OcclusionBlur { get; private set; }
+        public int OcclusionWidth { get; private set; }
+        public int OcclusionHeight { get; private set; }
 
         public uint FinishedFramebuffer { get; private set; }
         public uint Finished { get; private set; }
@@ -53,17 +55,21 @@ namespace Vertex.Rendering.OpenGL
             if (width <= 0 || height <= 0) return;
 
             Color = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
-            Ambient = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
-            Glow = CreateTexture(width, height, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
+            // Light that's never negative and needs no alpha: packed floats, half the size of 16-bit ones.
+            Ambient = CreateTexture(width, height, InternalFormat.R11fG11fB10f, PixelFormat.Rgb, PixelType.Float);
+            Glow = CreateTexture(width, height, InternalFormat.R11fG11fB10f, PixelFormat.Rgb, PixelType.Float);
 
             // A texture rather than a renderbuffer, so ambient occlusion and the outlines can read it.
             Depth = CreateTexture(width, height, InternalFormat.DepthComponent24, PixelFormat.DepthComponent, PixelType.UnsignedInt, nearest: true);
 
             SceneFramebuffer = CreateFramebuffer("Scene", Color, depth: Depth, more: [Ambient, Glow]);
 
-            Occlusion = CreateTexture(width, height, InternalFormat.R8, PixelFormat.Red, PixelType.UnsignedByte);
+            // Ambient occlusion at half size (it's soft, and blurred anyway): how open each point is, and how far away.
+            OcclusionWidth = Math.Max((width + 1) / 2, 1);
+            OcclusionHeight = Math.Max((height + 1) / 2, 1);
+            Occlusion = CreateTexture(OcclusionWidth, OcclusionHeight, InternalFormat.RG16f, PixelFormat.RG, PixelType.Float);
             OcclusionFramebuffer = CreateFramebuffer("Occlusion", Occlusion);
-            OcclusionBlur = CreateTexture(width, height, InternalFormat.R8, PixelFormat.Red, PixelType.UnsignedByte);
+            OcclusionBlur = CreateTexture(OcclusionWidth, OcclusionHeight, InternalFormat.RG16f, PixelFormat.RG, PixelType.Float);
             OcclusionBlurFramebuffer = CreateFramebuffer("Occlusion blur", OcclusionBlur);
 
             Finished = CreateTexture(width, height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
@@ -75,7 +81,7 @@ namespace Vertex.Rendering.OpenGL
                 levelWidth = Math.Max(levelWidth / 2, 1);
                 levelHeight = Math.Max(levelHeight / 2, 1);
 
-                uint texture = CreateTexture(levelWidth, levelHeight, InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.Float);
+                uint texture = CreateTexture(levelWidth, levelHeight, InternalFormat.R11fG11fB10f, PixelFormat.Rgb, PixelType.Float);
                 BloomLevels.Add((CreateFramebuffer("Bloom", texture), texture, levelWidth, levelHeight));
 
                 if (levelWidth <= 2 || levelHeight <= 2) break;

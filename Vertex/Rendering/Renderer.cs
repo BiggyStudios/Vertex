@@ -8,7 +8,7 @@ namespace Vertex.Rendering
     /// <summary>
     /// The engine side of rendering. Each frame it gathers cameras, lights and mesh renderers from the
     /// scene into a <see cref="RenderFrame"/>, then hands that to the <see cref="IRenderBackend"/> to draw.
-    /// API-independent work (collecting, and later culling or sorting) belongs here, not in a backend.
+    /// API-independent work (collecting, culling what can't be seen, sorting) belongs here, not in a backend.
     /// </summary>
     public sealed class Renderer : IDisposable
     {
@@ -34,7 +34,31 @@ namespace Vertex.Rendering
             return material != 0 ? material : RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
         };
 
+        private static readonly Comparison<DrawCall> _byMesh = (a, b) =>
+            RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
+
+        private readonly System.Diagnostics.Stopwatch _cpuTime = new();
+
         public IRenderBackend Backend { get; }
+
+        /// <summary>What drawing the last frame took: draws, culling and time. See <see cref="MeasureGpuTime"/> for the GPU's side.</summary>
+        public RenderStats Stats { get; } = new();
+
+        /// <summary>
+        /// Whether to time each part of the frame on the GPU, for <see cref="RenderStats.GpuPasses"/>. Costs next to
+        /// nothing, but is off unless wanted; the console's <c>r_showstats</c> turns it on.
+        /// </summary>
+        public bool MeasureGpuTime
+        {
+            get => Backend.MeasureGpuTime;
+            set => Backend.MeasureGpuTime = value;
+        }
+
+        /// <summary>
+        /// How many texels across each of the sun's shadow maps is: 2048 by default. Halving it to 1024 makes shadows
+        /// a little softer but takes a quarter of the drawing, which helps on integrated graphics. Kept between 256 and 4096.
+        /// </summary>
+        public int ShadowResolution { get; set; } = Shaders.ShadowCascades.DefaultResolution;
 
         /// <summary>Framebuffer size in pixels.</summary>
         public int Width { get; private set; }
@@ -68,6 +92,13 @@ namespace Vertex.Rendering
         {
             Backend.BeginFrame();
 
+            // Not counting the waits for the screen (in BeginFrame and EndFrame), which aren't work.
+            _cpuTime.Restart();
+            Stats.Views = 0;
+            Stats.DrawCalls = 0;
+            Stats.CulledDrawCalls = 0;
+            Stats.ShadowDrawCalls = 0;
+
             // GPU particles move once a frame, whatever number of views draw them: on the GPU if the backend can,
             // otherwise here, and then they're handed over with the other particles.
             GpuParticleUpdate particles = _gpuParticles.Gather(scene, Time.TotalTime);
@@ -99,7 +130,11 @@ namespace Vertex.Rendering
 
             Collect(scene, Camera.Main, Width, Height, target: null);
             Backend.Render(_frame);
+            Stats.CpuMilliseconds = _cpuTime.Elapsed.TotalMilliseconds;
+
             Backend.EndFrame();
+            if (Backend.MeasureGpuTime) Backend.ReadGpuTimes(Stats.GpuPassList);
+            else Stats.GpuPassList.Clear();
         }
 
         /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
@@ -124,6 +159,7 @@ namespace Vertex.Rendering
             _frame.HasCamera = camera != null && width > 0 && height > 0;
             if (camera == null || !_frame.HasCamera) return;
 
+            Stats.Views++;
             _frame.ViewMatrix = camera.ViewMatrix;
             _frame.ProjectionMatrix = camera.GetProjectionMatrix((float)width / height);
             _frame.CameraPosition = camera.Transform.WorldPosition;
@@ -144,6 +180,16 @@ namespace Vertex.Rendering
                 }
             }
 
+            int sun = _frame.ShadowLightIndex;
+            _frame.HasShadows = sun >= 0 && sun < Shaders.ShaderLibrary.MaxDirectionalLights && _frame.ShadowDistance > 0f;
+            _frame.Cascades.Resolution = Math.Clamp(ShadowResolution, 256, 4096);
+            if (_frame.HasShadows) _frame.Cascades.Place(_frame, Vector3.Normalize(_frame.DirectionalLightList[sun].Direction));
+
+            // Only what the camera can see is drawn, but anything can cast a shadow into view, so shadow casters are
+            // checked against each cascade instead.
+            var frustum = new Frustum(_frame.ViewMatrix * _frame.ProjectionMatrix);
+            List<DrawCall>[] casters = _frame.ShadowCasterLists;
+
             // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
             // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
             foreach (MeshRenderer meshRenderer in scene.FindComponents<MeshRenderer>())
@@ -152,7 +198,16 @@ namespace Vertex.Rendering
 
                 bool lit = meshRenderer.Material.Shading == ShadingModel.Lit;
                 var draw = new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, meshRenderer.CastShadows && lit);
-                (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
+                Culling.WorldBounds(draw.Mesh, draw.WorldMatrix, out Vector3 centre, out Vector3 extents);
+
+                if (frustum.Intersects(centre, extents)) (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
+                else Stats.CulledDrawCalls++;
+
+                if (!draw.CastShadows || !_frame.HasShadows) continue;
+                for (int cascade = 0; cascade < casters.Length; cascade++)
+                {
+                    if (Culling.InOrthographic(_frame.Cascades.Matrices[cascade], centre, extents)) casters[cascade].Add(draw);
+                }
             }
 
             // And within each, the same material and mesh together, so the backend sets each up once for all its draws.
@@ -160,6 +215,14 @@ namespace Vertex.Rendering
             _unlitDraws.Sort(_byMaterialThenMesh);
             _frame.DrawCallList.AddRange(_unlitDraws);
             _unlitDraws.Clear();
+            Stats.DrawCalls += _frame.DrawCallList.Count;
+
+            // Shadow maps only need each mesh set up once.
+            foreach (List<DrawCall> list in casters)
+            {
+                list.Sort(_byMesh);
+                Stats.ShadowDrawCalls += list.Count;
+            }
 
             foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
             _cpuParticles?.Collect(_frame.ParticleList);
