@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="Vertex.Editor.Tests/Vertex.Editor.Tests.csproj" />
+  <Project Path="Vertex.Editor/Vertex.Editor.csproj" />
   <Project Path="Vertex.Tests/Vertex.Tests.csproj" />
   <Project Path="Vertex/Vertex.csproj" />
 </Solution>
