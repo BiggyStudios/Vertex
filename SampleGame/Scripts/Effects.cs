@@ -26,15 +26,15 @@ namespace SampleGame
     {
         private static readonly Color _tracerColor = new(1f, 0.85f, 0.4f);
 
-        private static ParticleSystem? _sparks;
-        private static ParticleSystem? _flashes;
+        private static GpuParticleSystem? _sparks;
+        private static GpuParticleSystem? _flashes;
         private static ParticleSystem? _dust;
         private static ParticleSystem? _blood;
         private static ParticleSystem? _landing;
-        private static ParticleSystem? _fireballs;
+        private static GpuParticleSystem? _fireballs;
         private static ParticleSystem? _blastSmoke;
-        private static ParticleSystem? _debris;
-        private static ParticleSystem? _blastFlashes;
+        private static GpuParticleSystem? _debris;
+        private static GpuParticleSystem? _blastFlashes;
 
         /// <summary>A bright streak along a bullet's path, gone after a couple of frames.</summary>
         public static void Tracer(Vector3 from, Vector3 to)
@@ -99,22 +99,24 @@ namespace SampleGame
             Get(ref _landing, CreateLanding).Emit(count, feet + new Vector3(0f, 0.08f, 0f), Vector3.UnitY);
         }
 
-        private static ParticleSystem Get(ref ParticleSystem? system, Func<ParticleSystem> create)
+        private static T Get<T>(ref T? system, Func<T> create) where T : ParticleEmitter
         {
             if (system == null || system.GameObject.IsDestroyed) system = create();
             return system;
         }
 
-        private static ParticleSystem CreateEmitter(string name)
+        // Additive effects (sparks, flashes, fire) are GpuParticleSystems: the GPU moves and draws them, and their order
+        // doesn't matter. Ones that cover what's behind (dust, blood, smoke) are CPU ParticleSystems, sorted back to front.
+        private static T CreateEmitter<T>(string name) where T : ParticleEmitter, new()
         {
             var emitter = new GameObject(name);
-            return emitter.AddComponent<ParticleSystem>();
+            return emitter.AddComponent<T>();
         }
 
         // Hot, fast and short: they streak out, fall and fade from yellow to deep orange.
-        private static ParticleSystem CreateSparks()
+        private static GpuParticleSystem CreateSparks()
         {
-            ParticleSystem sparks = CreateEmitter("Impact Sparks");
+            GpuParticleSystem sparks = CreateEmitter<GpuParticleSystem>("Impact Sparks");
             sparks.Lifetime = new FloatRange(0.15f, 0.4f);
             sparks.Speed = new FloatRange(3f, 9f);
             sparks.Spread = 60f;
@@ -131,9 +133,9 @@ namespace SampleGame
         }
 
         // A bright pop right where it hit, gone in a few frames.
-        private static ParticleSystem CreateFlashes()
+        private static GpuParticleSystem CreateFlashes()
         {
-            ParticleSystem flashes = CreateEmitter("Impact Flashes");
+            GpuParticleSystem flashes = CreateEmitter<GpuParticleSystem>("Impact Flashes");
             flashes.Lifetime = 0.07f;
             flashes.Speed = 0f;
             flashes.Size = new FloatRange(0.25f, 0.35f);
@@ -148,7 +150,7 @@ namespace SampleGame
         // Grit knocked off the surface: it drifts out, slows and spreads into a haze.
         private static ParticleSystem CreateDust()
         {
-            ParticleSystem dust = CreateEmitter("Impact Dust");
+            ParticleSystem dust = CreateEmitter<ParticleSystem>("Impact Dust");
             dust.Blend = ParticleBlend.Alpha;
             dust.Lifetime = new FloatRange(0.45f, 0.8f);
             dust.Speed = new FloatRange(0.4f, 1.4f);
@@ -166,7 +168,7 @@ namespace SampleGame
         // A dark red mist with a few heavier drops that fall.
         private static ParticleSystem CreateBlood()
         {
-            ParticleSystem blood = CreateEmitter("Blood");
+            ParticleSystem blood = CreateEmitter<ParticleSystem>("Blood");
             blood.Blend = ParticleBlend.Alpha;
             blood.Lifetime = new FloatRange(0.25f, 0.55f);
             blood.Speed = new FloatRange(0.8f, 3.5f);
@@ -181,9 +183,9 @@ namespace SampleGame
             return blood;
         }
 
-        private static ParticleSystem CreateBlastFlashes()
+        private static GpuParticleSystem CreateBlastFlashes()
         {
-            ParticleSystem flashes = CreateEmitter("Blast Flashes");
+            GpuParticleSystem flashes = CreateEmitter<GpuParticleSystem>("Blast Flashes");
             flashes.Lifetime = 0.12f;
             flashes.Speed = 0f;
             flashes.Size = new FloatRange(2.6f, 3.2f);
@@ -196,9 +198,9 @@ namespace SampleGame
         }
 
         // Billowing out fast, then slowing, cooling from yellow through orange to a dark red as it fades.
-        private static ParticleSystem CreateFireballs()
+        private static GpuParticleSystem CreateFireballs()
         {
-            ParticleSystem fire = CreateEmitter("Fireballs");
+            GpuParticleSystem fire = CreateEmitter<GpuParticleSystem>("Fireballs");
             fire.Lifetime = new FloatRange(0.25f, 0.55f);
             fire.Speed = new FloatRange(2f, 7f);
             fire.Spread = 180f;
@@ -215,9 +217,9 @@ namespace SampleGame
         }
 
         // Burning bits flung out in every direction, streaking and falling.
-        private static ParticleSystem CreateDebris()
+        private static GpuParticleSystem CreateDebris()
         {
-            ParticleSystem debris = CreateEmitter("Blast Debris");
+            GpuParticleSystem debris = CreateEmitter<GpuParticleSystem>("Blast Debris");
             debris.Lifetime = new FloatRange(0.4f, 1f);
             debris.Speed = new FloatRange(6f, 16f);
             debris.Spread = 180f;
@@ -236,7 +238,7 @@ namespace SampleGame
         // Dark smoke that rolls out, rises and spreads into a big haze.
         private static ParticleSystem CreateBlastSmoke()
         {
-            ParticleSystem smoke = CreateEmitter("Blast Smoke");
+            ParticleSystem smoke = CreateEmitter<ParticleSystem>("Blast Smoke");
             smoke.Blend = ParticleBlend.Alpha;
             smoke.Lifetime = new FloatRange(1.2f, 2.2f);
             smoke.Speed = new FloatRange(1f, 4f);
@@ -255,7 +257,7 @@ namespace SampleGame
         // Low and wide: kicked out sideways along the ground, slowing quickly and spreading out.
         private static ParticleSystem CreateLanding()
         {
-            ParticleSystem landing = CreateEmitter("Landing Dust");
+            ParticleSystem landing = CreateEmitter<ParticleSystem>("Landing Dust");
             landing.Blend = ParticleBlend.Alpha;
             landing.Lifetime = new FloatRange(0.5f, 0.9f);
             landing.Speed = new FloatRange(3f, 8f);

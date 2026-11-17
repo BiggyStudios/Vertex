@@ -283,7 +283,7 @@ namespace SampleGame
             var motes = new GameObject("Motes");
             motes.Transform.Parent = pad.Transform;
             motes.Transform.Position = new Vector3(0f, 0.15f, 0f);
-            ParticleSystem particles = motes.AddComponent<ParticleSystem>();
+            GpuParticleSystem particles = motes.AddComponent<GpuParticleSystem>();
             particles.Rate = 10f;
             particles.Area = new Vector3(2.6f, 0f, 2.6f);
             particles.Spread = 5f;

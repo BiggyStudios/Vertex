@@ -39,8 +39,8 @@ namespace SampleGame
         private float _bounce;
         private Vector3 _topScale;
         private Material? _topMaterial;
-        private ParticleSystem _sparkles = null!;
-        private ParticleSystem _burst = null!;
+        private GpuParticleSystem _sparkles = null!;
+        private GpuParticleSystem _burst = null!;
 
         protected override void Start()
         {
@@ -59,7 +59,7 @@ namespace SampleGame
             var sparkles = new GameObject("Sparkles");
             sparkles.Transform.Parent = Transform;
             sparkles.Transform.Position = new Vector3(0f, 0.2f, 0f);
-            _sparkles = sparkles.AddComponent<ParticleSystem>();
+            _sparkles = sparkles.AddComponent<GpuParticleSystem>();
             _sparkles.Rate = 16f;
             _sparkles.Area = new Vector3(2.4f, 0f, 2.4f);
             _sparkles.Spread = 8f;
@@ -75,7 +75,7 @@ namespace SampleGame
             var burst = new GameObject("Launch Burst");
             burst.Transform.Parent = Transform;
             burst.Transform.Position = new Vector3(0f, 0.25f, 0f);
-            _burst = burst.AddComponent<ParticleSystem>();
+            _burst = burst.AddComponent<GpuParticleSystem>();
             _burst.Area = new Vector3(2f, 0f, 2f);
             _burst.Spread = 50f;
             _burst.Speed = new FloatRange(3f, 10f);
