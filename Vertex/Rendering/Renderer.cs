@@ -17,6 +17,9 @@ namespace Vertex.Rendering
         // Unlit draws, gathered apart this frame to go after the lit ones; kept to reuse.
         private readonly List<DrawCall> _unlitDraws = new();
 
+        // Cameras drawing into textures this frame; kept to reuse.
+        private readonly List<Camera> _targetCameras = new();
+
         // Any order that keeps draws with the same material, and within that the same mesh, next to each other.
         private static readonly Comparison<DrawCall> _byMaterialThenMesh = (a, b) =>
         {
@@ -50,19 +53,41 @@ namespace Vertex.Rendering
             Backend.Resize(width, height);
         }
 
+        /// <summary>
+        /// Draws the scene: first from every camera with a <see cref="Camera.Target"/> into its texture, then from
+        /// <see cref="Camera.Main"/> to the screen with the <see cref="UI.Canvas"/> over it.
+        /// </summary>
         internal void Render(Scene scene)
         {
-            Collect(scene);
+            // Gathered first, so the scene isn't being searched while the backend draws.
+            foreach (Camera camera in scene.FindComponents<Camera>())
+            {
+                if (camera.Target != null) _targetCameras.Add(camera);
+            }
+
+            foreach (Camera camera in _targetCameras)
+            {
+                RenderTexture target = camera.Target!;
+                Collect(scene, camera, target.Width, target.Height, target);
+                Backend.Render(_frame);
+            }
+
+            _targetCameras.Clear();
+
+            Collect(scene, Camera.Main, Width, Height, target: null);
             Backend.Render(_frame);
         }
 
-        /// <summary>Refills the frame from the scene. The frame's lists are reused between frames.</summary>
-        private void Collect(Scene scene)
+        /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
+        private void Collect(Scene scene, Camera? camera, int width, int height, RenderTexture? target)
         {
             _frame.Clear();
-            _frame.Width = Width;
-            _frame.Height = Height;
-            _frame.CanvasQuadList.AddRange(UI.Canvas.ReadyQuads);
+            _frame.Width = width;
+            _frame.Height = height;
+            _frame.Target = target;
+
+            // The 2D layer only goes on the screen.
+            if (target == null) _frame.CanvasQuadList.AddRange(UI.Canvas.ReadyQuads);
 
             Lighting lighting = scene.Lighting;
             _frame.Environment = new EnvironmentData(lighting.SkyColor, lighting.HorizonColor, lighting.GroundColor,
@@ -72,13 +97,12 @@ namespace Vertex.Rendering
             _frame.ShadowLightIndex = -1;
             _frame.Bloom = lighting.Bloom;
 
-            Camera? camera = Camera.Main;
             _frame.ClearColor = camera?.ClearColor ?? Color.Black;
-            _frame.HasCamera = camera != null && Width > 0 && Height > 0;
+            _frame.HasCamera = camera != null && width > 0 && height > 0;
             if (camera == null || !_frame.HasCamera) return;
 
             _frame.ViewMatrix = camera.ViewMatrix;
-            _frame.ProjectionMatrix = camera.GetProjectionMatrix((float)Width / Height);
+            _frame.ProjectionMatrix = camera.GetProjectionMatrix((float)width / height);
             _frame.CameraPosition = camera.Transform.WorldPosition;
             _frame.CameraForward = camera.Transform.Forward;
 

@@ -103,11 +103,12 @@ namespace Vertex.Rendering.OpenGL
         }
 
         /// <summary>
-        /// Blurs the glow and draws the scene with it to the screen. <paramref name="strength"/> 0 skips the glow.
-        /// <paramref name="outlines"/> is how dark the outlines are (0 for none); <paramref name="projection"/> is the
-        /// camera's, to tell how far away each pixel is from its depth.
+        /// Blurs the glow and draws the scene with it into <paramref name="output"/> (0 for the screen).
+        /// <paramref name="strength"/> 0 skips the glow. <paramref name="outlines"/> is how dark the outlines are (0 for
+        /// none); <paramref name="projection"/> is the camera's, to tell how far away each pixel is from its depth.
+        /// <paramref name="flipY"/> puts the top row first, as textures loaded from files have it, for drawing into one.
         /// </summary>
-        public void Finish(float strength, float outlines, Matrix4x4 projection)
+        public void Finish(float strength, float outlines, Matrix4x4 projection, uint output = 0, bool flipY = false)
         {
             _gl.Disable(EnableCap.DepthTest);
             _gl.DepthMask(false);
@@ -143,9 +144,10 @@ namespace Vertex.Rendering.OpenGL
                 _gl.Disable(EnableCap.Blend);
             }
 
-            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, output);
             _gl.Viewport(0, 0, (uint)_width, (uint)_height);
             _composite.Use();
+            _composite.SetBool("uFlipY", flipY);
             _composite.SetInt("uScene", 0);
             _composite.SetInt("uBloom", 1);
             _composite.SetInt("uDepth", 2);

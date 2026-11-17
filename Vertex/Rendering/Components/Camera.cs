@@ -9,16 +9,31 @@ namespace Vertex.Rendering
     {
         private static Camera? _main;
 
-        /// <summary>The camera used for rendering. Defaults to the first camera in the active scene.</summary>
+        /// <summary>
+        /// The camera that draws to the screen. Defaults to the first camera in the active scene without a
+        /// <see cref="Target"/>.
+        /// </summary>
         public static Camera? Main
         {
             get
             {
-                if (_main != null && !_main.GameObject.IsDestroyed) return _main;
-                return Scene.Active.FindComponent<Camera>();
+                if (_main != null && !_main.GameObject.IsDestroyed && _main.GameObject.Scene == Scene.Active) return _main;
+
+                foreach (Camera camera in Scene.Active.FindComponents<Camera>())
+                {
+                    if (camera.Target == null) return camera;
+                }
+
+                return null;
             }
             set => _main = value;
         }
+
+        /// <summary>
+        /// Where this camera draws: null for the screen (if it's <see cref="Main"/>), or a texture. Cameras with a target
+        /// draw every frame they're enabled, before the screen, so it can show what they drew that same frame.
+        /// </summary>
+        public RenderTexture? Target { get; set; }
 
         /// <summary>Vertical field of view in degrees.</summary>
         public float FieldOfView { get; set; } = 60f;

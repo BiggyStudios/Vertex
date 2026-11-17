@@ -30,6 +30,7 @@ namespace Vertex.Rendering.OpenGL
         // GPU copies of meshes/textures. Weak keys, so dropping a Mesh doesn't keep it alive here.
         private readonly ConditionalWeakTable<Mesh, GLMesh> _meshes = new();
         private readonly ConditionalWeakTable<Texture, GLTexture> _textures = new();
+        private readonly ConditionalWeakTable<RenderTexture, GLRenderTarget> _renderTargets = new();
 
         private static readonly string[] _directionalDirectionNames = UniformNames("uDirectionalLights", "direction", GLShaderSources.MaxDirectionalLights);
         private static readonly string[] _directionalColorNames = UniformNames("uDirectionalLights", "color", GLShaderSources.MaxDirectionalLights);
@@ -72,30 +73,49 @@ namespace Vertex.Rendering.OpenGL
 
         public void Render(RenderFrame frame)
         {
+            // Where the finished picture goes: the screen, or a render texture's framebuffer. Each has its own bloom
+            // images, sized to match.
+            uint output = 0;
+            GLBloom bloom = _bloom;
+            if (frame.Target != null)
+            {
+                GLRenderTarget target = GetRenderTarget(frame.Target);
+                output = target.Framebuffer;
+                bloom = target.Bloom;
+            }
+
             // Shadows first: they're drawn into their own texture.
             bool shadows = frame.HasCamera && frame.ShadowLightIndex >= 0 && frame.ShadowLightIndex < GLShaderSources.MaxDirectionalLights;
             if (shadows) _shadowMap.Draw(frame, Vector3.Normalize(frame.DirectionalLights[frame.ShadowLightIndex].Direction), GetMesh);
 
             if (frame.HasCamera)
             {
-                // The scene goes into the bloom's images first, then onto the screen with its glow.
+                // The scene goes into the bloom's images first, then to the output with its glow.
                 bool sky = frame.Environment.DrawSky;
-                _bloom.Resize(frame.Width, frame.Height);
-                _bloom.BeginScene(sky ? frame.Environment.HorizonColor : frame.ClearColor);
+                bloom.Resize(frame.Width, frame.Height);
+                bloom.BeginScene(sky ? frame.Environment.HorizonColor : frame.ClearColor);
                 if (sky) DrawSky(frame);
                 DrawScene(frame, shadows);
                 _particles.Draw(frame);
-                _bloom.Finish(frame.Bloom, frame.Environment.Outlines, frame.ProjectionMatrix);
+                bloom.Finish(frame.Bloom, frame.Environment.Outlines, frame.ProjectionMatrix, output, flipY: frame.Target != null);
             }
             else
             {
                 Color clear = frame.ClearColor;
-                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, output);
+                _gl.Viewport(0, 0, (uint)frame.Width, (uint)frame.Height);
                 _gl.ClearColor(clear.R, clear.G, clear.B, clear.A);
                 _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
             }
 
-            // The 2D layer goes on top, camera or not.
+            if (frame.Target != null)
+            {
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                return;
+            }
+
+            // The 2D layer goes on top of the screen, camera or not.
+            _gl.Viewport(0, 0, (uint)frame.Width, (uint)frame.Height);
             _canvas.Draw(frame.CanvasQuads, frame.Width, frame.Height, GetTexture);
         }
 
@@ -246,8 +266,27 @@ namespace Vertex.Rendering.OpenGL
             return glMesh;
         }
 
+        private GLRenderTarget GetRenderTarget(RenderTexture texture)
+        {
+            if (!_renderTargets.TryGetValue(texture, out GLRenderTarget? target))
+            {
+                target = new GLRenderTarget(_gl, texture, _emptyVertexArray);
+                _renderTargets.Add(texture, target);
+                texture.Disposed += OnTextureDisposed;
+            }
+            else
+            {
+                target.Update(texture);
+            }
+
+            return target;
+        }
+
         private GLTexture GetTexture(Texture texture)
         {
+            // Drawn into by a camera, so there are no pixels to upload: use what it drew.
+            if (texture is RenderTexture renderTexture) return GetRenderTarget(renderTexture).Color;
+
             if (!_textures.TryGetValue(texture, out GLTexture? glTexture))
             {
                 glTexture = new GLTexture(_gl, texture);
@@ -279,14 +318,22 @@ namespace Vertex.Rendering.OpenGL
                 glTexture.Dispose();
                 _textures.Remove(texture);
             }
+
+            if (texture is RenderTexture renderTexture && _renderTargets.TryGetValue(renderTexture, out GLRenderTarget? target))
+            {
+                target.Dispose();
+                _renderTargets.Remove(renderTexture);
+            }
         }
 
         public void Dispose()
         {
             foreach (KeyValuePair<Mesh, GLMesh> entry in _meshes) entry.Value.Dispose();
             foreach (KeyValuePair<Texture, GLTexture> entry in _textures) entry.Value.Dispose();
+            foreach (KeyValuePair<RenderTexture, GLRenderTarget> entry in _renderTargets) entry.Value.Dispose();
             _meshes.Clear();
             _textures.Clear();
+            _renderTargets.Clear();
 
             _litShader.Dispose();
             _unlitShader.Dispose();

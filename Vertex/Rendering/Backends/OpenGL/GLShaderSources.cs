@@ -409,10 +409,14 @@ namespace Vertex.Rendering.OpenGL
 
             out vec2 vUV;
 
+            // Reads the source upside down, so a texture drawn into gets its top row first like one loaded from a file.
+            uniform bool uFlipY;
+
             void main()
             {
                 vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2) * 2.0 - 1.0;
                 vUV = corner * 0.5 + 0.5;
+                if (uFlipY) vUV.y = 1.0 - vUV.y;
                 gl_Position = vec4(corner, 0.0, 1.0);
             }
             """;

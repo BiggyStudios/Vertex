@@ -7,17 +7,17 @@ namespace Vertex.Rendering
     /// </summary>
     public class Texture : IDisposable
     {
-        public int Width { get; }
-        public int Height { get; }
+        public int Width { get; private protected set; }
+        public int Height { get; private protected set; }
 
-        /// <summary>Width * Height * 4 bytes (RGBA), top row first.</summary>
+        /// <summary>Width * Height * 4 bytes (RGBA), top row first. Empty for a <see cref="RenderTexture"/>, which only exists on the GPU.</summary>
         public byte[] Pixels { get; }
 
         /// <summary>Raised by <see cref="Dispose"/> so renderers can free their GPU copy.</summary>
         public event Action<Texture>? Disposed;
 
-        /// <summary>Bumped by <see cref="SetPixels"/>, so renderers know to upload their copy again.</summary>
-        public int Version { get; private set; }
+        /// <summary>Bumped by <see cref="SetPixels"/> (or a render texture's resize), so renderers know to update their copy.</summary>
+        public int Version { get; private protected set; }
 
         /// <param name="rgbaPixels">Width * Height * 4 bytes, top row first.</param>
         public Texture(int width, int height, byte[] rgbaPixels)
@@ -28,6 +28,14 @@ namespace Vertex.Rendering
             Width = width;
             Height = height;
             Pixels = rgbaPixels;
+        }
+
+        /// <summary>For textures drawn into by the GPU (see <see cref="RenderTexture"/>), which have no pixels here.</summary>
+        private protected Texture(int width, int height)
+        {
+            Width = width;
+            Height = height;
+            Pixels = [];
         }
 
         /// <summary>Loads a PNG, JPG, BMP, TGA, GIF or HDR file.</summary>
@@ -72,6 +80,8 @@ namespace Vertex.Rendering
         /// </summary>
         public void SetPixels(int x, int y, int width, int height, ReadOnlySpan<byte> rgbaPixels)
         {
+            if (this is RenderTexture) throw new InvalidOperationException("A render texture's pixels are drawn by a camera, not set.");
+
             if (x < 0 || y < 0 || x + width > Width || y + height > Height)
                 throw new ArgumentOutOfRangeException(nameof(x), "The rectangle must fit inside the texture.");
             if (rgbaPixels.Length != width * height * 4)

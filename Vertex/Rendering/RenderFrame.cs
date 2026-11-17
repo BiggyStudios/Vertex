@@ -42,9 +42,15 @@ namespace Vertex.Rendering
         internal readonly List<ParticleData> ParticleList = new();
         internal readonly List<CanvasQuad> CanvasQuadList = new();
 
-        /// <summary>Framebuffer size in pixels.</summary>
+        /// <summary>Size in pixels of what's being drawn into: the screen, or <see cref="Target"/>.</summary>
         public int Width { get; internal set; }
         public int Height { get; internal set; }
+
+        /// <summary>
+        /// The texture to draw into, or null for the screen. Its top row should end up first, as in a
+        /// <see cref="Texture"/> loaded from a file, so it can be used the same way. Only the screen gets <see cref="CanvasQuads"/>.
+        /// </summary>
+        public RenderTexture? Target { get; internal set; }
 
         /// <summary>False when there is no camera or the window is minimised; only clear the screen.</summary>
         public bool HasCamera { get; internal set; }

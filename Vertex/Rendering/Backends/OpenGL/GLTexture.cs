@@ -15,6 +15,10 @@ namespace Vertex.Rendering.OpenGL
         {
             _gl = gl;
             _handle = gl.GenTexture();
+
+            // Unit 0, which every texture is bound to for drawing anyway: another unit may hold something in use, such
+            // as the shadow map, which binding this there would replace.
+            gl.ActiveTexture(TextureUnit.Texture0);
             gl.BindTexture(TextureTarget.Texture2D, _handle);
 
             gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
@@ -25,9 +29,30 @@ namespace Vertex.Rendering.OpenGL
             Upload(texture);
         }
 
+        /// <summary>An empty texture for a framebuffer to draw into: no mipmaps, and it doesn't repeat past its edges.</summary>
+        public unsafe GLTexture(GL gl, int width, int height)
+        {
+            _gl = gl;
+            _handle = gl.GenTexture();
+
+            // Unit 0, which every texture is bound to for drawing anyway: another unit may hold something in use, such
+            // as the shadow map, which binding this there would replace.
+            gl.ActiveTexture(TextureUnit.Texture0);
+            gl.BindTexture(TextureTarget.Texture2D, _handle);
+
+            gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+            gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+            gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8, (uint)width, (uint)height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, null);
+        }
+
+        public uint Handle => _handle;
+
         /// <summary>Copies the texture's pixels to the GPU, replacing what was there.</summary>
         public unsafe void Upload(Texture texture)
         {
+            _gl.ActiveTexture(TextureUnit.Texture0);
             _gl.BindTexture(TextureTarget.Texture2D, _handle);
 
             fixed (byte* data = texture.Pixels)
