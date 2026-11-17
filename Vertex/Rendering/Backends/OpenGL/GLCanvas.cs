@@ -10,7 +10,7 @@ namespace Vertex.Rendering.OpenGL
     /// </summary>
     internal sealed class GLCanvas : IDisposable
     {
-        private const int _floatsPerVertex = 8; // position xy, uv, colour rgba
+        private const int _floatsPerVertex = CanvasQuad.FloatsPerVertex;
 
         private readonly GL _gl;
         private readonly GLShader _shader;
@@ -39,6 +39,12 @@ namespace Vertex.Rendering.OpenGL
             gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride, (void*)(2 * sizeof(float)));
             gl.EnableVertexAttribArray(2);
             gl.VertexAttribPointer(2, 4, VertexAttribPointerType.Float, false, stride, (void*)(4 * sizeof(float)));
+            for (uint attribute = 3; attribute <= 5; attribute++)
+            {
+                // Shape, shape style and clip: four floats each, after the colour.
+                gl.EnableVertexAttribArray(attribute);
+                gl.VertexAttribPointer(attribute, 4, VertexAttribPointerType.Float, false, stride, (void*)((attribute * 4 - 4) * sizeof(float)));
+            }
 
             gl.BindVertexArray(0);
         }
@@ -69,12 +75,12 @@ namespace Vertex.Rendering.OpenGL
                 }
 
                 // Two triangles per quad.
-                AddVertex(quad.TopLeft);
-                AddVertex(quad.TopRight);
-                AddVertex(quad.BottomRight);
-                AddVertex(quad.TopLeft);
-                AddVertex(quad.BottomRight);
-                AddVertex(quad.BottomLeft);
+                AddVertex(quad, quad.TopLeft);
+                AddVertex(quad, quad.TopRight);
+                AddVertex(quad, quad.BottomRight);
+                AddVertex(quad, quad.TopLeft);
+                AddVertex(quad, quad.BottomRight);
+                AddVertex(quad, quad.BottomLeft);
             }
 
             Flush(batchTexture, getTexture);
@@ -84,19 +90,12 @@ namespace Vertex.Rendering.OpenGL
             _gl.Enable(EnableCap.DepthTest);
         }
 
-        private void AddVertex(in CanvasVertex vertex)
+        private void AddVertex(in CanvasQuad quad, in CanvasVertex vertex)
         {
             int offset = _vertexCount * _floatsPerVertex;
             if (offset + _floatsPerVertex > _vertices.Length) Array.Resize(ref _vertices, _vertices.Length * 2);
 
-            _vertices[offset] = vertex.Position.X;
-            _vertices[offset + 1] = vertex.Position.Y;
-            _vertices[offset + 2] = vertex.TexCoord.X;
-            _vertices[offset + 3] = vertex.TexCoord.Y;
-            _vertices[offset + 4] = vertex.Color.X;
-            _vertices[offset + 5] = vertex.Color.Y;
-            _vertices[offset + 6] = vertex.Color.Z;
-            _vertices[offset + 7] = vertex.Color.W;
+            quad.WriteVertex(_vertices.AsSpan(offset, _floatsPerVertex), vertex);
             _vertexCount++;
         }
 

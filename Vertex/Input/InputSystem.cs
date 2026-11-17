@@ -58,6 +58,21 @@ namespace Vertex.Input
             }
         }
 
+        /// <summary>What the mouse pointer looks like, such as a text cursor over a text box. Stays as set until changed.</summary>
+        public static CursorShape CursorShape
+        {
+            get => _cursorShape;
+            set
+            {
+                if (_cursorShape == value) return;
+
+                _cursorShape = value;
+                _platform?.SetCursorShape(value);
+            }
+        }
+
+        private static CursorShape _cursorShape;
+
         public static bool GetKey(Key key) => _keysHeld.Contains(key);
 
         public static bool GetKeyDown(Key key) => _keysPressed.Contains(key);
@@ -149,10 +164,31 @@ namespace Vertex.Input
         }
     }
 
-    /// <summary>The parts of input that need the host's help: the clipboard and capturing the cursor.</summary>
+    /// <summary>What the mouse pointer looks like, to hint at what clicking will do.</summary>
+    public enum CursorShape
+    {
+        Arrow,
+
+        /// <summary>The text cursor, over something to type in.</summary>
+        IBeam,
+
+        /// <summary>A pointing hand, over a link.</summary>
+        Hand,
+
+        /// <summary>Over something that drags left and right: a divider between panels, or a number to drag.</summary>
+        ResizeHorizontal,
+
+        /// <summary>Over something that drags up and down.</summary>
+        ResizeVertical,
+
+        Crosshair
+    }
+
+    /// <summary>The parts of input that need the host's help: the clipboard, capturing the cursor and its shape.</summary>
     internal interface IInputHost
     {
         string ClipboardText { get; set; }
         void SetCursorLocked(bool locked);
+        void SetCursorShape(CursorShape shape) {}
     }
 }

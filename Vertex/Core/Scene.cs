@@ -123,6 +123,47 @@ namespace Vertex
             _physics = null;
         }
 
+        /// <summary>
+        /// Brings in objects made since the last update and removes destroyed ones, without running any of their code:
+        /// how an editor shows changes to a scene that isn't playing.
+        /// </summary>
+        internal void ApplyChanges()
+        {
+            _objects.AddRange(_toAdd);
+            _toAdd.Clear();
+            DestroyPending();
+        }
+
+        /// <summary>
+        /// Takes <paramref name="gameObject"/> and everything under it out of the scene without destroying them, so they
+        /// can be put back with <see cref="Attach"/>: an editor's delete, which can be undone. Returns where it was among
+        /// the scene's objects.
+        /// </summary>
+        internal int Detach(GameObject gameObject)
+        {
+            ApplyChanges();
+            int index = _objects.IndexOf(gameObject);
+            foreach (GameObject member in Subtree(gameObject)) _objects.Remove(member);
+            return index;
+        }
+
+        /// <summary>Puts back an object taken out by <see cref="Detach"/>, at <paramref name="index"/> among the scene's objects, with everything under it.</summary>
+        internal void Attach(GameObject gameObject, int index)
+        {
+            ApplyChanges();
+            List<GameObject> members = Subtree(gameObject).Where(member => !_objects.Contains(member)).ToList();
+            _objects.InsertRange(Math.Clamp(index, 0, _objects.Count), members);
+        }
+
+        private static IEnumerable<GameObject> Subtree(GameObject root)
+        {
+            yield return root;
+            foreach (Transform child in root.Transform.Children)
+            {
+                foreach (GameObject member in Subtree(child.GameObject)) yield return member;
+            }
+        }
+
         internal void Update()
         {
             _objects.AddRange(_toAdd);
@@ -158,9 +199,14 @@ namespace Vertex
                 gameObject.Update();
             }
 
+            DestroyPending();
+        }
+
+        private void DestroyPending()
+        {
             if (_toDestroy.Count == 0) return;
 
-            foreach (GameObject gameObject in _toDestroy)
+            foreach (GameObject gameObject in _toDestroy.ToArray())
             {
                 gameObject.DestroyImmediate();
             }

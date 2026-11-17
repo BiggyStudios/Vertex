@@ -85,7 +85,7 @@ namespace Vertex.Rendering.Vulkan
         private PipelineLayout _canvasLayout;
         private PipelineLayout _postLayout;
 
-        private Pipeline _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas;
+        private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas;
         private Pipeline _bloomDown, _bloomUp, _occlusion, _occlusionBlur;
         private Pipeline _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture;
         private readonly List<ShaderModule> _shaders = new();
@@ -108,7 +108,7 @@ namespace Vertex.Rendering.Vulkan
         private readonly Dictionary<Texture, DescriptorSet> _textureSets = new();
 
         private float[] _particleVertices = new float[6 * _particleFloats * 256];
-        private float[] _canvasVertices = new float[6 * 8 * 256];
+        private float[] _canvasVertices = new float[6 * CanvasQuad.FloatsPerVertex * 256];
         private readonly List<(Texture Texture, int First, int Count)> _canvasBatches = new();
         private bool _uploadedThisView;
 
@@ -235,6 +235,8 @@ namespace Vertex.Rendering.Vulkan
             ShaderModule shadowVertex = Shader("shadow.vert", vertex, ShaderLibrary.ShadowVertex);
             ShaderModule skyVertex = Shader("sky.vert", vertex, ShaderLibrary.SkyVertex);
             ShaderModule skyFragment = Shader("sky.frag", fragment, ShaderLibrary.SkyFragment);
+            ShaderModule gridVertex = Shader("grid.vert", vertex, ShaderLibrary.GridVertex);
+            ShaderModule gridFragment = Shader("grid.frag", fragment, ShaderLibrary.GridFragment);
             ShaderModule particleVertex = Shader("particle.vert", vertex, ShaderLibrary.ParticleVertex);
             ShaderModule gpuParticleVertex = Shader("gpuparticle.vert", vertex, ShaderLibrary.GpuParticleVertex);
             ShaderModule particleFragment = Shader("particle.frag", fragment, ShaderLibrary.ParticleFragment);
@@ -282,6 +284,18 @@ namespace Vertex.Rendering.Vulkan
                 Fragment = skyFragment,
                 ColorFormats = sceneFormats,
                 DepthTest = true,
+                DepthFormat = _context.DepthFormat
+            });
+
+            // The editor's ground grid: blended over the scene and tested against it, but hiding nothing.
+            _grid = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+            {
+                Layout = _sceneLayout,
+                Vertex = gridVertex,
+                Fragment = gridFragment,
+                DepthTest = true,
+                Blend = VkBlend.Premultiplied,
+                ColorFormats = sceneFormats,
                 DepthFormat = _context.DepthFormat
             });
 
@@ -335,8 +349,12 @@ namespace Vertex.Rendering.Vulkan
                 Layout = _canvasLayout,
                 Vertex = canvasVertex,
                 Fragment = canvasFragment,
-                VertexStride = 8 * sizeof(float),
-                Attributes = [(0, Format.R32G32Sfloat, 0), (1, Format.R32G32Sfloat, 8), (2, Format.R32G32B32A32Sfloat, 16)],
+                VertexStride = CanvasQuad.FloatsPerVertex * sizeof(float),
+                Attributes =
+                [
+                    (0, Format.R32G32Sfloat, 0), (1, Format.R32G32Sfloat, 8), (2, Format.R32G32B32A32Sfloat, 16),
+                    (3, Format.R32G32B32A32Sfloat, 32), (4, Format.R32G32B32A32Sfloat, 48), (5, Format.R32G32B32A32Sfloat, 64)
+                ],
                 Blend = VkBlend.Premultiplied,
                 ColorFormats = [_swapchain.Format]
             });
@@ -979,6 +997,12 @@ namespace Vertex.Rendering.Vulkan
                 _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
             }
 
+            if (frame.Grid)
+            {
+                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _grid);
+                _context.Vk.CmdDraw(commands, 6, 1, 0, 0);
+            }
+
             DrawCpuParticles(commands, frame);
 
             if (_gpuParticlePool.DrawCount > 0)
@@ -1145,7 +1169,7 @@ namespace Vertex.Rendering.Vulkan
             IReadOnlyList<CanvasQuad> quads = frame.CanvasQuads;
             if (quads.Count == 0) return;
 
-            int needed = quads.Count * 6 * 8;
+            int needed = quads.Count * 6 * CanvasQuad.FloatsPerVertex;
             if (needed > _canvasVertices.Length) Array.Resize(ref _canvasVertices, Math.Max(needed, _canvasVertices.Length * 2));
 
             _canvasBatches.Clear();
@@ -1156,18 +1180,18 @@ namespace Vertex.Rendering.Vulkan
                 if (_canvasBatches.Count == 0 || _canvasBatches[^1].Texture != texture) _canvasBatches.Add((texture, vertex, 0));
 
                 // Two triangles per quad.
-                AddCanvasVertex(ref vertex, quad.TopLeft);
-                AddCanvasVertex(ref vertex, quad.TopRight);
-                AddCanvasVertex(ref vertex, quad.BottomRight);
-                AddCanvasVertex(ref vertex, quad.TopLeft);
-                AddCanvasVertex(ref vertex, quad.BottomRight);
-                AddCanvasVertex(ref vertex, quad.BottomLeft);
+                AddCanvasVertex(ref vertex, quad, quad.TopLeft);
+                AddCanvasVertex(ref vertex, quad, quad.TopRight);
+                AddCanvasVertex(ref vertex, quad, quad.BottomRight);
+                AddCanvasVertex(ref vertex, quad, quad.TopLeft);
+                AddCanvasVertex(ref vertex, quad, quad.BottomRight);
+                AddCanvasVertex(ref vertex, quad, quad.BottomLeft);
 
                 (Texture batchTexture, int first, int count) = _canvasBatches[^1];
                 _canvasBatches[^1] = (batchTexture, first, count + 6);
             }
 
-            (VkBuffer buffer, ulong offset) = _frame.Uploads.Write<float>(_canvasVertices.AsSpan(0, vertex * 8));
+            (VkBuffer buffer, ulong offset) = _frame.Uploads.Write<float>(_canvasVertices.AsSpan(0, vertex * CanvasQuad.FloatsPerVertex));
             _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _canvas);
             _context.Vk.CmdBindVertexBuffers(commands, 0, 1, &buffer, &offset);
             VkPipelines.SetViewport(_context, commands, outputWidth, outputHeight, flipped: true);
@@ -1197,17 +1221,9 @@ namespace Vertex.Rendering.Vulkan
             return set;
         }
 
-        private void AddCanvasVertex(ref int vertex, in CanvasVertex corner)
+        private void AddCanvasVertex(ref int vertex, in CanvasQuad quad, in CanvasVertex corner)
         {
-            Span<float> v = _canvasVertices.AsSpan(vertex * 8, 8);
-            v[0] = corner.Position.X;
-            v[1] = corner.Position.Y;
-            v[2] = corner.TexCoord.X;
-            v[3] = corner.TexCoord.Y;
-            v[4] = corner.Color.X;
-            v[5] = corner.Color.Y;
-            v[6] = corner.Color.Z;
-            v[7] = corner.Color.W;
+            quad.WriteVertex(_canvasVertices.AsSpan(vertex * CanvasQuad.FloatsPerVertex, CanvasQuad.FloatsPerVertex), corner);
             vertex++;
         }
 
@@ -1261,7 +1277,7 @@ namespace Vertex.Rendering.Vulkan
 
             Pipeline[] pipelines =
             [
-                _lit, _unlit, _sky, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
+                _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
                 _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture
             ];
             foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);

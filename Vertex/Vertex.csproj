@@ -13,6 +13,9 @@
   <ItemGroup>
     <!-- The tests drive the engine without a window, through its internal frame and input methods. -->
     <InternalsVisibleTo Include="Vertex.Tests" />
+    <!-- The editor hosts the engine itself (window, input, frames) and edits scenes without running them. -->
+    <InternalsVisibleTo Include="Vertex.Editor" />
+    <InternalsVisibleTo Include="Vertex.Editor.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -64,7 +64,54 @@ namespace Vertex.Rendering
     /// A 2D shape drawn over the 3D scene, in list order, blended with premultiplied alpha. A null texture means
     /// solid colour. The corners can be anywhere, so text can be rotated or slanted.
     /// </summary>
-    public readonly record struct CanvasQuad(Texture? Texture, CanvasVertex TopLeft, CanvasVertex TopRight, CanvasVertex BottomRight, CanvasVertex BottomLeft);
+    public readonly record struct CanvasQuad(Texture? Texture, CanvasVertex TopLeft, CanvasVertex TopRight, CanvasVertex BottomRight, CanvasVertex BottomLeft)
+    {
+        /// <summary>
+        /// Cuts the quad to a rounded rectangle, smooth-edged: its centre and half size in pixels (x, y, half width, half
+        /// height). Zero half size (the default) draws the whole quad. See <see cref="ShapeStyle"/>.
+        /// </summary>
+        public Vector4 Shape { get; init; }
+
+        /// <summary>
+        /// The <see cref="Shape"/>'s corner radius, outline width (0 fills it) and edge softness, in pixels. A softness of
+        /// about one is a crisp edge; more blurs it, for shadows and glows.
+        /// </summary>
+        public Vector4 ShapeStyle { get; init; }
+
+        /// <summary>Only the part inside this rectangle is drawn: left, top, right and bottom in pixels. Empty (the default) draws it all.</summary>
+        public Vector4 Clip { get; init; }
+
+        /// <summary>The floats each of the quad's corners has on the GPU: see <see cref="WriteVertex"/>.</summary>
+        internal const int FloatsPerVertex = 20;
+
+        /// <summary>
+        /// Writes one corner as the canvas shaders take it: position, texture coordinates, colour, shape, shape style
+        /// and clip, in that order.
+        /// </summary>
+        internal void WriteVertex(Span<float> into, in CanvasVertex corner)
+        {
+            into[0] = corner.Position.X;
+            into[1] = corner.Position.Y;
+            into[2] = corner.TexCoord.X;
+            into[3] = corner.TexCoord.Y;
+            into[4] = corner.Color.X;
+            into[5] = corner.Color.Y;
+            into[6] = corner.Color.Z;
+            into[7] = corner.Color.W;
+            into[8] = Shape.X;
+            into[9] = Shape.Y;
+            into[10] = Shape.Z;
+            into[11] = Shape.W;
+            into[12] = ShapeStyle.X;
+            into[13] = ShapeStyle.Y;
+            into[14] = ShapeStyle.Z;
+            into[15] = ShapeStyle.W;
+            into[16] = Clip.X;
+            into[17] = Clip.Y;
+            into[18] = Clip.Z;
+            into[19] = Clip.W;
+        }
+    }
 
     /// <summary>
     /// A snapshot of everything that needs to be drawn this frame, filled in by <see cref="Renderer"/>.
@@ -103,6 +150,9 @@ namespace Vertex.Rendering
 
         /// <summary>False when there is no camera or the window is minimised; only clear the screen.</summary>
         public bool HasCamera { get; internal set; }
+
+        /// <summary>Whether to draw the editor's grid on the ground: see <see cref="RenderView.Grid"/>.</summary>
+        public bool Grid { get; internal set; }
 
         public Color ClearColor { get; internal set; }
         public EnvironmentData Environment { get; internal set; }
@@ -158,6 +208,7 @@ namespace Vertex.Rendering
             CanvasQuadList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
+            Grid = false;
         }
     }
 }

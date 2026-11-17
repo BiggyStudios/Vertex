@@ -106,6 +106,24 @@ namespace Vertex
             if (_components.Remove(component)) component.OnDestroy();
         }
 
+        /// <summary>
+        /// Adds a component made elsewhere, at <paramref name="index"/> in the list: for an editor, which makes components by
+        /// type and puts removed ones back when that's undone.
+        /// </summary>
+        internal void AttachComponent(Component component, int index)
+        {
+            component.GameObject = this;
+            _components.Insert(Math.Clamp(index, 0, _components.Count), component);
+        }
+
+        /// <summary>Takes a component off without destroying it, so <see cref="AttachComponent"/> can put it back. Returns where it was.</summary>
+        internal int DetachComponent(Component component)
+        {
+            int index = _components.IndexOf(component);
+            if (index >= 0) _components.RemoveAt(index);
+            return index;
+        }
+
         /// <summary>Destroys this object and all of its children at the end of the current frame.</summary>
         public void Destroy() => Scene.Destroy(this);
 

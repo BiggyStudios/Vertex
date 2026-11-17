@@ -36,6 +36,7 @@ namespace Vertex.Rendering
         public RenderTexture? Target { get; set; }
 
         /// <summary>Vertical field of view in degrees.</summary>
+        [Range(1f, 179f)]
         public float FieldOfView { get; set; } = 60f;
         public float NearPlane { get; set; } = 0.1f;
         public float FarPlane { get; set; } = 1000f;

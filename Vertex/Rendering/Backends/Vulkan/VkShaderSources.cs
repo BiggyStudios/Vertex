@@ -118,13 +118,17 @@ namespace Vertex.Rendering.Vulkan
             }
             """;
 
-        // The 2D layer: positions arrive in pixels from the top-left, colours already multiplied by alpha.
+        // The 2D layer: positions arrive in pixels from the top-left, colours already multiplied by alpha. Each quad can
+        // be cut to a smooth-edged rounded rectangle and clipped to a rectangle (see CanvasQuad).
         public const string CanvasVertex = """
             #version 450
 
             layout (location = 0) in vec2 aPosition;
             layout (location = 1) in vec2 aUV;
             layout (location = 2) in vec4 aColor;
+            layout (location = 3) in vec4 aShape;
+            layout (location = 4) in vec4 aShapeStyle;
+            layout (location = 5) in vec4 aClip;
 
             layout (push_constant) uniform Screen
             {
@@ -133,6 +137,10 @@ namespace Vertex.Rendering.Vulkan
 
             layout (location = 0) out vec2 vUV;
             layout (location = 1) out vec4 vColor;
+            layout (location = 2) out vec2 vPixel;
+            layout (location = 3) flat out vec4 vShape;
+            layout (location = 4) flat out vec4 vShapeStyle;
+            layout (location = 5) flat out vec4 vClip;
 
             void main()
             {
@@ -140,6 +148,10 @@ namespace Vertex.Rendering.Vulkan
                 gl_Position = vec4(ndc, 0.0, 1.0);
                 vUV = aUV;
                 vColor = aColor;
+                vPixel = aPosition;
+                vShape = aShape;
+                vShapeStyle = aShapeStyle;
+                vClip = aClip;
             }
             """;
 
@@ -148,14 +160,20 @@ namespace Vertex.Rendering.Vulkan
 
             layout (location = 0) in vec2 vUV;
             layout (location = 1) in vec4 vColor;
+            layout (location = 2) in vec2 vPixel;
+            layout (location = 3) flat in vec4 vShape;
+            layout (location = 4) flat in vec4 vShapeStyle;
+            layout (location = 5) flat in vec4 vClip;
 
             layout (set = 0, binding = 0) uniform sampler2D canvasTexture;
 
             layout (location = 0) out vec4 FragColor;
 
+            """ + ShaderLibrary.CanvasShape + """
+
             void main()
             {
-                FragColor = texture(canvasTexture, vUV) * vColor;
+                FragColor = texture(canvasTexture, vUV) * vColor * canvasCoverage(vPixel, vShape, vShapeStyle, vClip);
             }
             """;
 

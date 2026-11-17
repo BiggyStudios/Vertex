@@ -45,9 +45,14 @@ namespace Vertex
             }
         }
 
-        /// <summary>Sets the rotation from euler angles in degrees (X = pitch, Y = yaw, Z = roll).</summary>
+        /// <summary>
+        /// The rotation as euler angles in degrees (X = pitch, Y = yaw, Z = roll), applied roll first, then pitch, then yaw.
+        /// Reading gives pitch from -90 to 90 and yaw and roll from -180 to 180, which may differ from the angles set but
+        /// turn the same way.
+        /// </summary>
         public Vector3 EulerAngles
         {
+            get => ToEuler(Rotation);
             set => Rotation = FromEuler(value);
         }
 
@@ -109,6 +114,34 @@ namespace Vertex
             Rotation = _parent == null
                 ? worldRotation
                 : Quaternion.Concatenate(worldRotation, Quaternion.Inverse(_parent.WorldRotation));
+        }
+
+        /// <summary>The euler angles in degrees that <see cref="EulerAngles"/> would turn into <paramref name="rotation"/>.</summary>
+        public static Vector3 ToEuler(Quaternion rotation)
+        {
+            // Where the rotation takes each axis: the columns of its matrix. For yaw * pitch * roll, the Z axis's height
+            // is -sin(pitch), and yaw and roll can be read off the rest.
+            Vector3 x = Vector3.Transform(Vector3.UnitX, rotation);
+            Vector3 y = Vector3.Transform(Vector3.UnitY, rotation);
+            Vector3 z = Vector3.Transform(Vector3.UnitZ, rotation);
+
+            float sinPitch = Math.Clamp(-z.Y, -1f, 1f);
+            float pitch = MathF.Asin(sinPitch);
+            float yaw, roll;
+
+            if (MathF.Abs(sinPitch) < 0.9999f)
+            {
+                yaw = MathF.Atan2(z.X, z.Z);
+                roll = MathF.Atan2(x.Y, y.Y);
+            }
+            else
+            {
+                // Looking straight up or down, yaw and roll turn about the same axis: put it all in yaw.
+                yaw = MathF.Atan2(-x.Z, x.X);
+                roll = 0f;
+            }
+
+            return new Vector3(pitch, yaw, roll) * (180f / MathF.PI);
         }
 
         private static Quaternion FromEuler(Vector3 degrees)

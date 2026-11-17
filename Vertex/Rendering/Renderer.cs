@@ -10,6 +10,12 @@ namespace Vertex.Rendering
     /// scene into a <see cref="RenderFrame"/>, then hands that to the <see cref="IRenderBackend"/> to draw.
     /// API-independent work (collecting, culling what can't be seen, sorting) belongs here, not in a backend.
     /// </summary>
+    /// <summary>
+    /// A picture of the scene from a camera, drawn into a texture: see <see cref="Renderer.Render(Scene, Camera?, ReadOnlySpan{RenderView})"/>.
+    /// With <paramref name="Grid"/>, a grid on the ground (y = 0) shows where things stand, as in an editor.
+    /// </summary>
+    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false);
+
     public sealed class Renderer : IDisposable
     {
         private readonly RenderFrame _frame = new();
@@ -88,7 +94,15 @@ namespace Vertex.Rendering
         /// Draws the scene: first from every camera with a <see cref="Camera.Target"/> into its texture, then from
         /// <see cref="Camera.Main"/> to the screen with the <see cref="UI.Canvas"/> over it.
         /// </summary>
-        internal void Render(Scene scene)
+        internal void Render(Scene scene) => Render(scene, Camera.Main, []);
+
+        /// <summary>
+        /// Draws the scene for a host that chooses its own cameras, such as an editor: first from every camera in the scene
+        /// with a <see cref="Camera.Target"/>, then each of <paramref name="views"/> into its texture, then the screen from
+        /// <paramref name="screenCamera"/> (null leaves it cleared) with the <see cref="UI.Canvas"/> over it. The views' cameras
+        /// needn't be in the scene: an editor keeps its own apart, so the game never sees it.
+        /// </summary>
+        public void Render(Scene scene, Camera? screenCamera, ReadOnlySpan<RenderView> views)
         {
             Backend.BeginFrame();
 
@@ -128,7 +142,14 @@ namespace Vertex.Rendering
 
             _targetCameras.Clear();
 
-            Collect(scene, Camera.Main, Width, Height, target: null);
+            foreach (RenderView view in views)
+            {
+                Collect(scene, view.Camera, view.Target.Width, view.Target.Height, view.Target);
+                _frame.Grid = view.Grid;
+                Backend.Render(_frame);
+            }
+
+            Collect(scene, screenCamera, Width, Height, target: null);
             Backend.Render(_frame);
             Stats.CpuMilliseconds = _cpuTime.Elapsed.TotalMilliseconds;
 

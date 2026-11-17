@@ -35,6 +35,7 @@ namespace Vertex.Rendering
         public Color GroundColor { get; set; } = new(0.42f, 0.38f, 0.33f);
 
         /// <summary>How much of the sky is cloud, from 0 (clear) to 1 (overcast). They drift slowly with the wind.</summary>
+        [Range(0f, 1f)]
         public float CloudCover { get; set; } = 0.4f;
 
         /// <summary>How strongly the sky and ground light surfaces (and are reflected in them), on top of the scene's Lights.</summary>
@@ -62,6 +63,7 @@ namespace Vertex.Rendering
         /// How much corners, creases and the ground under things are darkened, where the soft light from all around
         /// can't reach so easily: from 0 (off) to 1. It's what makes things look like they sit on the ground.
         /// </summary>
+        [Range(0f, 1f)]
         public float AmbientOcclusion { get; set; } = 1f;
 
         /// <summary>How far, in units, nearby things darken each other for <see cref="AmbientOcclusion"/>.</summary>
@@ -71,18 +73,21 @@ namespace Vertex.Rendering
         public bool AntiAliasing { get; set; } = true;
 
         /// <summary>How much the corners of the picture darken, like a camera lens, from 0 (none) to 1.</summary>
+        [Range(0f, 1f)]
         public float Vignette { get; set; } = 0.25f;
 
         /// <summary>
         /// A toon look, from 0 (off, smooth lighting) to 1: light from the scene's Lights falls off in a few soft-edged
         /// bands instead of smoothly, and highlights get a crisp edge. In between, it's a mix of the two, for a light touch.
         /// </summary>
+        [Range(0f, 1f)]
         public float CelShading { get; set; }
 
         /// <summary>
         /// How dark the outlines round things are, from 0 (none) to 1: silhouettes and outer edges, found from the depth of
         /// what's drawn, fading out with distance so far-off things stay clean. Pairs with <see cref="CelShading"/>.
         /// </summary>
+        [Range(0f, 1f)]
         public float Outlines { get; set; }
 
         /// <summary>Draw the sky. Off, the screen is cleared to the camera's ClearColor, and fog fades into that instead.</summary>

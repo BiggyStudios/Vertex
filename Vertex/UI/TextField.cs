@@ -56,6 +56,22 @@ namespace Vertex.UI
 
         public void Clear() => SetText("");
 
+        /// <summary>
+        /// Selects from <paramref name="anchor"/> to <paramref name="caret"/>, with the cursor at the caret end; the same
+        /// for both puts the cursor there with nothing selected. Both are character positions, kept within the text.
+        /// </summary>
+        public void Select(int anchor, int caret)
+        {
+            _anchor = Math.Clamp(anchor, 0, _text.Length);
+            MoveCaret(caret, extendSelection: true);
+        }
+
+        /// <summary>Selects all the text, with the cursor at the end, so typing replaces it.</summary>
+        public void SelectAll() => Select(0, _text.Length);
+
+        /// <summary>When the cursor last moved or the text changed, in <see cref="Time.TotalTime"/>, so a cursor can stay solid while typing.</summary>
+        public float LastEdited => _caretMoved;
+
         /// <summary>Handles typing and editing keys for this frame.</summary>
         public void Update()
         {

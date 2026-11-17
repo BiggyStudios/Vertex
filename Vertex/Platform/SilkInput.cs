@@ -59,6 +59,22 @@ namespace Vertex.Platform
                 : CursorMode.Disabled;
         }
 
+        public void SetCursorShape(CursorShape shape)
+        {
+            if (_mouse == null) return;
+
+            _mouse.Cursor.Type = CursorType.Standard;
+            _mouse.Cursor.StandardCursor = shape switch
+            {
+                CursorShape.IBeam => StandardCursor.IBeam,
+                CursorShape.Hand => StandardCursor.Hand,
+                CursorShape.ResizeHorizontal => StandardCursor.HResize,
+                CursorShape.ResizeVertical => StandardCursor.VResize,
+                CursorShape.Crosshair => StandardCursor.Crosshair,
+                _ => StandardCursor.Arrow
+            };
+        }
+
         // Vertex's keys and buttons have the same numbers as Silk's (both are GLFW's), so converting is a cast.
         private static void Press(SilkKey key)
         {

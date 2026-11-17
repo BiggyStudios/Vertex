@@ -29,6 +29,7 @@ namespace Vertex.Rendering.OpenGL
         private GLShader _litShader = null!;
         private GLShader _unlitShader = null!;
         private GLShader _skyShader = null!;
+        private GLShader _gridShader = null!;
         private GLShader _shadowShader = null!;
         private GLShader _bloomDown = null!;
         private GLShader _bloomUp = null!;
@@ -116,6 +117,7 @@ namespace Vertex.Rendering.OpenGL
             _litShader = SceneShader(ShaderLibrary.MeshVertex, ShaderLibrary.LitFragment);
             _unlitShader = SceneShader(ShaderLibrary.MeshVertex, ShaderLibrary.UnlitFragment);
             _skyShader = SceneShader(ShaderLibrary.SkyVertex, ShaderLibrary.SkyFragment);
+            _gridShader = SceneShader(ShaderLibrary.GridVertex, ShaderLibrary.GridFragment);
             _shadowShader = GLShader.FromLibrary(_gl, ShaderLibrary.ShadowVertex, ShaderLibrary.EmptyFragment);
 
             _bloomDown = PostShader(ShaderLibrary.BloomDownsampleFragment);
@@ -351,6 +353,23 @@ namespace Vertex.Rendering.OpenGL
                 _gl.DepthFunc(DepthFunction.Less);
             }
 
+            if (frame.Grid)
+            {
+                // The editor's ground grid: blended over the scene and tested against it, but hiding nothing.
+                _gridShader.Use();
+                _gl.Enable(EnableCap.Blend);
+                _gl.BlendFunc(BlendingFactor.One, BlendingFactor.OneMinusSrcAlpha);
+                _gl.Disable(EnableCap.CullFace);
+                _gl.DepthFunc(DepthFunction.Lequal);
+                _gl.DepthMask(false);
+                _gl.BindVertexArray(_emptyVertexArray);
+                _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+                _gl.DepthMask(true);
+                _gl.DepthFunc(DepthFunction.Less);
+                _gl.Enable(EnableCap.CullFace);
+                _gl.Disable(EnableCap.Blend);
+            }
+
             _particles.Draw(frame);
         }
 
@@ -548,7 +567,7 @@ namespace Vertex.Rendering.OpenGL
             _textures.Clear();
             _renderTargets.Clear();
 
-            foreach (GLShader shader in new[] { _litShader, _unlitShader, _skyShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
+            foreach (GLShader shader in new[] { _litShader, _unlitShader, _skyShader, _gridShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
                 shader.Dispose();
             _shadowMaps.Dispose();
             _screenViews.Dispose();

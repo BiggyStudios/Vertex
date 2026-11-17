@@ -25,6 +25,31 @@ namespace Vertex.Rendering.Shaders
         public const int MaxPointLights = 8;
         public const int MaxCascades = 4;
 
+        /// <summary>
+        /// How much of a canvas pixel a quad covers, 0 to 1: its rounded-rectangle shape (a smooth edge, so curves don't
+        /// look jagged) and its clip rectangle. Shared by both backends' canvas shaders; see <see cref="CanvasQuad"/>.
+        /// </summary>
+        public const string CanvasShape = """
+            float roundedBox(vec2 p, vec2 halfSize, float radius)
+            {
+                radius = min(radius, min(halfSize.x, halfSize.y));
+                vec2 q = abs(p) - halfSize + radius;
+                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+            }
+
+            float canvasCoverage(vec2 pixel, vec4 shape, vec4 style, vec4 clip)
+            {
+                if (clip.z > clip.x && (pixel.x < clip.x || pixel.y < clip.y || pixel.x >= clip.z || pixel.y >= clip.w)) return 0.0;
+                if (shape.z <= 0.0) return 1.0;
+
+                float distance = roundedBox(pixel - shape.xy, shape.zw, style.x);
+                // An outline: only the band just inside the edge.
+                if (style.y > 0.0) distance = abs(distance + style.y * 0.5) - style.y * 0.5;
+                float softness = max(style.z, 0.001);
+                return 1.0 - smoothstep(-softness * 0.5, softness * 0.5, distance);
+            }
+            """;
+
         public static string Build(ShaderTarget target, params string[] parts) =>
             (target == ShaderTarget.Vulkan ? VulkanHeader : OpenGLHeader) + string.Concat(parts);
 
@@ -747,6 +772,74 @@ namespace Vertex.Rendering.Shaders
                 FragColor = vec4(color * alpha, covers);
                 AmbientColor = vec4(0.0, 0.0, 0.0, covers);
                 GlowColor = vec4(linearColor * vGlow * alpha * (1.0 - fog), covers);
+            }
+            """;
+
+        // ---- The editor's ground grid ------------------------------------------------------------------------------
+        // A square on the ground (y = 0) under the camera, far wider than can be seen clearly. Metre lines fade out where
+        // they'd crowd together, leaving the ten-metre ones, and everything fades into the distance. The X axis is red
+        // and the Z axis blue.
+        public const string GridVertex = Frame + """
+            VARYING(0) out vec3 vWorld;
+
+            const vec2 CORNERS[6] = vec2[](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
+
+            void main()
+            {
+                // Only as big as it can be seen (see the fade below): smaller triangles keep their depth exact.
+                vec2 corner = CORNERS[VERTEX_ID] * min(2000.0, 160.0 + abs(frame.cameraPosition.y) * 14.0);
+                vWorld = vec3(frame.cameraPosition.x + corner.x, 0.0, frame.cameraPosition.z + corner.y);
+                gl_Position = frame.projection * frame.view * vec4(vWorld, 1.0);
+            }
+            """;
+
+        public const string GridFragment = Frame + """
+            VARYING(0) in vec3 vWorld;
+
+            layout (location = 0) out vec4 FragColor;
+            layout (location = 1) out vec4 AmbientColor;
+            layout (location = 2) out vec4 GlowColor;
+
+            // How much of this pixel a line every `spacing` metres covers: a pixel wide, whatever the distance.
+            float lines(vec2 position, float spacing)
+            {
+                vec2 cell = position / spacing;
+                vec2 width = max(fwidth(cell), vec2(1e-5));
+                vec2 distanceToLine = abs(fract(cell - 0.5) - 0.5) / width;
+                return 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
+            }
+
+            void main()
+            {
+                vec2 position = vWorld.xz;
+                vec2 metresPerPixel = fwidth(position);
+                float crowding = max(metresPerPixel.x, metresPerPixel.y);
+
+                float minor = lines(position, 1.0) * (1.0 - smoothstep(0.04, 0.2, crowding));
+                float major = lines(position, 10.0) * (1.0 - smoothstep(0.4, 2.0, crowding));
+                float alpha = max(minor * 0.22, major * 0.42);
+
+                // The axes, a little bolder.
+                float xAxis = 1.0 - min(abs(position.y) / max(metresPerPixel.y * 1.5, 1e-5), 1.0);
+                float zAxis = 1.0 - min(abs(position.x) / max(metresPerPixel.x * 1.5, 1e-5), 1.0);
+                vec3 color = vec3(0.8);
+                color = mix(color, vec3(0.85, 0.16, 0.12), xAxis);
+                color = mix(color, vec3(0.14, 0.32, 0.95), zAxis);
+                alpha = max(alpha, max(xAxis, zAxis) * 0.75);
+
+                // Fades out with distance, further when the camera is higher up.
+                float height = abs(frame.cameraPosition.y);
+                float distance = length(frame.cameraPosition.xyz - vWorld);
+                alpha *= 1.0 - smoothstep(30.0 + height * 4.0, 120.0 + height * 12.0, distance);
+
+                FragColor = vec4(color * alpha, alpha);
+                AmbientColor = vec4(0.0);
+                GlowColor = vec4(0.0);
+
+                // Its depth worked out exactly here, and a little nearer than it is (a fifth of a percent of the way to the
+                // camera), so it shows on a floor at the same height instead of flickering against it.
+                vec4 clip = frame.projection * frame.view * vec4(mix(vWorld, frame.cameraPosition.xyz, 0.002), 1.0);
+                gl_FragDepth = STORED_DEPTH(clip.z / clip.w);
             }
             """;
 
