@@ -30,6 +30,7 @@ namespace Vertex.Editor.Panels
         // Which tab shows: the editor's view of the scene, or the game's own camera.
         private bool _gameTab;
         private bool _wasPlaying;
+        private bool _gameTabBeforePlay;
 
         // Where the game's picture was last frame, in UI units, to tell clicks in it from clicks elsewhere.
         private Rect _gameRect;
@@ -99,9 +100,14 @@ namespace Vertex.Editor.Panels
         {
             PlayMode play = _context.Play;
 
-            // Playing shows the game; stopping goes back to the scene.
-            if (play.Playing && !_wasPlaying) _gameTab = true;
-            if (!play.Playing && _wasPlaying) _gameTab = false;
+            // Playing shows the game; stopping goes back to whichever tab was showing before (the game, while arranging UI).
+            if (play.Playing && !_wasPlaying)
+            {
+                _gameTabBeforePlay = _gameTab;
+                _gameTab = true;
+            }
+
+            if (!play.Playing && _wasPlaying) _gameTab = _gameTabBeforePlay;
             _wasPlaying = play.Playing;
 
             Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);
@@ -187,6 +193,9 @@ namespace Vertex.Editor.Panels
 
         /// <summary>Shows the game's picture, where UI is arranged: after a piece of UI is made.</summary>
         public void ShowGame() => _gameTab = true;
+
+        /// <summary>Whether the game's picture is showing, rather than the scene view.</summary>
+        public bool ShowingGame => _gameTab;
 
         /// <summary>Runs the game's frame, with its 2D layer drawn into the game's picture as if that were the whole screen.</summary>
         private void StepGame(Rect viewport, bool visible)

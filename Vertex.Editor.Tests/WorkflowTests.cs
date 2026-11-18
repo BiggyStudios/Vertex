@@ -82,6 +82,30 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Stopping_play_goes_back_to_the_tab_that_was_showing()
+        {
+            var app = new EditorApp();
+            Frame(app);
+
+            // From the scene view: the game shows while playing, then the scene again.
+            app.Context.Play.Start();
+            Frame(app);
+            Assert.True(app.SceneView.ShowingGame);
+            app.Context.Play.Stop();
+            Frame(app);
+            Assert.False(app.SceneView.ShowingGame);
+
+            // From the game's picture (arranging UI): it stays there.
+            app.SceneView.ShowGame();
+            Frame(app);
+            app.Context.Play.Start();
+            Frame(app);
+            app.Context.Play.Stop();
+            Frame(app);
+            Assert.True(app.SceneView.ShowingGame);
+        }
+
+        [Fact]
         public void Play_runs_the_scene_and_stop_puts_it_back()
         {
             var context = new EditorContext();
