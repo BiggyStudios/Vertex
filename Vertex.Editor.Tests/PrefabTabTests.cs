@@ -114,5 +114,55 @@ namespace Vertex.Editor.Tests
                 if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
             }
         }
+
+        [Fact]
+        public void A_value_changed_in_the_inspector_inside_a_prefab_goes_in_the_prefabs_history_and_is_saved()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VertexEditorTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var context = new EditorContext();
+                GameObject lamp = context.Create("Lamp");
+                lamp.AddComponent<Vertex.Rendering.Light>();
+                Prefab prefab = context.CreatePrefab(lamp, folder)!;
+                context.MarkSaved();
+
+                // Made while the scene showed, as the inspector's is.
+                var grid = new Vertex.Editor.Inspection.PropertyGrid(context);
+                PrefabStage stage = context.OpenPrefab(prefab.Source)!;
+                var light = stage.Root.GetComponent<Vertex.Rendering.Light>()!;
+
+                void Draw()
+                {
+                    Time.Advance(1.0 / 60.0);
+                    Vertex.UI.Canvas.BeginFrame(ScreenWidth, ScreenHeight, ScreenHeight);
+                    Gui.Ui.BeginFrame(1f / 60f);
+                    grid.Draw(light, 0f, 0f, 400f);
+                    Gui.Ui.EndFrame();
+                    Vertex.UI.Canvas.EndFrame();
+                    Input.InputSystem.EndFrame();
+                }
+
+                Draw();
+                Gui.NumberField.BeginTyping(Gui.Ui.Id(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(light), "Range"));
+                Draw();
+                foreach (char c in "25") Input.InputSystem.TypeCharacter(c);
+                Draw();
+                Input.InputSystem.PressKey(Input.Key.Enter);
+                Draw();
+                Input.InputSystem.ReleaseKey(Input.Key.Enter);
+                Draw();
+
+                Assert.Equal(25f, light.Range);
+                Assert.True(stage.History.CanUndo);
+                Assert.False(context.Dirty);
+                context.Update();
+                Assert.Contains("25", File.ReadAllText(prefab.Source));
+            }
+            finally
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+            }
+        }
     }
 }

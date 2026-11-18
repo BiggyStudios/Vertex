@@ -15,16 +15,20 @@ namespace Vertex.Editor.Inspection
     /// </summary>
     public sealed class PropertyGrid
     {
-        private readonly UndoHistory _history;
+        // Asked for each time: the editor's changes go to the scene's history, or the open prefab's.
+        private readonly Func<UndoHistory> _historyNow;
+        private UndoHistory _history => _historyNow();
         private readonly Action<string> _notify;
         private readonly EditorContext? _context;
 
-        public PropertyGrid(EditorContext context) : this(context.History, context.Notify, context) {}
+        public PropertyGrid(EditorContext context) : this(() => context.History, context.Notify, context) {}
 
         /// <summary>A grid for settings outside the scene (project settings, preferences), with a history of its own.</summary>
-        public PropertyGrid(UndoHistory history, Action<string> notify, EditorContext? context = null)
+        public PropertyGrid(UndoHistory history, Action<string> notify, EditorContext? context = null) : this(() => history, notify, context) {}
+
+        private PropertyGrid(Func<UndoHistory> history, Action<string> notify, EditorContext? context)
         {
-            _history = history;
+            _historyNow = history;
             _notify = notify;
             _context = context;
         }
