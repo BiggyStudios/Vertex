@@ -21,7 +21,7 @@ namespace Vertex.Audio
         public event Action<AudioClip>? Disposed;
 
         /// <summary>The file it was loaded from, if it was: how saved scenes refer to it.</summary>
-        public string? Source { get; private set; }
+        public string? Source { get; internal set; }
 
         public AudioClip(short[] samples, int channels, int sampleRate)
         {

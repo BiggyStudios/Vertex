@@ -156,6 +156,39 @@ namespace Vertex
         /// <summary>The graphs loaded so far: for an editor, which saves them when they're changed.</summary>
         internal static IEnumerable<Graphs.Graph> LoadedGraphs => _graphs.Values;
 
+        /// <summary>
+        /// A file (or a folder of them) moved or renamed: what was loaded from it is kept, and told its new place, so
+        /// everything using it still does, and saves the new path with it.
+        /// </summary>
+        public static void Moved(string from, string to)
+        {
+            string before = Path.GetFullPath(from), after = Path.GetFullPath(to);
+            string? Remap(string key) =>
+                string.Equals(key, before, StringComparison.OrdinalIgnoreCase) ? after
+                : key.StartsWith(before + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? after + key[before.Length..]
+                : null;
+
+            MoveIn(_textures, Remap, (texture, path) => texture.Source = path);
+            MoveIn(_materials, Remap, (material, path) => material.Source = path);
+            MoveIn(_prefabs, Remap, (prefab, path) => prefab.Source = path);
+            MoveIn(_fonts, Remap, (font, path) => font.Source = path);
+            MoveIn(_sounds, Remap, (clip, path) => clip.Source = path);
+            MoveIn(_graphs, Remap, (graph, path) => graph.Source = path);
+            _found.Clear();
+        }
+
+        private static void MoveIn<T>(Dictionary<string, T> loaded, Func<string, string?> remap, Action<T, string> tell)
+        {
+            foreach (string key in loaded.Keys.ToList())
+            {
+                if (remap(key) is not { } moved) continue;
+                T asset = loaded[key];
+                loaded.Remove(key);
+                loaded[moved] = asset;
+                tell(asset, moved);
+            }
+        }
+
         /// <summary>Forgets a loaded file, so it's read again next time: after it's been changed on disk, moved or deleted.</summary>
         public static void Forget(string path)
         {

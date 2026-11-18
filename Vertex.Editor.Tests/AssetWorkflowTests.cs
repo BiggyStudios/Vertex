@@ -276,6 +276,38 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Renaming_a_visual_script_in_use_keeps_it_used_and_saved_under_its_new_name()
+        {
+            Project.Create(Path.Combine(_folder, "Game" + Project.Extension), "Game");
+            var context = new EditorContext();
+            context.OpenProject(_folder);
+            string scripts = Path.Combine(_folder, "Assets", "Scripts");
+            string old = context.CreateVisualScript(scripts, "Player");
+            Vertex.Graphs.Graph graph = Assets.LoadGraph(old);
+            GameObject player = context.Create("Player", g => g.AddComponent<Vertex.Scripting.VisualScript>().Script = graph);
+
+            // Renamed in the assets, as F2 does.
+            var panel = new AssetsPanel(context);
+            typeof(AssetsPanel).GetMethod("Rename", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .Invoke(panel, [new AssetEntry(old, AssetKind.VisualScript), "Player Movement"]);
+            string renamed = Path.Combine(scripts, "Player Movement.vscript");
+
+            Assert.True(File.Exists(renamed));
+            Assert.Equal(renamed, graph.Source);
+            Assert.Same(graph, Assets.LoadGraph(renamed));
+
+            // Changed afterwards, it's saved to the new file, and the old one isn't made again.
+            graph.AddNode("Actions/Print", System.Numerics.Vector2.Zero);
+            context.Update();
+            Assert.False(File.Exists(old));
+            Assert.Contains("Actions/Print", File.ReadAllText(renamed));
+
+            // The scene refers to it by its new name.
+            Assert.Contains("Player Movement.vscript", SceneFile.Save(context.Scene, context.AssetFolders));
+            Assert.Same(graph, player.GetComponent<Vertex.Scripting.VisualScript>()!.Script);
+        }
+
+        [Fact]
         public void Clicking_an_objects_arrow_in_the_outliner_folds_it_without_selecting_it()
         {
             var context = new EditorContext();

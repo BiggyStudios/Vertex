@@ -17,7 +17,7 @@ namespace Vertex
     public sealed class Prefab
     {
         /// <summary>The .prefab file, in full.</summary>
-        public string Source { get; }
+        public string Source { get; internal set; }
 
         public string Name => Path.GetFileNameWithoutExtension(Source);
 

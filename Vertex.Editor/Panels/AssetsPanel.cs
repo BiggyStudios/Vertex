@@ -511,7 +511,9 @@ namespace Vertex.Editor.Panels
             if (entry.Kind == AssetKind.Folder) Directory.Move(entry.Path, target);
             else File.Move(entry.Path, target);
 
-            Assets.Forget(entry.Path);
+            // What was loaded from it follows it, so what uses it (a script's graph, a scene's prefabs) still does.
+            Assets.Moved(entry.Path, target);
+            _context.FileMoved(entry.Path, target);
             Thumbnails.Forget(entry.Path);
             _context.Assets?.Refresh();
             if (_context.Selection.Asset?.Path == entry.Path) _context.Selection.SelectAsset(new AssetEntry(target, entry.Kind));

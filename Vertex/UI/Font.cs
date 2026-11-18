@@ -42,7 +42,7 @@ namespace Vertex.UI
         }
 
         /// <summary>The file it was loaded from, if it was: how saved scenes refer to it.</summary>
-        public string? Source { get; private set; }
+        public string? Source { get; internal set; }
 
         private static Font? _default, _defaultBold;
 

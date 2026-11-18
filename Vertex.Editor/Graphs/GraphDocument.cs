@@ -13,8 +13,10 @@ namespace Vertex.Editor.Graphs
     {
         public Graph Graph { get; }
 
-        /// <summary>The file, in full.</summary>
-        public string Path { get; }
+        /// <summary>The file, in full: where the graph is now, if it's been moved or renamed since it was opened.</summary>
+        public string Path => Graph.Source ?? _path;
+
+        private readonly string _path;
 
         public string Title => System.IO.Path.GetFileNameWithoutExtension(Path);
 
@@ -30,7 +32,7 @@ namespace Vertex.Editor.Graphs
         public GraphDocument(Graph graph, string path)
         {
             Graph = graph;
-            Path = path;
+            _path = path;
         }
 
         /// <summary>

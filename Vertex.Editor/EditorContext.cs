@@ -985,6 +985,18 @@ namespace Vertex.Editor
 
         public void OpenGraph(string path) => GraphOpenRequested?.Invoke(Path.GetFullPath(path));
 
+        /// <summary>
+        /// A file of the project's moved or renamed (or a folder with it in): the scene being edited keeps its new path,
+        /// so saving it doesn't make the old file again.
+        /// </summary>
+        public void FileMoved(string from, string to)
+        {
+            if (ScenePath == null) return;
+            string before = Path.GetFullPath(from), scene = Path.GetFullPath(ScenePath);
+            if (string.Equals(scene, before, StringComparison.OrdinalIgnoreCase)) ScenePath = Path.GetFullPath(to);
+            else if (scene.StartsWith(before + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ScenePath = Path.GetFullPath(to) + scene[before.Length..];
+        }
+
         /// <summary>Makes a new visual script in <paramref name="folder"/>, to start from (something said on start), and returns where.</summary>
         public string CreateVisualScript(string folder, string name = "New Visual Script")
         {
