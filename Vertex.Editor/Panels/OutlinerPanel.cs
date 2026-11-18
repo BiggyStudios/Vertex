@@ -52,6 +52,9 @@ namespace Vertex.Editor.Panels
         private float _selectedY = -1f;
         private int _scrollId;
 
+        // How many parents being folded shut the rows now being drawn are under.
+        private int _closing;
+
         public string Title => "Outliner";
         public Icon Icon => Icons.Tree;
 
@@ -166,7 +169,9 @@ namespace Vertex.Editor.Panels
 
             float top = y;
             int rowsBefore = _drawing.Count;
+            if (!open) _closing++;
             foreach (Transform child in children) y = DrawTree(child.GameObject, depth + 1, x, y, width);
+            if (!open) _closing--;
             Ui.PopClip();
 
             // While closing, the rows under it aren't for the arrow keys.
@@ -194,7 +199,8 @@ namespace Vertex.Editor.Panels
             int id = RuntimeHelpers.GetHashCode(gameObject);
             var row = new Rect(x, y, width, _rowHeight);
             bool selected = _context.Selection.Object == gameObject;
-            if (selected) _selectedY = row.Y;
+            // Not while it's sliding away under a parent being folded: the highlight leaves straight away.
+            if (selected && _closing == 0) _selectedY = row.Y;
 
             // Rows scrolled out of sight take their place but aren't drawn: big scenes have thousands.
             if (Vertex.UI.Canvas.ClipRect is var (clipAt, clipSize) && (row.Bottom < clipAt.Y || row.Y > clipAt.Y + clipSize.Y)) return y + _rowHeight;

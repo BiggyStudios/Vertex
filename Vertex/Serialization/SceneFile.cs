@@ -751,7 +751,7 @@ namespace Vertex.Serialization
 
                 foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {
-                    if (field.IsInitOnly || field.IsNotSerialized || Skip(field)) continue;
+                    if (field.IsInitOnly || field.IsDefined(typeof(NonSerializedAttribute), inherit: false) || Skip(field)) continue;
                     members.Add(new SavedMember { Name = field.Name, Type = field.FieldType, Get = field.GetValue, Set = field.SetValue });
                 }
 

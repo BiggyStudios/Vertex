@@ -213,6 +213,9 @@ namespace Vertex.Editor.Tests
 
             Assert.DoesNotContain(parent, expanded);
             Assert.Same(child, context.Selection.Object);
+
+            // The selection's highlight goes with it straight away, not once the rows have finished sliding shut.
+            Assert.Equal(-1f, Ui.Recall(Ui.Id("outliner.selectedRow"), -1f));
         }
 
         [Fact]
