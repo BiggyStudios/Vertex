@@ -6,6 +6,7 @@ const Site = (() => {
     const pages = [
         { group: "Start", items: [
             { href: "index.html", title: "Home", icon: "◆" },
+            { href: "download.html", title: "Download", icon: "↓" },
             { href: "getting-started.html", title: "Getting started", icon: "▶" },
             { href: "workflows.html", title: "Three ways to make a game", icon: "⇄" }
         ] },
@@ -43,6 +44,7 @@ const Site = (() => {
             <button class="icon-button menu-button" aria-label="Menu">☰</button>
             <a class="brand" href="index.html"><span class="logo">V</span> Vertex <small>docs</small></a>
             <nav class="top-links">
+                <a href="download.html">Download</a>
                 <a href="getting-started.html">Start</a>
                 <a href="tutorial-duel.html">Tutorial</a>
                 <a href="nodes.html">Nodes</a>

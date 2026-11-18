@@ -30,3 +30,9 @@ dotnet run --project Tools/DocsData
 
 Code shown with `data-sample="Duel/Assets/Scripts/Health.cs"` and graphs shown with `data-graph="Health"` are read from
 that data, so the tutorials always show the samples as they are.
+
+## Downloads
+
+The Download page (`download.html`) lists the repository's GitHub releases, read from GitHub's API as the page opens.
+Releases are made by `.github/workflows/release.yml` when a version's tag is pushed (`git tag v0.1.0`, then
+`git push origin v0.1.0`), with the downloads `Tools/Release/Build.ps1` makes.

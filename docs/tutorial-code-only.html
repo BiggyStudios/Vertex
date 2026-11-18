@@ -20,11 +20,12 @@
     <div class="steps">
     <section class="step" data-step="project">
         <h2>Make the project</h2>
-        <p>Put your game's folder next to the engine's (see <a href="getting-started.html">Getting started</a> to get the engine):</p>
-        <pre class="plain" data-file="Folders">Games/
-  Vertex/        the engine, cloned from GitHub
-  CoinGrab/      your game: CoinGrab.csproj and Program.cs</pre>
-        <p>The project file makes a windowed program that uses the engine:</p>
+        <p>The quickest way: in the <a href="download.html">download</a>'s folder, copy <code>Starter</code> and call the copy <code>CoinGrab</code>. Inside the download's folder, a project finds the engine's package by itself:</p>
+        <pre class="plain" data-file="Folders">Vertex-0.1.0/     the download
+  Engine/         the engine's package
+  Starter/
+  CoinGrab/       your game: rename MyGame.csproj to CoinGrab.csproj</pre>
+        <p>The project file makes a windowed program that uses the engine (use the version you downloaded; it's in the folder's name):</p>
         <pre class="plain" data-file="CoinGrab.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
   &lt;PropertyGroup&gt;
     &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
@@ -33,9 +34,10 @@
     &lt;Nullable&gt;enable&lt;/Nullable&gt;
   &lt;/PropertyGroup&gt;
   &lt;ItemGroup&gt;
-    &lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;
+    &lt;PackageReference Include="Vertex.Engine" Version="0.1.0" /&gt;
   &lt;/ItemGroup&gt;
 &lt;/Project&gt;</pre>
+        <p class="note">Somewhere else on your PC? Tell .NET where the package is once, as the <a href="download.html#games-made-in-code">Download</a> page shows. Built the engine from source? Put <code>CoinGrab</code> beside the repository's folder and use <code>&lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;</code> instead.</p>
         <p>And the smallest game there is: a <code>Game</code> with nothing in it, run in a window.</p>
         <pre class="cs" data-file="Program.cs">using System.Numerics;
 

@@ -65,7 +65,7 @@ public class Bobber : Component
         Transform.EulerAngles += new Vector3(0f, 90f * Time.DeltaTime, 0f);
     }
 }</pre>
-    <p>The project file is an ordinary .NET program that refers to the engine. Copying the <code>Assets</code> folder next to the program lets the game load files from it:</p>
+    <p>The project file is an ordinary .NET program that uses the engine's package (from the <a href="download.html">download</a>; built from source, use <code>&lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;</code> instead). Copying the <code>Assets</code> folder next to the program lets the game load files from it:</p>
     <pre class="plain" data-file="BobbingGame.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
   &lt;PropertyGroup&gt;
     &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
@@ -74,7 +74,7 @@ public class Bobber : Component
     &lt;Nullable&gt;enable&lt;/Nullable&gt;
   &lt;/PropertyGroup&gt;
   &lt;ItemGroup&gt;
-    &lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;
+    &lt;PackageReference Include="Vertex.Engine" Version="0.1.0" /&gt;
     &lt;None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" /&gt;
   &lt;/ItemGroup&gt;
 &lt;/Project&gt;</pre>

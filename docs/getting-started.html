@@ -17,21 +17,22 @@
     <ul>
         <li><strong>The .NET 10 SDK</strong> (<a href="https://dotnet.microsoft.com/download">dotnet.microsoft.com/download</a>). Vertex and your games are .NET projects.</li>
         <li><strong>A graphics card with Vulkan</strong>, or OpenGL 3.3 or later. Vertex renders with Vulkan where it can and falls back to OpenGL by itself.</li>
-        <li><strong>Git</strong>, to get the code.</li>
         <li><strong>Steam</strong>, only for playing online through Steam. Testing on one PC uses the local network and doesn't need it.</li>
         <li>A code editor for C# is handy (Visual Studio, Rider or VS Code), though the visual scripting route doesn't need one.</li>
     </ul>
     <p class="note">Vertex is developed and tested on Windows.</p>
 
     <h2>Get the engine</h2>
+    <p><a href="download.html"><strong>Download it</strong></a> and unzip it anywhere. The download has the editor, the engine for games made in code, the samples, and a blank game to start from.</p>
+    <p>Or build it from source, for the newest changes (you'll need <strong>Git</strong> too):</p>
     <pre class="sh">git clone https://github.com/BiggyStudios/Vertex.git
 cd Vertex
 dotnet build Vertex.slnx</pre>
-    <p>That builds the engine, the editor, the samples and the tests. To check everything works, run the tests (they don't need a window):</p>
-    <pre class="sh">dotnet test Vertex.Tests
-dotnet test Vertex.Editor.Tests</pre>
+    <p>That builds the engine, the editor, the samples and the tests. To check everything works, run the tests (they don't need a window): <code>dotnet test Vertex.Tests</code> and <code>dotnet test Vertex.Editor.Tests</code>.</p>
+    <p>Either way you get the same <code>Samples</code> folder, so the commands below work in both: run them in the download's folder, or the repository's.</p>
 
     <h2>Open the editor</h2>
+    <p>From the download, run <code>Editor\Vertex.Editor.exe</code>. From source:</p>
     <pre class="sh">dotnet run --project Vertex.Editor</pre>
     <p>The editor opens on a small scene to try things on. Hold the <strong>right mouse button</strong> and use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly around, click things to select them, and drag the arrows to move them. <a href="editor.html">The editor guide</a> covers the rest.</p>
 
