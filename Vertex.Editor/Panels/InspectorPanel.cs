@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Vertex.Editor.Editing;
 using Vertex.Editor.Gui;
 using Vertex.Editor.Inspection;
+using Vertex.Graphs;
 using Vertex.Input;
 using Vertex.Physics;
 using Vertex.Rendering;
@@ -682,8 +683,8 @@ namespace Vertex.Editor.Panels
             y = _grid.Draw(component, x, y, width);
             return component switch
             {
-                Vertex.Scripting.VisualScript script => GraphButtons(component, script.Script, nameof(Vertex.Scripting.VisualScript.Script), "Edit Script",
-                    "New Visual Script", "Scripts", (folder, name) => _context.CreateVisualScript(folder, name), "visual scripts", x, y, width),
+                Vertex.Scripting.VisualScript script => ScriptVariables(script, x, GraphButtons(component, script.Script, nameof(Vertex.Scripting.VisualScript.Script), "Edit Script",
+                    "New Visual Script", "Scripts", (folder, name) => _context.CreateVisualScript(folder, name), "visual scripts", x, y, width), width),
                 Vertex.Effects.VisualEffect effect => GraphButtons(component, effect.Effect, nameof(Vertex.Effects.VisualEffect.Effect), "Edit Effect",
                     "New VFX Graph", "Effects", (folder, name) => _context.CreateVfxGraph(folder, name), "VFX graphs", x, y, width),
                 _ => y
@@ -722,6 +723,86 @@ namespace Vertex.Editor.Panels
             }
 
             return y + 26f + PropertyGrid.RowGap;
+        }
+
+        /// <summary>
+        /// A visual script's variables, to give this object values of its own (a gun's own fire rate, the door a switch
+        /// opens). Ones left as the script starts them are shown faint; one set here has a button to put it back.
+        /// </summary>
+        private float ScriptVariables(Vertex.Scripting.VisualScript script, float x, float y, float width)
+        {
+            if (script.Script is not { Variables.Count: > 0 } graph) return y;
+
+            Ui.Text(new Rect(x, y + 4f, width, 20f), "Variables", Theme.TextDim, size: Theme.SmallTextSize, bold: true);
+            y += 26f;
+
+            int id = Ui.Id(RuntimeHelpers.GetHashCode(script), "variables");
+            float labelWidth = PropertyGrid.LabelWidth(width);
+            System.Reflection.PropertyInfo property = typeof(Vertex.Scripting.VisualScript).GetProperty(nameof(Vertex.Scripting.VisualScript.Variables))!;
+            foreach (Vertex.Graphs.GraphVariable variable in graph.Variables.ToList())
+            {
+                int rowId = Ui.Id(id, variable.Name);
+                Vertex.Scripting.ScriptVariableValue? own = script.Variables.FirstOrDefault(v => v.Name == variable.Name);
+                object? value = own != null ? own.Get(variable.Type) : variable.Value;
+                var label = new Rect(x, y, labelWidth - 6f, Theme.RowHeight);
+                var field = new Rect(x + labelWidth, y, width - labelWidth, Theme.RowHeight);
+
+                // Each change is a new list, so undo has the one before to go back to.
+                void Change(object? next, bool reset = false)
+                {
+                    List<Vertex.Scripting.ScriptVariableValue> values = script.Variables.Where(v => v.Name != variable.Name).Select(v => v.Copy()).ToList();
+                    if (!reset) values.Add(new Vertex.Scripting.ScriptVariableValue(variable.Name, variable.Type, next));
+                    _context.History.Do(new SetValue(reset ? $"Reset {variable.Name}" : $"Change {variable.Name}", script, property, script.Variables, values), (script, variable.Name));
+                }
+
+                if (own != null)
+                {
+                    var reset = new Rect(label.Right - 20f, y + (Theme.RowHeight - 20f) * 0.5f, 20f, 20f);
+                    if (Widgets.IconButton(Ui.Id(rowId, "reset"), reset, Icons.Undo, "Back to the script's starting value")) Change(null, reset: true);
+                    label = label.CutRight(22f);
+                }
+
+                Widgets.Label(Ui.Id(rowId, "label"), label, variable.Name,
+                    own != null ? $"{variable.Type.Name}, set for this object" : $"{variable.Type.Name}, as the script starts it", own != null ? Theme.Text : Theme.TextFaint);
+
+                PortType type = variable.Type;
+                if (type == PortType.Number)
+                {
+                    float number = value is float f ? f : 0f;
+                    if (NumberField.Float(rowId, field, ref number)) Change(number);
+                }
+                else if (type == PortType.Boolean)
+                {
+                    bool on = value is true;
+                    if (Widgets.Checkbox(rowId, new Rect(field.X, field.Y, Theme.RowHeight, Theme.RowHeight), ref on)) Change(on);
+                }
+                else if (type == PortType.Text)
+                {
+                    string text = value as string ?? "";
+                    if (TextInput.Draw(rowId, field, ref text)) Change(text);
+                }
+                else if (type == PortType.Vector)
+                {
+                    var vector = value is Vector3 v ? v : Vector3.Zero;
+                    if (NumberField.Vector3(rowId, field, ref vector)) Change(vector);
+                }
+                else if (type == PortType.Color)
+                {
+                    ColorField.Draw(rowId, field, value is Color c ? c : Color.White, (color, finished) =>
+                    {
+                        Change(color);
+                        if (finished) _context.History.EndMerge();
+                    });
+                }
+                else if (type == PortType.Object)
+                {
+                    _grid.ReferenceField(rowId, field, typeof(GameObject), value, true, picked => Change(picked));
+                }
+
+                y += Theme.RowHeight + PropertyGrid.RowGap;
+            }
+
+            return y;
         }
 
         private static string PrefabSafeName(string name)

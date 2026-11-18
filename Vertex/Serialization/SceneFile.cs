@@ -319,6 +319,21 @@ namespace Vertex.Serialization
                         return true;
                 }
 
+                // A list (or array) of things that can be saved: each in turn, with a gap for one that can't (an object
+                // that isn't being saved with it), so the rest keep their places.
+                if (value is System.Collections.IList list && ItemType(type) is { } itemType)
+                {
+                    if (!CanSave(itemType) || depth > 4) return false;
+                    json.WriteStartArray();
+                    foreach (object? item in list)
+                    {
+                        if (!WriteValue(json, itemType, item, depth + 1)) json.WriteNullValue();
+                    }
+
+                    json.WriteEndArray();
+                    return true;
+                }
+
                 if (!IsSettingsObject(value.GetType()) || depth > 4) return false;
 
                 json.WriteStartObject();
@@ -579,6 +594,29 @@ namespace Vertex.Serialization
                 else if (type == typeof(Vector4)) value = new Vector4(element[0].GetSingle(), element[1].GetSingle(), element[2].GetSingle(), element[3].GetSingle());
                 else if (type == typeof(Quaternion)) value = ReadQuaternion(element);
                 else if (type == typeof(Color)) value = new Color(element[0].GetSingle(), element[1].GetSingle(), element[2].GetSingle(), element[3].GetSingle());
+                else if (ItemType(type) is { } itemType)
+                {
+                    if (element.ValueKind != JsonValueKind.Array) return false;
+
+                    // A new list each time: one the constructor made may be shared, or hold starting values.
+                    var items = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(itemType))!;
+                    foreach (JsonElement saved in element.EnumerateArray())
+                    {
+                        items.Add(TryRead(saved, itemType, null, out object? item) ? item : itemType.IsValueType ? Activator.CreateInstance(itemType) : null);
+                    }
+
+                    if (type.IsArray)
+                    {
+                        var array = Array.CreateInstance(itemType, items.Count);
+                        items.CopyTo(array, 0);
+                        value = array;
+                    }
+                    else
+                    {
+                        value = items;
+                    }
+                }
+                else if (element.ValueKind != JsonValueKind.Object) return false;
                 else if (element.TryGetProperty("mesh", out JsonElement mesh)) value = LoadMesh(mesh.GetString()!);
                 else if (element.TryGetProperty("texture", out JsonElement texture)) value = LoadTexture(texture.GetString()!);
                 else if (element.TryGetProperty("material", out JsonElement material)) value = LoadFile(material.GetString()!, "Material", Assets.LoadMaterial);
@@ -727,6 +765,21 @@ namespace Vertex.Serialization
             if (found != null) _types[name] = found;
             return found;
         }
+
+        /// <summary>What a <c>List&lt;T&gt;</c> or array holds, or null if <paramref name="type"/> isn't one.</summary>
+        internal static Type? ItemType(Type type)
+        {
+            if (type.IsArray) return type.GetArrayRank() == 1 ? type.GetElementType() : null;
+            return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) ? type.GetGenericArguments()[0] : null;
+        }
+
+        /// <summary>Whether a value of <paramref name="type"/> can be saved in a scene: what lists are checked against before they're written.</summary>
+        internal static bool CanSave(Type type) =>
+            type == typeof(bool) || type == typeof(int) || type == typeof(float) || type == typeof(double) || type.IsEnum || type == typeof(string) || type == typeof(Vector2) || type == typeof(Vector3) ||
+            type == typeof(Vector4) || type == typeof(Quaternion) || type == typeof(Color) || type == typeof(FloatRange) ||
+            typeof(Mesh).IsAssignableFrom(type) || typeof(Texture).IsAssignableFrom(type) || type == typeof(Material) || type == typeof(Prefab) ||
+            type == typeof(Font) || type == typeof(Graphs.Graph) || type == typeof(Audio.AudioClip) ||
+            typeof(GameObject).IsAssignableFrom(type) || typeof(Component).IsAssignableFrom(type) || IsSettingsObject(type);
 
         /// <summary>A class of its own whose values can be saved inside whatever has it (a material).</summary>
         internal static bool IsSettingsObject(Type type) =>

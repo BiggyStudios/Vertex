@@ -229,5 +229,38 @@ namespace Vertex.Tests
 
             Assert.Equal(["OnDestroy"], recorder.Calls);
         }
+
+        public sealed class Waypoints : Component
+        {
+            public List<GameObject> Stops { get; set; } = new();
+            public float[] Waits { get; set; } = [];
+            public List<Light?> Lamps { get; set; } = new();
+            public List<Action> NotSaved { get; set; } = [() => {}];
+        }
+
+        [Fact]
+        public void Lists_and_arrays_save_with_the_scene_and_keep_their_objects()
+        {
+            var a = new GameObject("A");
+            var b = new GameObject("B");
+            Light light = new GameObject("Lamp").AddComponent<Light>();
+            Waypoints route = new GameObject("Route").AddComponent<Waypoints>();
+            route.Stops = [b, a, b];
+            route.Waits = [1f, 2.5f];
+            route.Lamps = [light, null];
+
+            string json = SceneFile.Save(Scene.Active);
+            Assert.DoesNotContain("NotSaved", json);
+
+            var loaded = new Scene();
+            SceneFile.LoadJson(json, loaded);
+            loaded.ApplyChanges();
+            Waypoints copy = loaded.Find("Route")!.GetComponent<Waypoints>()!;
+            Assert.Equal(["B", "A", "B"], copy.Stops.Select(o => o.Name));
+            Assert.Same(loaded.Find("B"), copy.Stops[0]);
+            Assert.Equal([1f, 2.5f], copy.Waits);
+            Assert.Same(loaded.Find("Lamp")!.GetComponent<Light>(), copy.Lamps[0]);
+            Assert.Null(copy.Lamps[1]);
+        }
     }
 }

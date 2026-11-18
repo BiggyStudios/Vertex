@@ -18,10 +18,45 @@ namespace Vertex.Scripting
         [Tooltip("The visual script to run: a .vscript file, made in the editor")]
         public Graph? Script { get; set; }
 
+        /// <summary>
+        /// This object's own starting values for some of the script's variables, in place of the script's: set in the
+        /// inspector, under the script. The rest start as the script says.
+        /// </summary>
+        [HideInInspector]
+        public List<ScriptVariableValue> Variables { get; set; } = new();
+
         private ScriptInstance? _instance;
 
         /// <summary>The script as it's running on this object (its variables), once it's started.</summary>
         public ScriptInstance? Instance => _instance;
+
+        /// <summary>
+        /// A variable's value on this object: as it is now while the script runs, otherwise what it starts as. Null if the
+        /// script hasn't one called <paramref name="name"/>.
+        /// </summary>
+        public object? GetVariable(string name)
+        {
+            if (_instance != null) return _instance.Variables.GetValueOrDefault(name);
+            if (Script?.Variable(name) is not { } variable) return null;
+            return Variables.FirstOrDefault(v => v.Name == name) is { } own ? own.Get(variable.Type) : variable.Value;
+        }
+
+        /// <summary>
+        /// Sets a variable on this object, made into its type (a number stays a number): straight away while the script
+        /// runs, otherwise as what it starts as. For code to tell a script something: <c>script.SetVariable("Speed", 8f)</c>.
+        /// </summary>
+        public void SetVariable(string name, object? value)
+        {
+            if (Script?.Variable(name) is not { } variable) throw new InvalidOperationException($"{Script?.Name ?? "The script"} has no variable called {name}");
+            if (_instance != null)
+            {
+                _instance.Variables[name] = variable.Type.Convert(value);
+                return;
+            }
+
+            if (Variables.FirstOrDefault(v => v.Name == name) is { } own) own.Set(variable.Type, value);
+            else Variables.Add(new ScriptVariableValue(name, variable.Type, value));
+        }
 
         protected internal override void Start()
         {
@@ -33,6 +68,13 @@ namespace Vertex.Scripting
             }
 
             _instance = new ScriptInstance(Script, GameObject);
+
+            // This object's own starting values, for variables the script still has.
+            foreach (ScriptVariableValue own in Variables)
+            {
+                if (Script.Variable(own.Name) is { } variable) _instance.Variables[own.Name] = own.Get(variable.Type);
+            }
+
             Fire("Start");
         }
 

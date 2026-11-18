@@ -150,5 +150,45 @@ namespace Vertex.Editor.Tests
             Frame(app, 3);
             Assert.Same(child, app.Context.Selection.Object);
         }
+
+        [Fact]
+        public void A_visual_scripts_variables_can_be_set_for_one_object_in_the_inspector_and_put_back()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VertexEditorTests", Guid.NewGuid().ToString("N"));
+            var made = new Vertex.Graphs.Graph(Vertex.Scripting.ScriptNodes.Kind);
+            made.Variables.Add(new Vertex.Graphs.GraphVariable("Door", Vertex.Graphs.PortType.Object));
+            string path = Path.Combine(folder, "Switch.vscript");
+            made.Save(path);
+
+            try
+            {
+                var app = new EditorApp();
+                GameObject door = app.Context.Create("Door");
+                GameObject lever = app.Context.Create("Lever", g => g.AddComponent<Vertex.Scripting.VisualScript>().Script = Assets.LoadGraph(path));
+                var script = lever.GetComponent<Vertex.Scripting.VisualScript>()!;
+                app.Context.Selection.Select(lever);
+                Frame(app, 20);
+
+                int slotId = Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(script), "variables"), "Door");
+                Vector2? slot = FindInInspector(app, slotId);
+                Assert.NotNull(slot);
+                Click(app, slot!.Value);
+                Vector2? choice = Find(app, Ui.Id(slotId, 1), slot.Value.X, slot.Value.Y, slot.Value.Y + 200f);
+                Assert.NotNull(choice);
+                Click(app, choice!.Value);
+
+                Assert.Same(door, script.GetVariable("Door"));
+                Assert.Single(script.Variables);
+
+                app.Context.Undo();
+                Assert.Empty(script.Variables);
+                Assert.Null(script.GetVariable("Door"));
+            }
+            finally
+            {
+                Assets.Forget(path);
+                Directory.Delete(folder, recursive: true);
+            }
+        }
     }
 }

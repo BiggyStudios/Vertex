@@ -234,5 +234,48 @@ namespace Vertex.Tests
                 if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
             }
         }
+
+        [Fact]
+        public void Each_object_can_start_a_scripts_variables_with_its_own_values_and_they_save_with_the_scene()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VertexTests", Guid.NewGuid().ToString("N"));
+            Graph made = NewGraph();
+            made.Variables.Add(new GraphVariable("Speed", PortType.Number, 1f));
+            made.Variables.Add(new GraphVariable("Target", PortType.Object));
+            string path = Path.Combine(folder, "Tunable.vscript");
+            made.Save(path);
+            Graph graph = Assets.LoadGraph(path);
+
+            var target = new GameObject("Target");
+            var plain = new GameObject("Plain");
+            plain.AddComponent<VisualScript>().Script = graph;
+            var tuned = new GameObject("Tuned");
+            VisualScript script = tuned.AddComponent<VisualScript>();
+            script.Script = graph;
+
+            // Set from code before it starts: what it starts with.
+            script.SetVariable("Speed", 5);
+            script.SetVariable("Target", target);
+            Assert.Equal(5f, script.GetVariable("Speed"));
+            Assert.Throws<InvalidOperationException>(() => script.SetVariable("Nothing", 1f));
+
+            string json = SceneFile.Save(Scene.Active, new[] { folder });
+            var loaded = new Scene();
+            SceneFile.LoadJson(json, loaded, folder);
+            loaded.ApplyChanges();
+            loaded.Update();
+            Assets.Forget(path);
+            Directory.Delete(folder, recursive: true);
+
+            VisualScript tunedCopy = loaded.Find("Tuned")!.GetComponent<VisualScript>()!;
+            Assert.Equal(5f, tunedCopy.Instance!.Variables["Speed"]);
+            Assert.Same(loaded.Find("Target"), tunedCopy.Instance.Variables["Target"]);
+            Assert.Equal(1f, loaded.Find("Plain")!.GetComponent<VisualScript>()!.Instance!.Variables["Speed"]);
+
+            // While it runs, setting one changes it straight away.
+            tunedCopy.SetVariable("Speed", "7");
+            Assert.Equal(7f, tunedCopy.GetVariable("Speed"));
+            loaded.Unload();
+        }
     }
 }
