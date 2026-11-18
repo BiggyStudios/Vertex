@@ -58,6 +58,7 @@ namespace Vertex.Editor.Editing
             foreach (Vertex.Graphs.Graph graph in Vertex.Assets.LoadedGraphs.ToList()) graph.ClearActivity();
 
             Game game;
+            Game? startingGame = null;
             if (_context.Origin == SceneOrigin.GameWorld && _context.WorldGame is { } worldGame)
             {
                 game = worldGame;
@@ -66,7 +67,10 @@ namespace Vertex.Editor.Editing
             }
             else
             {
-                game = new SceneOnlyGame();
+                // A game that starts in a scene plays the open one with its code around it: its Load runs, and gets this
+                // scene where it opens its start scene. (A game that builds its world in code has nothing to add to it.)
+                startingGame = _context.Game?.CreateGame() is { StartScene.Length: > 0 } withScene ? withScene : null;
+                game = startingGame ?? new SceneOnlyGame();
                 _rebuild = false;
                 _snapshot = SceneFile.TakeSnapshot(scene);
             }
@@ -75,11 +79,44 @@ namespace Vertex.Editor.Editing
 
             if (_context.Preferences.ClearConsoleOnPlay) _context.ConsoleLog.Clear();
             GameLoop.Start();
+            if (startingGame != null) LoadAround(startingGame, scene);
             _loop = new GameLoop(game);
             Application.QuitRequested += Stop;
             Paused = false;
             GameFocused = true;
             _context.Notify("Playing: Shift+F1 frees the mouse");
+        }
+
+        /// <summary>
+        /// Runs the game's Load for playing <paramref name="open"/>: where it opens its start scene (or opens the open
+        /// scene's own file), it gets the scene being edited instead, as it is now. Anything else it opens, it opens.
+        /// </summary>
+        private void LoadAround(Game game, Scene open)
+        {
+            string? openFile = _context.ScenePath is { } path ? Path.GetFullPath(path) : null;
+            string? startFile = game.StartScene is { Length: > 0 } start ? Vertex.Assets.FindFile(start) : null;
+            Scene.Opening = asked =>
+            {
+                string? file = Vertex.Assets.FindFile(asked);
+                if (file == null) return null;
+                file = Path.GetFullPath(file);
+                bool isOpen = string.Equals(file, openFile, StringComparison.OrdinalIgnoreCase);
+                bool isStart = startFile != null && string.Equals(file, Path.GetFullPath(startFile), StringComparison.OrdinalIgnoreCase);
+                return isOpen || isStart ? open : null;
+            };
+
+            try
+            {
+                game.Load();
+            }
+            catch (Exception exception)
+            {
+                Log.Error($"The game's Load failed: {exception.GetType().Name}: {exception.Message}", exception);
+            }
+            finally
+            {
+                Scene.Opening = null;
+            }
         }
 
         /// <summary>Runs one frame of the game, unless paused. Inside the game view's drawing, so the game's UI lands in it.</summary>

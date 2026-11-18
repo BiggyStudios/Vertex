@@ -11,7 +11,7 @@ namespace Vertex.Editor.Editing
         [Tooltip("This build's version.")]
         public string Version { get; set; } = "0.1";
 
-        [Tooltip("The scene opened first, inside the Assets folder (Scenes/Main.scene). Projects with game code open with what the game builds instead.")]
+        [Tooltip("The scene opened first, inside the Assets folder (Scenes/Main.scene). A game whose code builds its world (a Game class with no StartScene) opens with what it builds instead.")]
         public string StartupScene { get; set; } = "";
 
         [Tooltip("The game's code: a .csproj file, next to this project's file. Its components show in Add Component, and Play runs it.")]

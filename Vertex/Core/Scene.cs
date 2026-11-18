@@ -18,6 +18,42 @@ namespace Vertex
         /// </summary>
         public static Scene Active { get; set; } = new Scene();
 
+        /// <summary>
+        /// Opens a scene made in the editor in place of the active one, and returns it: <c>Scene.Load("Scenes/Arena.scene")</c>.
+        /// The path is inside the game's Assets folder (or a full path). The scene that was active is unloaded; the new
+        /// one's objects start on its first update.
+        /// </summary>
+        /// <exception cref="FileNotFoundException">There's no such scene.</exception>
+        public static Scene Load(string path)
+        {
+            if (Opening?.Invoke(path) is { } open) return open;
+
+            string file = Assets.FindFile(path) ?? throw new FileNotFoundException($"There's no scene at {path} in the game's Assets folder.", path);
+            var scene = new Scene();
+            Serialization.SceneFile.Load(file, scene);
+
+            Scene before = Active;
+            Active = scene;
+            if (before != scene) before.Unload();
+            return scene;
+        }
+
+        /// <summary>
+        /// Adds the objects saved in a scene file to this scene, and returns them: a room made in the editor, put into a
+        /// world built in code. The file's lighting replaces this scene's.
+        /// </summary>
+        public List<GameObject> Add(string path)
+        {
+            string file = Assets.FindFile(path) ?? throw new FileNotFoundException($"There's no scene at {path} in the game's Assets folder.", path);
+            return Serialization.SceneFile.Load(file, this);
+        }
+
+        /// <summary>
+        /// Lets an editor hand back the scene it has open when the game opens that file, so Play plays what's being edited,
+        /// unsaved changes and all. Null, or giving back null, opens the file as usual.
+        /// </summary>
+        internal static Func<string, Scene?>? Opening { get; set; }
+
         private readonly List<GameObject> _objects = new();
         private readonly List<GameObject> _toAdd = new();
         private readonly List<GameObject> _toDestroy = new();

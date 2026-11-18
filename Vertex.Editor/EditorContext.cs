@@ -629,6 +629,7 @@ namespace Vertex.Editor
             }
 
             if (kept != null) RestoreScene(kept);
+            else if (GameStartScene() is { } start) OpenScene(start);
             else if (Game.GameType != null) LoadGameWorld();
             else OpenStartupScene();
             AddPendingComponent();
@@ -891,6 +892,23 @@ namespace Vertex.Editor
 
             if (changes.Count == 1) History.Do(changes[0]);
             else if (changes.Count > 1) History.Do(new ChangeGroup($"Add {type.Name}", changes));
+        }
+
+        /// <summary>
+        /// The scene file the game's code starts in (its <see cref="Vertex.Game.StartScene"/>), if it has one and it's
+        /// there: a game made in the editor with code around it opens that to edit, rather than what its Load builds.
+        /// </summary>
+        private string? GameStartScene()
+        {
+            try
+            {
+                return Game?.GameType != null && Game.CreateGame() is { StartScene: { Length: > 0 } start } ? Vertex.Assets.FindFile(start) : null;
+            }
+            catch (Exception exception)
+            {
+                Log.Warning($"Couldn't make the game to find its start scene: {(exception.InnerException ?? exception).Message}");
+                return null;
+            }
         }
 
         /// <summary>

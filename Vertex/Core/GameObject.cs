@@ -1,4 +1,7 @@
+using System.Numerics;
+
 using Vertex.Physics;
+using Vertex.Rendering;
 
 namespace Vertex
 {
@@ -79,6 +82,57 @@ namespace Vertex
             T component = new T { GameObject = this };
             _components.Add(component);
             return component;
+        }
+
+        /// <summary>
+        /// Adds a component and sets it up in one go:
+        /// <c>player.AddComponent&lt;Rigidbody&gt;(body =&gt; body.Mass = 80f)</c>.
+        /// </summary>
+        public T AddComponent<T>(Action<T> setUp) where T : Component, new()
+        {
+            T component = AddComponent<T>();
+            setUp(component);
+            return component;
+        }
+
+        /// <summary>The first object in the active scene called <paramref name="name"/>, or null: to find one made in the editor from code.</summary>
+        public static GameObject? Find(string name) => Scene.Active.Find(name);
+
+        /// <summary>A cube one unit across at <paramref name="position"/>, that things bump into (it has a box collider).</summary>
+        public static GameObject CreateCube(Vector3 position, Color? color = null, string name = "Cube") =>
+            Shape(name, position, Primitives.Cube, color, gameObject => gameObject.AddComponent<BoxCollider>());
+
+        /// <summary>A ball one unit across at <paramref name="position"/>, that things bump into (it has a sphere collider).</summary>
+        public static GameObject CreateSphere(Vector3 position, Color? color = null, string name = "Sphere") =>
+            Shape(name, position, Primitives.Sphere, color, gameObject => gameObject.AddComponent<SphereCollider>());
+
+        /// <summary>
+        /// A flat floor <paramref name="size"/> units across, facing up, at <paramref name="position"/>, that things stand on.
+        /// </summary>
+        public static GameObject CreatePlane(Vector3 position, float size = 10f, Color? color = null, string name = "Plane")
+        {
+            GameObject plane = Shape(name, position, Primitives.Plane, color, gameObject =>
+            {
+                // A thin box just under the surface, so things resting on it sit on top.
+                gameObject.AddComponent<BoxCollider>(box =>
+                {
+                    box.Size = new Vector3(1f, 0.1f, 1f);
+                    box.Center = new Vector3(0f, -0.05f, 0f);
+                });
+            });
+            plane.Transform.Scale = new Vector3(size, 1f, size);
+            return plane;
+        }
+
+        private static GameObject Shape(string name, Vector3 position, Mesh mesh, Color? color, Action<GameObject> addCollider)
+        {
+            var gameObject = new GameObject(name);
+            gameObject.Transform.Position = position;
+            MeshRenderer renderer = gameObject.AddComponent<MeshRenderer>();
+            renderer.Mesh = mesh;
+            if (color is { } c) renderer.Material = new Material(c);
+            addCollider(gameObject);
+            return gameObject;
         }
 
         public T? GetComponent<T>() where T : Component
