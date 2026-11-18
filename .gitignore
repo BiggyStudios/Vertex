@@ -350,3 +350,7 @@ osu.Framework.NativeLibs/scripts/ffmpeg/*.tar.gz
 
 # The sample game is its own repository (BiggyStudios/VertexSampleGame), cloned in here to work on both at once.
 /VertexSampleGame/
+
+# Notes for AI coding assistants: kept local for now.
+/CLAUDE.md
+/AGENTS.md
