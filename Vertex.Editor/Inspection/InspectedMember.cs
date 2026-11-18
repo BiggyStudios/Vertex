@@ -14,6 +14,9 @@ namespace Vertex.Editor.Inspection
         Text,
         Vector2,
         Vector3,
+
+        /// <summary>A range two numbers wide (<see cref="Rendering.FloatRange"/>): the smallest and largest.</summary>
+        FloatRange,
         Rotation,
         Color,
         Enum,
@@ -44,6 +47,9 @@ namespace Vertex.Editor.Inspection
         public bool CanWrite { get; init; }
         public RangeAttribute? Range { get; init; }
         public string? Tooltip { get; init; }
+
+        /// <summary>The section of the inspector it's in (see <see cref="HeaderAttribute"/>); null if it's in none.</summary>
+        public string? Section { get; private set; }
 
         public object? Read(object target) => Editing.SetValue.Read(target, Member);
 
@@ -103,9 +109,35 @@ namespace Vertex.Editor.Inspection
                 members.Add((Depth(field.DeclaringType), field.MetadataToken, Make(field, field.FieldType, kind.Value, !field.IsInitOnly)));
             }
 
-            IReadOnlyList<InspectedMember> result = members.OrderBy(m => m.Depth).ThenBy(m => m.Order).Select(m => m.Member).ToList();
+            IReadOnlyList<InspectedMember> result = Sections(members.OrderBy(m => m.Depth).ThenBy(m => m.Order).Select(m => m.Member));
             _cache[type] = result;
             return result;
+        }
+
+        /// <summary>
+        /// The members gathered into their sections: one with a <see cref="HeaderAttribute"/> starts its section (or joins
+        /// it, if a base class started it), and those after it follow it into the same one.
+        /// </summary>
+        private static List<InspectedMember> Sections(IEnumerable<InspectedMember> ordered)
+        {
+            var sections = new List<(string? Title, List<InspectedMember> Members)>();
+            string? current = null;
+            foreach (InspectedMember member in ordered)
+            {
+                if (member.Member.GetCustomAttribute<HeaderAttribute>() is { } header) current = header.Text;
+                member.Section = current;
+
+                int index = sections.FindIndex(s => s.Title == current);
+                if (index < 0)
+                {
+                    sections.Add((current, new List<InspectedMember>()));
+                    index = sections.Count - 1;
+                }
+
+                sections[index].Members.Add(member);
+            }
+
+            return sections.SelectMany(s => s.Members).ToList();
         }
 
         private static bool Skip(MemberInfo member) =>
@@ -133,6 +165,7 @@ namespace Vertex.Editor.Inspection
             if (type == typeof(string)) return MemberKind.Text;
             if (type == typeof(Vector2)) return MemberKind.Vector2;
             if (type == typeof(Vector3)) return MemberKind.Vector3;
+            if (type == typeof(Rendering.FloatRange)) return MemberKind.FloatRange;
             if (type == typeof(Quaternion)) return MemberKind.Rotation;
             if (type == typeof(Color)) return MemberKind.Color;
             if (type.IsEnum) return MemberKind.Enum;

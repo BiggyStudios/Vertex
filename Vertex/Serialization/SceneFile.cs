@@ -263,6 +263,7 @@ namespace Vertex.Serialization
                     case Vector4 v: WriteFloats(json, null, v.X, v.Y, v.Z, v.W); return true;
                     case Quaternion q: WriteFloats(json, null, q.X, q.Y, q.Z, q.W); return true;
                     case Color c: WriteFloats(json, null, c.R, c.G, c.B, c.A); return true;
+                    case FloatRange r: WriteFloats(json, null, r.Min, r.Max); return true;
 
                     case RenderTexture:
                         return false;
@@ -573,6 +574,7 @@ namespace Vertex.Serialization
                 else if (type == typeof(string)) value = element.GetString();
                 else if (type.IsEnum) value = Enum.Parse(type, element.GetString()!);
                 else if (type == typeof(Vector2)) value = new Vector2(element[0].GetSingle(), element[1].GetSingle());
+                else if (type == typeof(FloatRange)) value = element.ValueKind == JsonValueKind.Number ? new FloatRange(element.GetSingle(), element.GetSingle()) : new FloatRange(element[0].GetSingle(), element[1].GetSingle());
                 else if (type == typeof(Vector3)) value = ReadVector3(element);
                 else if (type == typeof(Vector4)) value = new Vector4(element[0].GetSingle(), element[1].GetSingle(), element[2].GetSingle(), element[3].GetSingle());
                 else if (type == typeof(Quaternion)) value = ReadQuaternion(element);

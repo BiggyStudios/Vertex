@@ -50,8 +50,17 @@ namespace Vertex.Editor.Inspection
         public float Draw(object target, float x, float y, float width, int depth = 0, IReadOnlyList<object>? others = null)
         {
             if (others is { Count: 0 }) others = null;
+            string? section = null;
             foreach (InspectedMember member in InspectedMember.Of(target.GetType()))
             {
+                if (member.Section != null && member.Section != section)
+                {
+                    section = member.Section;
+                    y += 6f;
+                    Ui.Text(new Rect(x, y, width, 18f), section.ToUpperInvariant(), Theme.TextFaint, size: 10.5f, bold: true);
+                    y += 22f;
+                }
+
                 y = DrawMember(target, member, x, y, width, depth, others);
             }
 
@@ -92,6 +101,7 @@ namespace Vertex.Editor.Inspection
                 {
                     (Vector2 a, Vector2 b) => (a.X != b.X ? 1 : 0) | (a.Y != b.Y ? 2 : 0),
                     (Vector3 a, Vector3 b) => (a.X != b.X ? 1 : 0) | (a.Y != b.Y ? 2 : 0) | (a.Z != b.Z ? 4 : 0),
+                    (FloatRange a, FloatRange b) => (a.Min != b.Min ? 1 : 0) | (a.Max != b.Max ? 2 : 0),
                     (Quaternion a, Quaternion b) => AnglesDiffer(Angles(target, member.Member.Name, a), Angles(other, member.Member.Name, b)),
                     _ => Equals(value, theirs) ? 0 : 1
                 };
@@ -177,6 +187,19 @@ namespace Vertex.Editor.Inspection
                 {
                     var vector = (Vector3)(value ?? Vector3.Zero);
                     if (NumberField.Vector3(id, field, ref vector, mixed: mixed)) Set(target, member, vector, others);
+                    break;
+                }
+
+                case MemberKind.FloatRange:
+                {
+                    // The smallest and the largest, side by side.
+                    var range = (FloatRange)(value ?? default(FloatRange));
+                    float low = range.Min, high = range.Max;
+                    Rect left = field.Column(0, 2, 16f), right = field.Column(1, 2, 16f);
+                    bool changed = NumberField.Float(Ui.Id(id, "min"), left, ref low, mixed: (mixed & 1) != 0);
+                    changed |= NumberField.Float(Ui.Id(id, "max"), right, ref high, mixed: (mixed & 2) != 0);
+                    Ui.Text(new Rect(left.Right, field.Y, 16f, field.Height), "–", Theme.TextFaint, align: 0.5f);
+                    if (changed) Set(target, member, new FloatRange(low, high), others);
                     break;
                 }
 
@@ -648,6 +671,7 @@ namespace Vertex.Editor.Inspection
             (Vector3 b, Vector3 a, Vector3 t) => new Vector3(b.X != a.X ? a.X : t.X, b.Y != a.Y ? a.Y : t.Y, b.Z != a.Z ? a.Z : t.Z),
             (Vector4 b, Vector4 a, Vector4 t) => new Vector4(b.X != a.X ? a.X : t.X, b.Y != a.Y ? a.Y : t.Y, b.Z != a.Z ? a.Z : t.Z, b.W != a.W ? a.W : t.W),
             (Color b, Color a, Color t) => new Color(b.R != a.R ? a.R : t.R, b.G != a.G ? a.G : t.G, b.B != a.B ? a.B : t.B, b.A != a.A ? a.A : t.A),
+            (FloatRange b, FloatRange a, FloatRange t) => new FloatRange(b.Min != a.Min ? a.Min : t.Min, b.Max != a.Max ? a.Max : t.Max),
             _ => after
         };
     }

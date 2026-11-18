@@ -24,4 +24,14 @@ namespace Vertex
     {
         public string Text { get; } = text;
     }
+
+    /// <summary>
+    /// Starts a section of the inspector, titled <see cref="Text"/>, at this property: it and those after it are shown
+    /// together under the title. A subclass's property with the same title joins that section, wherever it's written.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+    public sealed class HeaderAttribute(string text) : Attribute
+    {
+        public string Text { get; } = text;
+    }
 }
