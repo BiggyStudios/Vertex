@@ -56,12 +56,11 @@ namespace Vertex.Editor.Gui
 
         public static Color Hex(uint rgb) => Color.FromBytes((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 
-        /// <summary>Loads the editor's fonts from its Assets folder.</summary>
+        /// <summary>Sets up the editor's fonts: the engine's own Noto Sans.</summary>
         public static void LoadFonts()
         {
-            string fonts = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts");
-            Font = Font.Load(Path.Combine(fonts, "NotoSans-Regular.ttf"));
-            Bold = Font.Load(Path.Combine(fonts, "NotoSans-Bold.ttf"));
+            Font = Font.Default;
+            Bold = Font.DefaultBold;
         }
     }
 }

@@ -20,6 +20,9 @@ namespace Vertex.Audio
         /// <summary>Raised by <see cref="Dispose"/> so the audio system can free its copy.</summary>
         public event Action<AudioClip>? Disposed;
 
+        /// <summary>The file it was loaded from, if it was: how saved scenes refer to it.</summary>
+        public string? Source { get; private set; }
+
         public AudioClip(short[] samples, int channels, int sampleRate)
         {
             if (channels is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(channels), "Clips are mono (1) or stereo (2).");
@@ -87,7 +90,7 @@ namespace Vertex.Audio
                 _ => throw new NotSupportedException($"'{path}' has {bitsPerSample}-bit samples; only 8 and 16-bit are supported.")
             };
 
-            return new AudioClip(samples, channels, sampleRate);
+            return new AudioClip(samples, channels, sampleRate) { Source = Path.GetFullPath(path) };
         }
 
         private static short[] ReadSamples16(ReadOnlySpan<byte> data)

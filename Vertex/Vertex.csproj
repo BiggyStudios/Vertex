@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Noto Sans, for text that hasn't a font of its own (see Font.Default). -->
+    <EmbeddedResource Include="UI\Fonts\*.ttf" LogicalName="Vertex.Fonts.%(Filename)%(Extension)" />
+    <None Include="UI\Fonts\OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FontStashSharp.PlatformAgnostic" Version="1.6.2" />
     <PackageReference Include="JoltPhysicsSharp" Version="2.23.0" />
     <PackageReference Include="Silk.NET" Version="2.23.0" />

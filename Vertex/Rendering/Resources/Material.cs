@@ -20,6 +20,13 @@ namespace Vertex.Rendering
     /// </summary>
     public class Material
     {
+        /// <summary>
+        /// The .material file it was loaded from (see <see cref="Assets.LoadMaterial"/>), if it is one: then it's shared by
+        /// everything that uses it, and saved scenes refer to the file instead of holding a copy.
+        /// </summary>
+        [HideInInspector, Serialization.DontSave]
+        public string? Source { get; set; }
+
         public ShadingModel Shading { get; set; } = ShadingModel.Lit;
         public Color Color { get; set; } = Color.White;
 
@@ -79,6 +86,14 @@ namespace Vertex.Rendering
         public Material(Color color)
         {
             Color = color;
+        }
+
+        /// <summary>A copy with the same settings, of its own (not tied to a file): to change one object's look without the rest.</summary>
+        public Material Copy()
+        {
+            var copy = (Material)MemberwiseClone();
+            copy.Source = null;
+            return copy;
         }
     }
 }

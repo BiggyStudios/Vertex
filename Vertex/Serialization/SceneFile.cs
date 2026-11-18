@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 
 using Vertex.Rendering;
+using Vertex.UI;
 
 namespace Vertex.Serialization
 {
@@ -23,7 +24,7 @@ namespace Vertex.Serialization
     /// code can be kept out with <see cref="NonSerializedAttribute"/> on a field or <see cref="DontSaveAttribute"/>.
     /// <para>
     /// Files under one of the asset folders given are saved by their path inside it, so the scene still finds them when
-    /// the game is built somewhere else; by default that's the game's own Assets folder (<see cref="Application.AssetPath"/>).
+    /// the game is built somewhere else; by default those are <see cref="Application.AssetFolders"/>.
     /// </para>
     /// </summary>
     public static class SceneFile
@@ -75,7 +76,7 @@ namespace Vertex.Serialization
             public List<GameObject> Restore(Scene scene)
             {
                 using JsonDocument document = JsonDocument.Parse(Json);
-                return new Reader(document.RootElement, scene, [Application.AssetPath()], Resources).Read();
+                return new Reader(document.RootElement, scene, Application.AssetFolders, Resources).Read();
             }
         }
 
@@ -92,9 +93,39 @@ namespace Vertex.Serialization
             return new Snapshot { Json = json, Resources = resources };
         }
 
-        private static string Write(IReadOnlyList<GameObject> objects, Lighting? lighting, string[] assetFolders, Dictionary<string, object>? keepResources = null)
+        /// <summary>
+        /// <paramref name="root"/> and everything under it as a prefab's JSON. Its own link to a prefab (it's an instance of
+        /// the one being saved) is left out; links of objects under it to other prefabs are kept.
+        /// </summary>
+        internal static string SavePrefab(GameObject root, params string[] assetFolders)
         {
-            var writer = new Writer(objects, assetFolders.Length > 0 ? assetFolders : [Application.AssetPath()], keepResources);
+            var objects = new List<GameObject>();
+            AddSubtree(root, objects);
+            return Write(objects, null, assetFolders, skipPrefabLinkOf: root);
+        }
+
+        /// <summary>A material as the JSON of a .material file.</summary>
+        public static string SaveMaterial(Material material, params string[] assetFolders)
+        {
+            var writer = new Writer([], assetFolders.Length > 0 ? assetFolders : Application.AssetFolders, null);
+            using var stream = new MemoryStream();
+            using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true })) writer.WriteSettingsFile(json, "material", material);
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+
+        /// <summary>Reads a .material file's JSON into <paramref name="material"/> (an existing one, so whatever uses it sees the change).</summary>
+        public static void LoadMaterial(string json, Material material, params string[] assetFolders)
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("material", out JsonElement values)) throw new InvalidDataException("Not a material file.");
+            var reader = new Reader(document.RootElement, Scene.Active, assetFolders.Length > 0 ? assetFolders : Application.AssetFolders);
+            reader.ReadInto(values, material);
+        }
+
+        private static string Write(IReadOnlyList<GameObject> objects, Lighting? lighting, string[] assetFolders, Dictionary<string, object>? keepResources = null,
+            GameObject? skipPrefabLinkOf = null)
+        {
+            var writer = new Writer(objects, assetFolders.Length > 0 ? assetFolders : Application.AssetFolders, keepResources) { SkipPrefabLinkOf = skipPrefabLinkOf };
             using var stream = new MemoryStream();
             using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
             {
@@ -109,6 +140,9 @@ namespace Vertex.Serialization
             private readonly Dictionary<GameObject, int> _ids = objects.Select((o, i) => (o, i)).ToDictionary(p => p.o, p => p.i + 1);
             private readonly Dictionary<object, string> _resourceIds = new(ReferenceEqualityComparer.Instance);
             private readonly List<(string Id, object Resource)> _resources = new();
+
+            /// <summary>An object whose own prefab link isn't written: the root of a prefab being saved, which is that prefab.</summary>
+            public GameObject? SkipPrefabLinkOf { get; init; }
 
             public void Write(Utf8JsonWriter json, Lighting? lighting)
             {
@@ -160,6 +194,7 @@ namespace Vertex.Serialization
                 if (!gameObject.Active) json.WriteBoolean("active", false);
                 if (gameObject.GetType() != typeof(GameObject)) json.WriteString("type", TypeName(gameObject.GetType()));
                 if (transform.Parent != null && _ids.TryGetValue(transform.Parent.GameObject, out int parent)) json.WriteNumber("parent", parent);
+                if (gameObject.Prefab is { } prefab && gameObject != SkipPrefabLinkOf) json.WriteString("prefab", "file:" + AssetPath(prefab.Source));
 
                 WriteVector(json, "position", transform.Position);
                 WriteFloats(json, "rotation", transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W);
@@ -244,6 +279,25 @@ namespace Vertex.Serialization
                         json.WriteEndObject();
                         return true;
 
+                    // Files of their own, referred to by where they are.
+                    case Material { Source: { } materialFile }:
+                        WriteReference(json, "material", materialFile);
+                        return true;
+
+                    case Prefab prefab:
+                        WriteReference(json, "prefab", prefab.Source);
+                        return true;
+
+                    case Font font:
+                        if (font.Source == null) return false;
+                        WriteReference(json, "font", font.Source);
+                        return true;
+
+                    case Audio.AudioClip clip:
+                        if (clip.Source == null) return false;
+                        WriteReference(json, "sound", clip.Source);
+                        return true;
+
                     case GameObject gameObject:
                         if (!_ids.TryGetValue(gameObject, out int id)) return false;
                         json.WriteStartObject();
@@ -268,6 +322,34 @@ namespace Vertex.Serialization
                 WriteValues(json, value, depth + 1);
                 json.WriteEndObject();
                 return true;
+            }
+
+            private void WriteReference(Utf8JsonWriter json, string kind, string file)
+            {
+                json.WriteStartObject();
+                json.WriteString(kind, "file:" + AssetPath(file));
+                json.WriteEndObject();
+            }
+
+            /// <summary>A file of settings of its own (a material): its values, and any resources made in code that it uses.</summary>
+            public void WriteSettingsFile(Utf8JsonWriter json, string name, object settings)
+            {
+                using var valueStream = new MemoryStream();
+                using (var valueJson = new Utf8JsonWriter(valueStream, new JsonWriterOptions { Indented = true })) WriteValues(valueJson, settings);
+
+                json.WriteStartObject();
+                json.WriteNumber("version", FormatVersion);
+                json.WritePropertyName(name);
+                using (JsonDocument written = JsonDocument.Parse(valueStream.ToArray())) written.WriteTo(json);
+                json.WriteStartObject("resources");
+                foreach ((string id, object resource) in _resources)
+                {
+                    json.WritePropertyName(id);
+                    WriteResource(json, resource);
+                }
+
+                json.WriteEndObject();
+                json.WriteEndObject();
             }
 
             private string MeshReference(Mesh mesh)
@@ -355,7 +437,7 @@ namespace Vertex.Serialization
         public static List<GameObject> LoadJson(string json, Scene scene, params string[] assetFolders)
         {
             using JsonDocument document = JsonDocument.Parse(json);
-            var reader = new Reader(document.RootElement, scene, assetFolders.Length > 0 ? assetFolders : [Application.AssetPath()]);
+            var reader = new Reader(document.RootElement, scene, assetFolders.Length > 0 ? assetFolders : Application.AssetFolders);
             return reader.Read();
         }
 
@@ -381,6 +463,10 @@ namespace Vertex.Serialization
                     string name = element.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? "GameObject" : "GameObject";
                     GameObject gameObject = CreateObject(element, name);
                     if (element.TryGetProperty("active", out JsonElement active)) gameObject.Active = active.GetBoolean();
+                    if (element.TryGetProperty("prefab", out JsonElement prefab) && prefab.GetString() is { } prefabFile)
+                    {
+                        gameObject.Prefab = LoadFile(prefabFile, "Prefab", Assets.LoadPrefab);
+                    }
                     _objects[element.GetProperty("id").GetInt32()] = gameObject;
                     created.Add(gameObject);
                 }
@@ -449,6 +535,9 @@ namespace Vertex.Serialization
                 return new GameObject(name, scene);
             }
 
+            /// <summary>Reads saved values into an object made elsewhere (a material being loaded from its file).</summary>
+            public void ReadInto(JsonElement values, object target) => ReadValues(values, target);
+
             private void ReadValues(JsonElement values, object target)
             {
                 if (values.ValueKind != JsonValueKind.Object) return;
@@ -485,6 +574,10 @@ namespace Vertex.Serialization
                 else if (type == typeof(Color)) value = new Color(element[0].GetSingle(), element[1].GetSingle(), element[2].GetSingle(), element[3].GetSingle());
                 else if (element.TryGetProperty("mesh", out JsonElement mesh)) value = LoadMesh(mesh.GetString()!);
                 else if (element.TryGetProperty("texture", out JsonElement texture)) value = LoadTexture(texture.GetString()!);
+                else if (element.TryGetProperty("material", out JsonElement material)) value = LoadFile(material.GetString()!, "Material", Assets.LoadMaterial);
+                else if (element.TryGetProperty("prefab", out JsonElement prefab)) value = LoadFile(prefab.GetString()!, "Prefab", Assets.LoadPrefab);
+                else if (element.TryGetProperty("font", out JsonElement font)) value = LoadFile(font.GetString()!, "Font", Assets.LoadFont);
+                else if (element.TryGetProperty("sound", out JsonElement sound)) value = LoadFile(sound.GetString()!, "Sound", Assets.LoadSound);
                 else if (element.TryGetProperty("component", out JsonElement index))
                 {
                     if (!_objects.TryGetValue(element.GetProperty("object").GetInt32(), out GameObject? owner)) return false;
@@ -543,6 +636,28 @@ namespace Vertex.Serialization
                 Texture? texture = path != null ? Assets.LoadTexture(path) : null;
                 _textures[file] = texture;
                 return texture;
+            }
+
+            /// <summary>A file a saved reference points at ("file:Materials/Brick.material"), loaded through <paramref name="load"/>; null if it's gone.</summary>
+            private T? LoadFile<T>(string reference, string what, Func<string, T> load) where T : class
+            {
+                string file = reference.StartsWith("file:", StringComparison.Ordinal) ? reference["file:".Length..] : reference;
+                string? path = FindAsset(file);
+                if (path == null)
+                {
+                    Problems.Add($"{what} not found: {file}");
+                    return null;
+                }
+
+                try
+                {
+                    return load(path);
+                }
+                catch (Exception exception)
+                {
+                    Problems.Add($"{what} {file}: {exception.Message}");
+                    return null;
+                }
             }
 
             private string? FindAsset(string path)

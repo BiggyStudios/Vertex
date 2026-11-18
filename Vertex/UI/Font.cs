@@ -30,7 +30,38 @@ namespace Vertex.UI
             var fonts = new FontSystem();
             fonts.AddFont(File.ReadAllBytes(path));
             foreach (string fallback in fallbackPaths) fonts.AddFont(File.ReadAllBytes(fallback));
+            return new Font(fonts) { Source = Path.GetFullPath(path) };
+        }
+
+        /// <summary>A font from the bytes of a .ttf or .otf file.</summary>
+        public static Font FromBytes(byte[] file)
+        {
+            var fonts = new FontSystem();
+            fonts.AddFont(file);
             return new Font(fonts);
+        }
+
+        /// <summary>The file it was loaded from, if it was: how saved scenes refer to it.</summary>
+        public string? Source { get; private set; }
+
+        private static Font? _default, _defaultBold;
+
+        /// <summary>
+        /// Noto Sans, which comes with the engine: for text with no font of its own (a UI text that hasn't been given
+        /// one), so there's always something to draw with. Under the SIL Open Font License (see UI/Fonts/OFL.txt).
+        /// </summary>
+        public static Font Default => _default ??= Embedded("NotoSans-Regular.ttf");
+
+        /// <summary>The bold Noto Sans that comes with the engine.</summary>
+        public static Font DefaultBold => _defaultBold ??= Embedded("NotoSans-Bold.ttf");
+
+        private static Font Embedded(string name)
+        {
+            using Stream stream = typeof(Font).Assembly.GetManifestResourceStream("Vertex.Fonts." + name)
+                                  ?? throw new InvalidOperationException($"The engine's font {name} is missing.");
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            return FromBytes(memory.ToArray());
         }
 
         /// <summary>The width and height of <paramref name="text"/> at <paramref name="size"/> pixels.</summary>

@@ -25,6 +25,12 @@ namespace Vertex
 
         public bool IsDestroyed { get; private set; }
 
+        /// <summary>
+        /// The prefab this object is a copy of, if it's the top of one (see <see cref="Prefab.Instantiate()"/>): kept so an
+        /// editor can update the copies when the prefab changes. Null for an object made any other way.
+        /// </summary>
+        public Prefab? Prefab { get; internal set; }
+
         internal bool Started;
 
         public bool ActiveInHierarchy => Active && (Transform.Parent?.GameObject.ActiveInHierarchy ?? true);

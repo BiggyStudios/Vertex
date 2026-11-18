@@ -18,6 +18,9 @@ namespace Vertex.Audio.OpenAL
         private readonly Device* _device;
         private readonly Context* _context;
         private readonly uint[] _voices = new uint[_voiceCount];
+
+        // Counts each time a voice starts a new sound, so a handle to what it played before can tell it's gone.
+        private readonly int[] _generations = new int[_voiceCount];
         private int _nextVoice;
 
         // OpenAL copies of clips. Weak keys, so dropping a clip doesn't keep it alive here.
@@ -41,10 +44,13 @@ namespace Vertex.Audio.OpenAL
             for (int i = 0; i < _voices.Length; i++) _voices[i] = _al.GenSource();
         }
 
-        public void Play(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance)
+        /// <summary>Starts a clip on a free voice. Returns which voice, and which of the sounds it has played this is.</summary>
+        public (int Voice, int Generation) Play(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance)
         {
             uint buffer = GetBuffer(clip);
-            uint voice = TakeVoice();
+            int index = TakeVoice();
+            uint voice = _voices[index];
+            int generation = ++_generations[index];
 
             _al.SourceStop(voice);
             _al.SetSourceProperty(voice, SourceInteger.Buffer, buffer);
@@ -67,6 +73,34 @@ namespace Vertex.Audio.OpenAL
             }
 
             _al.SourcePlay(voice);
+            return (index, generation);
+        }
+
+        /// <summary>Whether the sound a handle points at is still playing on its voice.</summary>
+        public bool IsPlaying(int index, int generation)
+        {
+            if (index < 0 || index >= _voices.Length || _generations[index] != generation) return false;
+            _al.GetSourceProperty(_voices[index], GetSourceInteger.SourceState, out int state);
+            return state == (int)SourceState.Playing;
+        }
+
+        /// <summary>How far into its clip a playing sound is, in seconds; 0 once it has stopped.</summary>
+        public float Offset(int index, int generation)
+        {
+            if (!IsPlaying(index, generation)) return 0f;
+            _al.GetSourceProperty(_voices[index], SourceFloat.SecOffset, out float seconds);
+            return seconds;
+        }
+
+        /// <summary>Jumps a playing sound to <paramref name="seconds"/> into its clip.</summary>
+        public void Seek(int index, int generation, float seconds)
+        {
+            if (IsPlaying(index, generation)) _al.SetSourceProperty(_voices[index], SourceFloat.SecOffset, MathF.Max(seconds, 0f));
+        }
+
+        public void Stop(int index, int generation)
+        {
+            if (index >= 0 && index < _voices.Length && _generations[index] == generation) _al.SourceStop(_voices[index]);
         }
 
         public void SetListener(Vector3 position, Vector3 forward, Vector3 up)
@@ -80,19 +114,20 @@ namespace Vertex.Audio.OpenAL
         public void SetVolume(float volume) => _al.SetListenerProperty(ListenerFloat.Gain, Math.Clamp(volume, 0f, 1f));
 
         /// <summary>A voice that's finished playing, or else the one that started longest ago.</summary>
-        private uint TakeVoice()
+        private int TakeVoice()
         {
             for (int i = 0; i < _voices.Length; i++)
             {
-                uint voice = _voices[(_nextVoice + i) % _voices.Length];
+                int index = (_nextVoice + i) % _voices.Length;
+                uint voice = _voices[index];
                 _al.GetSourceProperty(voice, GetSourceInteger.SourceState, out int state);
                 if (state == (int)SourceState.Playing) continue;
 
                 _nextVoice = (_nextVoice + i + 1) % _voices.Length;
-                return voice;
+                return index;
             }
 
-            uint oldest = _voices[_nextVoice];
+            int oldest = _nextVoice;
             _nextVoice = (_nextVoice + 1) % _voices.Length;
             return oldest;
         }

@@ -87,6 +87,9 @@ namespace Vertex
             // The game may have switched scenes in its own Update: update whichever is active now.
             Scene.Active.Update();
 
+            // The UI made of objects, over the game's own drawing.
+            UISystem.Update(Scene.Active);
+
             // Over the top of the game's own UI.
             DrawingOverlays?.Invoke();
             DevConsole.Draw();

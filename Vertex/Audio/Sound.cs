@@ -19,19 +19,28 @@ namespace Vertex.Audio
         public static bool IsAvailable => _device != null;
 
         /// <summary>Plays a clip once, the same in both ears: for menus, or the player's own gun.</summary>
-        public static void Play(AudioClip clip, float volume = 1f, float pitch = 1f)
+        public static PlayingSound Play(AudioClip clip, float volume = 1f, float pitch = 1f)
         {
-            _device?.Play(clip, position: null, volume, pitch, fullVolumeDistance: 0f);
+            if (_device == null) return default;
+            (int voice, int generation) = _device.Play(clip, position: null, volume, pitch, fullVolumeDistance: 0f);
+            return new PlayingSound(voice, generation, clip);
         }
 
         /// <summary>
         /// Plays a mono clip once at a point in the world. Within <paramref name="fullVolumeDistance"/> it plays at full
         /// volume; beyond that it halves in loudness each time the distance doubles, like sound in open air.
         /// </summary>
-        public static void PlayAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, float fullVolumeDistance = 3f)
+        public static PlayingSound PlayAt(AudioClip clip, Vector3 position, float volume = 1f, float pitch = 1f, float fullVolumeDistance = 3f)
         {
-            _device?.Play(clip, position, volume, pitch, fullVolumeDistance);
+            if (_device == null) return default;
+            (int voice, int generation) = _device.Play(clip, position, volume, pitch, fullVolumeDistance);
+            return new PlayingSound(voice, generation, clip);
         }
+
+        internal static bool IsPlaying(int voice, int generation) => _device?.IsPlaying(voice, generation) ?? false;
+        internal static float Offset(int voice, int generation) => _device?.Offset(voice, generation) ?? 0f;
+        internal static void Seek(int voice, int generation, float seconds) => _device?.Seek(voice, generation, seconds);
+        internal static void Stop(int voice, int generation) => _device?.Stop(voice, generation);
 
         internal static void Initialise()
         {
