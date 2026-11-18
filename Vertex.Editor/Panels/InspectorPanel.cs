@@ -949,7 +949,9 @@ namespace Vertex.Editor.Panels
                 .ToList();
 
             // While typing in the search box, the arrows move through the list.
-            if (InputSystem.GetKeyDown(Key.Down)) _highlighted = Math.Min(_highlighted + 1, matches.Count - 1);
+            bool canScript = _context.Project != null;
+            int rows = matches.Count + (canScript ? 1 : 0);
+            if (InputSystem.GetKeyDown(Key.Down)) _highlighted = Math.Min(_highlighted + 1, rows - 1);
             if (InputSystem.GetKeyDown(Key.Up)) _highlighted = Math.Max(_highlighted - 1, 0);
 
             Rect listRect = rect.CutTop(34f);
@@ -985,6 +987,23 @@ namespace Vertex.Editor.Panels
                 y += rowHeight;
             }
 
+            // Last, a new script of the game's own: named what was searched for, if anything was.
+            string scriptName = EditorContext.ClassName(search.Length > 0 ? search : "NewScript");
+            float scriptY = y + 6f;
+            if (canScript)
+            {
+                var row = new Rect(listRect.X, scriptY, listRect.Width - 8f, rowHeight);
+                Interaction interaction = Ui.Interact(Ui.Id(id, "newScript"), row);
+                if (interaction.Hovered && Ui.MouseMovedLately) _highlighted = matches.Count;
+                if (_highlighted == matches.Count) highlightY = scriptY;
+                if (interaction.Clicked || enter && _highlighted == matches.Count)
+                {
+                    Popup.Close();
+                    Ui.FocusId = 0;
+                    _context.CreateScriptFor(gameObjects, scriptName);
+                }
+            }
+
             if (highlightY >= 0f)
             {
                 float slid = Ui.Smooth(Ui.Id(id, "highlight"), highlightY - scroll.Top, 30f) + scroll.Top;
@@ -1011,7 +1030,21 @@ namespace Vertex.Editor.Panels
                 y += rowHeight;
             }
 
-            if (matches.Count == 0) Ui.Text(new Rect(listRect.X, listRect.Y + 10f, listRect.Width, 20f), "No components match", Theme.TextFaint, align: 0.5f);
+            if (canScript)
+            {
+                var row = new Rect(listRect.X, scriptY, listRect.Width - 8f, rowHeight);
+                bool lit = _highlighted == matches.Count;
+                Ui.Rect(new Rect(row.X + 6f, scriptY - 4f, row.Width - 12f, 1f), Theme.Border);
+                Icons.Plus(new Vector2(row.X + 18f, row.Centre.Y), 12f, lit ? Color.White : Theme.TextDim);
+                Ui.Text(row.Shrink(10f, 0f) with { X = row.X + 32f }, search.Length > 0 ? $"New script \"{scriptName}\"" : "New Script", lit ? Color.White : Theme.Text);
+                Ui.Text(row.Shrink(10f, 0f), "C#", lit ? Color.White.WithAlpha(0.7f) : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+                y = scriptY + rowHeight;
+            }
+            else if (matches.Count == 0)
+            {
+                Ui.Text(new Rect(listRect.X, listRect.Y + 10f, listRect.Width, 20f), "No components match", Theme.TextFaint, align: 0.5f);
+            }
+
             scroll.End(y - scroll.Top);
         }
 

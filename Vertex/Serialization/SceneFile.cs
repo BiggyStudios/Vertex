@@ -709,11 +709,12 @@ namespace Vertex.Serialization
         /// <summary>Finds a type by its saved name in any loaded code, the game's included.</summary>
         public static Type? FindType(string name)
         {
-            if (_types.TryGetValue(name, out Type? cached) && cached != null) return cached;
+            // A game's type from before its code was rebuilt is looked up again, in the new code.
+            if (_types.TryGetValue(name, out Type? cached) && cached != null && !LoadedCode.IsGone(cached.Assembly)) return cached;
 
             string[] parts = name.Split(',', 2, StringSplitOptions.TrimEntries);
             Type? found = null;
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (Assembly assembly in LoadedCode.Assemblies)
             {
                 if (parts.Length > 1 && assembly.GetName().Name != parts[1]) continue;
                 found = assembly.GetType(parts[0]);

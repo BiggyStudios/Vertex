@@ -129,8 +129,11 @@ namespace Vertex.Editor.Editing
                       <_VertexEngineProject Include="@(ProjectReference)" Condition="'%(Filename)' == 'Vertex'" />
                       <_VertexEngineMissing Include="@(_VertexEngineProject)" Condition="!Exists('%(FullPath)')" />
                       <ProjectReference Remove="@(_VertexEngineProject)" />
+                      <!-- A game the editor set up refers to the engine's files where the editor was then: swapped for where it is now. -->
+                      <_VertexEngineFiles Include="@(Reference)" Condition="'%(Reference.VertexEngine)' == 'true'" />
+                      <Reference Remove="@(_VertexEngineFiles)" />
                     </ItemGroup>
-                    <ItemGroup Condition="'@(_VertexEngineMissing)' != ''">
+                    <ItemGroup Condition="'@(_VertexEngineMissing)' != '' or '@(_VertexEngineFiles)' != ''">
                 {everything}    </ItemGroup>
                     <ItemGroup Condition="'@(_VertexEngineMissing)' == '' and '@(_VertexEngineProject)' != ''">
                 {engineOnly}    </ItemGroup>
@@ -143,6 +146,44 @@ namespace Vertex.Editor.Editing
             string path = Path.Combine(folder, "UseEditorEngine.targets");
             if (!File.Exists(path) || File.ReadAllText(path) != targets) File.WriteAllText(path, targets);
             return path;
+        }
+
+        /// <summary>
+        /// A .csproj for a game's code, for a project that hasn't any yet: every .cs file in its folder (the scripts in
+        /// Assets included), built against the engine the editor runs on. It builds outside the editor too, so a code
+        /// editor knows the engine's types.
+        /// </summary>
+        public static string NewProjectFile(string name)
+        {
+            var references = new StringBuilder();
+            foreach (string assembly in EngineAssemblies())
+            {
+                string reference = SecurityElement.Escape(Path.GetFileNameWithoutExtension(assembly));
+                references.AppendLine($"""    <Reference Include="{reference}" VertexEngine="true"><HintPath>{SecurityElement.Escape(assembly)}</HintPath><Private>false</Private></Reference>""");
+            }
+
+            string rootNamespace = new string(name.Where(char.IsLetterOrDigit).ToArray());
+            if (rootNamespace.Length == 0 || char.IsDigit(rootNamespace[0])) rootNamespace = "Game" + rootNamespace;
+
+            return $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+
+                  <!-- The game's code: every .cs file in this folder and under it. Made by the Vertex editor. -->
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <Nullable>enable</Nullable>
+                    <RootNamespace>{rootNamespace}</RootNamespace>
+                    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+                  </PropertyGroup>
+
+                  <!-- The engine, from the editor. Building in the editor uses whichever editor that is. -->
+                  <ItemGroup>
+                {references}  </ItemGroup>
+
+                </Project>
+
+                """;
         }
 
         /// <summary>The engine's assembly and every one it uses that came with the editor (Silk.NET, Jolt...), not the framework's.</summary>

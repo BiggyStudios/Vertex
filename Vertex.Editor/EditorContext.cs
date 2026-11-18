@@ -470,11 +470,13 @@ namespace Vertex.Editor
             Application.BaseDirectory = project.Directory;
             Application.AssetFolders = AssetFolders;
 
+            WatchCode();
             if (project.GameProjectFile is { } gameProject && File.Exists(gameProject))
             {
                 Origin = SceneOrigin.Untitled;
                 _untitledName = project.Name;
                 BuildGame();
+                _openingProject = true;
             }
             else
             {
@@ -517,6 +519,8 @@ namespace Vertex.Editor
             if (Project?.GameProjectFile is not { } gameProject || _build != null) return;
             if (Play.Playing) Play.Stop();
 
+            Interlocked.Exchange(ref _codeChangedAt, 0);
+            _buildStartedUtc = DateTime.UtcNow;
             _buildingProject = gameProject;
             Busy = $"Building {Path.GetFileNameWithoutExtension(gameProject)}…";
             _buildTimer.Restart();
@@ -536,16 +540,20 @@ namespace Vertex.Editor
             ConsoleLog.Update();
             SaveChangedMaterials();
             SaveChangedGraphs();
+            RebuildIfCodeChanged();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;
             Busy = null;
+            bool opening = _openingProject;
+            _openingProject = false;
             (bool built, string output, string? assemblyPath) = build.Result;
             if (!built || assemblyPath == null)
             {
-                // The project is still open (its scenes and assets work), just without the game's scripts; the errors go
-                // to the Console, where double-clicking one opens the code at it.
-                OpenStartupScene();
+                // The project is still open (its scenes and assets work), just without the game's scripts (or with the
+                // ones from before, rebuilding); the errors go to the Console, where double-clicking one opens the code at it.
+                _pendingComponent = null;
+                if (opening) OpenStartupScene();
                 var errors = GameCode.ErrorsWithPlaces(output);
                 string name = Path.GetFileNameWithoutExtension(_buildingProject) ?? "The game";
                 if (errors.Count == 0) Log.Write(LogLevel.Error, $"{name} didn't build", output.Trim().Length > 0 ? output.Trim() : "dotnet build failed with no output.");
@@ -557,6 +565,10 @@ namespace Vertex.Editor
             }
 
             Log.Info($"Built {Path.GetFileNameWithoutExtension(_buildingProject)} in {_buildTimer.Elapsed.TotalSeconds:0.0} s");
+
+            // Rebuilt, the scene being edited is kept (and what's selected), made again with the new code. A world the
+            // game builds is built again instead.
+            KeptScene? kept = !opening && Origin != SceneOrigin.GameWorld ? KeepScene() : null;
 
             try
             {
@@ -576,9 +588,268 @@ namespace Vertex.Editor
                 return;
             }
 
-            if (Game.GameType != null) LoadGameWorld();
-            else NewScene();
-            Notify(Game.GameType != null ? $"Loaded {Game.GameType.Name}" : $"Loaded {Path.GetFileNameWithoutExtension(_buildingProject)}'s components");
+            if (kept != null) RestoreScene(kept);
+            else if (Game.GameType != null) LoadGameWorld();
+            else OpenStartupScene();
+            AddPendingComponent();
+            Notify(Game.GameType != null && kept == null ? $"Loaded {Game.GameType.Name}" : $"Loaded {Path.GetFileNameWithoutExtension(_buildingProject)}'s components");
+        }
+
+        /// <summary>The scene being edited, kept while the game's code is loaded again.</summary>
+        private sealed record KeptScene(SceneFile.Snapshot Snapshot, string? Path, SceneOrigin Origin, string Name, bool Dirty, int[] Selected);
+
+        private KeptScene KeepScene()
+        {
+            if (Play.Playing) Play.Stop();
+            IReadOnlyList<GameObject> objects = Scene.GameObjects;
+            int[] selected = Selection.Objects.Select(o => IndexOf(objects, o)).Where(i => i >= 0).ToArray();
+            return new KeptScene(SceneFile.TakeSnapshot(Scene), ScenePath, Origin, _untitledName, Dirty, selected);
+        }
+
+        private void RestoreScene(KeptScene kept)
+        {
+            List<GameObject> made;
+            try
+            {
+                made = kept.Snapshot.Restore(Scene);
+            }
+            catch (Exception exception)
+            {
+                Log.Error($"Couldn't keep the scene through the rebuild: {exception.Message}", exception);
+                made = [];
+            }
+
+            Scene.ApplyChanges();
+            ScenePath = kept.Path;
+            Origin = kept.Origin;
+            _untitledName = kept.Name;
+            if (kept.Dirty) _savedVersion = -1;
+            else MarkSaved();
+            Selection.Select(kept.Selected.Where(i => i < made.Count).Select(i => made[i]));
+        }
+
+        private static int IndexOf(IReadOnlyList<GameObject> objects, GameObject gameObject)
+        {
+            for (int i = 0; i < objects.Count; i++)
+            {
+                if (objects[i] == gameObject) return i;
+            }
+
+            return -1;
+        }
+
+        // ---------------------------------------------------------------- Scripts
+
+        /// <summary>Whether the editor's window is in front. Code changed in another program is rebuilt once it is again.</summary>
+        public bool WindowFocused { get; set; } = true;
+
+        private FileSystemWatcher? _codeWatcher;
+
+        // When the game's code last changed (Environment.TickCount64), if it hasn't been rebuilt since; 0 if it has.
+        private long _codeChangedAt;
+
+        // A script made from Add Component: its class, added to these objects (by where they are in the scene) once it's built.
+        private (string Class, int[] Objects)? _pendingComponent;
+        private bool _openingProject;
+        private DateTime _buildStartedUtc;
+
+        /// <summary>Whether there are changes to the game's code waiting to be built.</summary>
+        public bool CodeChanged => Interlocked.Read(ref _codeChangedAt) != 0;
+
+        /// <summary>
+        /// Makes a new C# script (a component) called <paramref name="name"/> in <paramref name="folder"/>, giving the
+        /// project code of its own first if it hasn't any, and returns where. It's built once it's been named.
+        /// </summary>
+        public string CreateScript(string folder, string name = "NewScript")
+        {
+            if (Project == null) throw new InvalidOperationException("Open a project to make scripts in it");
+            AddCode();
+
+            Directory.CreateDirectory(folder);
+            string className = ClassName(name);
+            string path = Path.Combine(folder, className + ".cs");
+            for (int i = 2; File.Exists(path) || Inspection.ComponentCatalog.All.Any(t => t.Type.Name == className); i++)
+            {
+                className = ClassName(name) + i;
+                path = Path.Combine(folder, className + ".cs");
+            }
+
+            File.WriteAllText(path, ScriptTemplate(className));
+            Assets?.Refresh();
+            CodeWasChanged();
+            return path;
+        }
+
+        /// <summary>
+        /// Makes a new script called <paramref name="name"/> in the project's Scripts folder, builds the game, and adds
+        /// the new component to <paramref name="objects"/> once it's built: Add Component's New Script.
+        /// </summary>
+        public string? CreateScriptFor(IReadOnlyList<GameObject> objects, string name)
+        {
+            if (Project is not { } project) return null;
+
+            string path;
+            try
+            {
+                path = CreateScript(Path.Combine(project.AssetsDirectory, "Scripts"), name);
+            }
+            catch (Exception exception)
+            {
+                Notify($"Couldn't make the script: {exception.Message}");
+                return null;
+            }
+
+            IReadOnlyList<GameObject> all = Scene.GameObjects;
+            _pendingComponent = (Path.GetFileNameWithoutExtension(path), objects.Select(o => IndexOf(all, o)).Where(i => i >= 0).ToArray());
+            BuildGame();
+            Notify($"Made {Path.GetFileName(path)}: it's added once the game's built");
+            return path;
+        }
+
+        /// <summary>Gives the project a .csproj of its own if it has no code yet, so scripts can go in it.</summary>
+        public void AddCode()
+        {
+            if (Project is not { } project || project.GameProjectFile is { } existing && File.Exists(existing)) return;
+
+            string file = project.AddCode();
+            WatchCode();
+            Log.Info($"Set up {Path.GetFileName(file)} for the game's code: every .cs file in {project.Name}'s folder is part of it");
+        }
+
+        /// <summary>A class name made from what was typed: letters and digits, each word starting with a capital ("enemy ai" is EnemyAi).</summary>
+        public static string ClassName(string name)
+        {
+            var built = new System.Text.StringBuilder();
+            bool upper = true;
+            foreach (char c in name)
+            {
+                if (!char.IsLetterOrDigit(c) && c != '_')
+                {
+                    upper = true;
+                    continue;
+                }
+
+                built.Append(upper ? char.ToUpperInvariant(c) : c);
+                upper = false;
+            }
+
+            if (built.Length == 0) return "NewScript";
+            if (char.IsDigit(built[0])) built.Insert(0, '_');
+            return built.ToString();
+        }
+
+        public static string ScriptTemplate(string className) => $$"""
+            using System.Numerics;
+
+            using Vertex;
+            using Vertex.Input;
+
+            /// <summary>A component of the game's: add it to an object in the editor's inspector.</summary>
+            public class {{className}} : Component
+            {
+                // Public properties and fields show in the inspector, and are saved with the scene.
+                public float Speed { get; set; } = 1f;
+
+                // Runs once, before the first Update.
+                protected override void Start()
+                {
+                }
+
+                // Runs every frame.
+                protected override void Update()
+                {
+                }
+            }
+
+            """;
+
+        /// <summary>Watches the project's folder for its code changing, to build it again.</summary>
+        private void WatchCode()
+        {
+            _codeWatcher?.Dispose();
+            _codeWatcher = null;
+            if (Project?.GameProjectFile is not { } gameProject || !File.Exists(gameProject)) return;
+
+            try
+            {
+                string folder = Path.GetDirectoryName(gameProject)!;
+                var watcher = new FileSystemWatcher(folder, "*.cs")
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite
+                };
+
+                void Changed(string path)
+                {
+                    // What a build makes (in bin and obj) isn't the game's code.
+                    string relative = Path.GetRelativePath(folder, path);
+                    string first = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                    if (first.Equals("bin", StringComparison.OrdinalIgnoreCase) || first.Equals("obj", StringComparison.OrdinalIgnoreCase)) return;
+                    // Nor is a file last written before the build now going started: that build has it already.
+                    if (File.Exists(path) && File.GetLastWriteTimeUtc(path) <= _buildStartedUtc) return;
+                    CodeWasChanged();
+                }
+
+                watcher.Changed += (_, e) => Changed(e.FullPath);
+                watcher.Created += (_, e) => Changed(e.FullPath);
+                watcher.Deleted += (_, e) => Changed(e.FullPath);
+                watcher.Renamed += (_, e) => Changed(e.FullPath);
+                watcher.EnableRaisingEvents = true;
+                _codeWatcher = watcher;
+            }
+            catch (Exception exception)
+            {
+                Log.Warning($"Couldn't watch the game's code for changes (rebuild it with Ctrl+R): {exception.Message}");
+            }
+        }
+
+        private void CodeWasChanged() => Interlocked.Exchange(ref _codeChangedAt, Environment.TickCount64);
+
+        /// <summary>
+        /// Builds the game again once its code has changed: when the editor's in front again, the code has stopped
+        /// changing for a moment, and nothing's being typed or played.
+        /// </summary>
+        private void RebuildIfCodeChanged()
+        {
+            long changedAt = Interlocked.Read(ref _codeChangedAt);
+            if (changedAt == 0 || _build != null || !WindowFocused || Play.Playing || Ui.KeyboardTaken) return;
+            if (Environment.TickCount64 - changedAt < 600) return;
+            BuildGame();
+        }
+
+        private void AddPendingComponent()
+        {
+            if (_pendingComponent is not { } pending || Game == null) return;
+            _pendingComponent = null;
+
+            Type? type = null;
+            try
+            {
+                type = Game.Assembly.GetTypes().FirstOrDefault(t => t.Name == pending.Class && t.IsSubclassOf(typeof(Component)));
+            }
+            catch (System.Reflection.ReflectionTypeLoadException exception)
+            {
+                type = exception.Types.FirstOrDefault(t => t != null && t.Name == pending.Class && t.IsSubclassOf(typeof(Component)));
+            }
+
+            if (type == null) return;
+            IReadOnlyList<GameObject> all = Scene.GameObjects;
+            var changes = new List<IUndoable>();
+            foreach (int index in pending.Objects)
+            {
+                if (index >= all.Count) continue;
+                try
+                {
+                    changes.Add(new AddComponent(all[index], (Component)Activator.CreateInstance(type)!));
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't add {type.Name}: {(exception.InnerException ?? exception).Message}");
+                }
+            }
+
+            if (changes.Count == 1) History.Do(changes[0]);
+            else if (changes.Count > 1) History.Do(new ChangeGroup($"Add {type.Name}", changes));
         }
 
         /// <summary>

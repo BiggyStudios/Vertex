@@ -17,8 +17,8 @@ namespace Vertex.Editor.Inspection
 
         static ComponentCatalog()
         {
-            // Game code loaded later (a plugin, a mod) shows up too.
-            AppDomain.CurrentDomain.AssemblyLoad += (_, _) => _all = null;
+            // Game code loaded later (a plugin, a mod, a rebuilt game) shows up too, and code let go doesn't.
+            LoadedCode.Changed += () => _all = null;
         }
 
         public static IReadOnlyList<ComponentType> All => _all ??= Find();
@@ -26,7 +26,7 @@ namespace Vertex.Editor.Inspection
         private static List<ComponentType> Find()
         {
             var found = new List<ComponentType>();
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (Assembly assembly in LoadedCode.Assemblies)
             {
                 if (assembly.IsDynamic) continue;
 

@@ -393,7 +393,7 @@ namespace Vertex.Editor.Panels
                 new("New Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph }
             };
 
-            if (_context.Project?.GameProjectFile != null) items.Add(new MenuItem("New Script", () => Made(NewScript(folder))) { Icon = Icons.Component });
+            if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });
             if (_context.Selection.Object is { } selected)
             {
                 items.Add(new MenuItem($"New Prefab from {selected.Name}", () =>
@@ -429,39 +429,6 @@ namespace Vertex.Editor.Panels
             scene.Discard();
             return path;
         }
-
-        private static string NewScript(string folder)
-        {
-            string path = Unique(Path.Combine(folder, "NewScript"), ".cs");
-            string name = Path.GetFileNameWithoutExtension(path).Replace(" ", "");
-            File.WriteAllText(path, ScriptTemplate(name));
-            return path;
-        }
-
-        private static string ScriptTemplate(string name) => $$"""
-            using System.Numerics;
-
-            using Vertex;
-            using Vertex.Input;
-
-            /// <summary>A component of the game's: add it to an object in the editor's inspector.</summary>
-            public class {{name}} : Component
-            {
-                // Public properties and fields show in the inspector, and are saved with the scene.
-                public float Speed { get; set; } = 1f;
-
-                // Runs once, before the first Update.
-                protected override void Start()
-                {
-                }
-
-                // Runs every frame.
-                protected override void Update()
-                {
-                }
-            }
-
-            """;
 
         // ---------------------------------------------------------------- Renaming, moving, deleting
 
@@ -499,7 +466,7 @@ namespace Vertex.Editor.Panels
                 // A script's class is renamed with it, so the two still match.
                 if (entry.Kind == AssetKind.Script)
                 {
-                    string oldName = Path.GetFileNameWithoutExtension(entry.Path), newName = name.Replace(" ", "");
+                    string oldName = Path.GetFileNameWithoutExtension(entry.Path), newName = EditorContext.ClassName(name);
                     string code = File.ReadAllText(target);
                     if (code.Contains($"class {oldName}")) File.WriteAllText(target, code.Replace($"class {oldName}", $"class {newName}"));
                 }

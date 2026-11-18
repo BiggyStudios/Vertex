@@ -97,6 +97,24 @@ namespace Vertex.Editor.Editing
 
         public void Save() => File.WriteAllText(FilePath, JsonSerializer.Serialize(Settings, _options));
 
+        /// <summary>
+        /// Gives a project without code a .csproj of its own, beside its project file, for scripts to go in, and returns
+        /// where it is. A project that has code keeps what it has.
+        /// </summary>
+        public string AddCode()
+        {
+            if (GameProjectFile is { } existing && File.Exists(existing)) return existing;
+
+            string name = new string(Name.Where(c => char.IsLetterOrDigit(c) || c is '_' or '-' or '.').ToArray());
+            if (name.Length == 0) name = "Game";
+            string file = Path.Combine(Directory, name + ".csproj");
+            if (!File.Exists(file)) File.WriteAllText(file, GameCode.NewProjectFile(name));
+
+            Settings.GameProject = Path.GetFileName(file);
+            Save();
+            return file;
+        }
+
         /// <summary>Where to look for a scene's textures and models: the project's Assets, then the game's built copy of them.</summary>
         public string[] AssetFolders(string? gameOutput) =>
             gameOutput != null ? [AssetsDirectory, Path.Combine(gameOutput, "Assets")] : [AssetsDirectory];

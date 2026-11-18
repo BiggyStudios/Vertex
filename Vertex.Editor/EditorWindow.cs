@@ -70,6 +70,7 @@ namespace Vertex.Editor
             _window.FocusChanged += focused =>
             {
                 if (!focused) InputSystem.ReleaseAll();
+                _app.Context.WindowFocused = focused;
             };
             _window.Closing += OnClosing;
         }
