@@ -1,0 +1,1376 @@
+{
+  "version": 1,
+  "lighting": {
+    "Sky": "Atmosphere",
+    "SkyColor": [
+      0.32,
+      0.53,
+      0.86,
+      1
+    ],
+    "HorizonColor": [
+      0.74,
+      0.83,
+      0.93,
+      1
+    ],
+    "GroundColor": [
+      0.42,
+      0.38,
+      0.33,
+      1
+    ],
+    "CloudCover": 0.35,
+    "AmbientIntensity": 1,
+    "FogDensity": 0.002,
+    "Exposure": 1,
+    "ShadowDistance": 120,
+    "Bloom": 1,
+    "AmbientOcclusion": 1,
+    "AmbientOcclusionRadius": 0.8,
+    "AntiAliasing": true,
+    "Vignette": 0.25,
+    "CelShading": 0,
+    "Outlines": 0,
+    "DrawSky": true
+  },
+  "objects": [
+    {
+      "id": 1,
+      "name": "Sun",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        -0.44037747,
+        0.2667293,
+        0.13885048,
+        0.8459572
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.Light, Vertex",
+          "values": {
+            "Type": "Directional",
+            "Color": [
+              1,
+              0.96,
+              0.9,
+              1
+            ],
+            "Intensity": 2.4,
+            "Range": 10,
+            "CastShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Floor",
+      "parent": 3,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        40,
+        1,
+        40
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Plane"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.55,
+                  0.57,
+                  0.6,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              0.1,
+              1
+            ],
+            "Center": [
+              0,
+              -0.05,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Level",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": []
+    },
+    {
+      "id": 4,
+      "name": "Wall North",
+      "parent": 3,
+      "position": [
+        0,
+        2,
+        -20
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        40,
+        4,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Wall South",
+      "parent": 3,
+      "position": [
+        0,
+        2,
+        20
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        40,
+        4,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Wall East",
+      "parent": 3,
+      "position": [
+        20,
+        2,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        4,
+        40
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Wall West",
+      "parent": 3,
+      "position": [
+        -20,
+        2,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        4,
+        40
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Cover Middle",
+      "parent": 3,
+      "position": [
+        0,
+        1,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        4,
+        2,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.85,
+                  0.75,
+                  0.45,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Cover Left",
+      "parent": 3,
+      "position": [
+        -8,
+        0.75,
+        -6
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        2,
+        1.5,
+        2
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.85,
+                  0.75,
+                  0.45,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Cover Right",
+      "parent": 3,
+      "position": [
+        8,
+        0.75,
+        6
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        2,
+        1.5,
+        2
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.85,
+                  0.75,
+                  0.45,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Pillar North",
+      "parent": 3,
+      "position": [
+        6,
+        2,
+        -10
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1.5,
+        4,
+        1.5
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Pillar South",
+      "parent": 3,
+      "position": [
+        -6,
+        2,
+        10
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1.5,
+        4,
+        1.5
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.42,
+                  0.45,
+                  0.52,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        },
+        {
+          "type": "Vertex.Physics.BoxCollider, Vertex",
+          "values": {
+            "Size": [
+              1,
+              1,
+              1
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Spawn A",
+      "position": [
+        0,
+        0,
+        15
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Networking.SpawnPoint, Vertex",
+          "values": {}
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Spawn B",
+      "position": [
+        0,
+        0,
+        -15
+      ],
+      "rotation": [
+        0,
+        1,
+        -0,
+        -4.371139E-08
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Networking.SpawnPoint, Vertex",
+          "values": {}
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Network",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Networking.NetworkManager, Vertex",
+          "values": {
+            "Service": "Steam",
+            "SteamAppId": 480,
+            "GameTag": "vertex-duel",
+            "RoomName": "Duel",
+            "MaxPlayers": 2,
+            "Port": 27015,
+            "ConnectOnStart": "Nothing",
+            "PlayerPrefab": {
+              "prefab": "file:Prefabs/Player (Visual Scripting).prefab"
+            },
+            "SpawnWhenOffline": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "HUD",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.UI.UICanvas, Vertex",
+          "values": {
+            "Order": 0
+          }
+        },
+        {
+          "type": "Vertex.Scripting.VisualScript, Vertex",
+          "values": {
+            "Script": {
+              "graph": "file:Visual Scripts/Duel Hud.vscript"
+            },
+            "Variables": [
+              {
+                "values": {
+                  "Name": "Status Text",
+                  "Number": 0,
+                  "Boolean": false,
+                  "Text": "",
+                  "Vector": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "Color": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "Object": {
+                    "object": 17
+                  }
+                }
+              },
+              {
+                "values": {
+                  "Name": "Health Text",
+                  "Number": 0,
+                  "Boolean": false,
+                  "Text": "",
+                  "Vector": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "Color": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "Object": {
+                    "object": 18
+                  }
+                }
+              },
+              {
+                "values": {
+                  "Name": "Score Text",
+                  "Number": 0,
+                  "Boolean": false,
+                  "Text": "",
+                  "Vector": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "Color": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "Object": {
+                    "object": 19
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Status",
+      "parent": 16,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.UI.UIRect, Vertex",
+          "values": {
+            "AnchorMin": [
+              0.5,
+              0
+            ],
+            "AnchorMax": [
+              0.5,
+              0
+            ],
+            "Pivot": [
+              0.5,
+              0
+            ],
+            "Position": [
+              0,
+              24
+            ],
+            "Size": [
+              700,
+              40
+            ]
+          }
+        },
+        {
+          "type": "Vertex.UI.UIText, Vertex",
+          "values": {
+            "Text": "Press Enter to find a match",
+            "Font": null,
+            "FontSize": 26,
+            "Color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "Align": "Centre",
+            "VerticalAlign": "Middle",
+            "Wrap": true,
+            "Shadow": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Health",
+      "parent": 16,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.UI.UIRect, Vertex",
+          "values": {
+            "AnchorMin": [
+              0,
+              1
+            ],
+            "AnchorMax": [
+              0,
+              1
+            ],
+            "Pivot": [
+              0,
+              1
+            ],
+            "Position": [
+              32,
+              -28
+            ],
+            "Size": [
+              300,
+              50
+            ]
+          }
+        },
+        {
+          "type": "Vertex.UI.UIText, Vertex",
+          "values": {
+            "Text": "Health 100",
+            "Font": null,
+            "FontSize": 34,
+            "Color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "Align": "Left",
+            "VerticalAlign": "Middle",
+            "Wrap": true,
+            "Shadow": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Score",
+      "parent": 16,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.UI.UIRect, Vertex",
+          "values": {
+            "AnchorMin": [
+              1,
+              0
+            ],
+            "AnchorMax": [
+              1,
+              0
+            ],
+            "Pivot": [
+              1,
+              0
+            ],
+            "Position": [
+              -32,
+              24
+            ],
+            "Size": [
+              200,
+              50
+            ]
+          }
+        },
+        {
+          "type": "Vertex.UI.UIText, Vertex",
+          "values": {
+            "Text": "0 - 0",
+            "Font": null,
+            "FontSize": 34,
+            "Color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "Align": "Right",
+            "VerticalAlign": "Middle",
+            "Wrap": true,
+            "Shadow": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Crosshair",
+      "parent": 16,
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.UI.UIRect, Vertex",
+          "values": {
+            "AnchorMin": [
+              0.5,
+              0.5
+            ],
+            "AnchorMax": [
+              0.5,
+              0.5
+            ],
+            "Pivot": [
+              0.5,
+              0.5
+            ],
+            "Position": [
+              0,
+              0
+            ],
+            "Size": [
+              40,
+              40
+            ]
+          }
+        },
+        {
+          "type": "Vertex.UI.UIText, Vertex",
+          "values": {
+            "Text": "\u002B",
+            "Font": null,
+            "FontSize": 30,
+            "Color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "Align": "Centre",
+            "VerticalAlign": "Middle",
+            "Wrap": true,
+            "Shadow": true
+          }
+        }
+      ]
+    }
+  ],
+  "resources": {}
+}

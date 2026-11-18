@@ -1,0 +1,506 @@
+{
+  "format": 1,
+  "kind": "script",
+  "variables": [
+    {
+      "name": "Mine",
+      "type": "Number",
+      "value": 0
+    },
+    {
+      "name": "Theirs",
+      "type": "Number",
+      "value": 0
+    },
+    {
+      "name": "Status Text",
+      "type": "Object"
+    },
+    {
+      "name": "Health Text",
+      "type": "Object"
+    },
+    {
+      "name": "Score Text",
+      "type": "Object"
+    }
+  ],
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Events/On Key Pressed",
+      "x": 0,
+      "y": 0,
+      "values": {
+        "Key": "Enter"
+      }
+    },
+    {
+      "id": 2,
+      "type": "Networking/Network Info",
+      "x": 0,
+      "y": 140
+    },
+    {
+      "id": 3,
+      "type": "Logic/Not",
+      "x": 260,
+      "y": 140
+    },
+    {
+      "id": 4,
+      "type": "Flow/Branch",
+      "x": 280,
+      "y": 0
+    },
+    {
+      "id": 5,
+      "type": "Networking/Quick Match",
+      "x": 540,
+      "y": 0
+    },
+    {
+      "id": 6,
+      "type": "Events/On Update",
+      "x": 0,
+      "y": 420
+    },
+    {
+      "id": 7,
+      "type": "Flow/Sequence",
+      "x": 240,
+      "y": 420
+    },
+    {
+      "id": 8,
+      "type": "Networking/Network Info",
+      "x": 240,
+      "y": 680
+    },
+    {
+      "id": 9,
+      "type": "Logic/Equal",
+      "x": 520,
+      "y": 680,
+      "values": {
+        "B": "Offline"
+      }
+    },
+    {
+      "id": 10,
+      "type": "Variables/Get Variable",
+      "x": 520,
+      "y": 820,
+      "values": {
+        "Variable": "Status Text"
+      }
+    },
+    {
+      "id": 11,
+      "type": "Flow/Branch",
+      "x": 520,
+      "y": 420
+    },
+    {
+      "id": 12,
+      "type": "Actions/Set Text",
+      "x": 800,
+      "y": 360,
+      "values": {
+        "Text": "Press Enter to find a match"
+      }
+    },
+    {
+      "id": 13,
+      "type": "Actions/Set Text",
+      "x": 800,
+      "y": 560
+    },
+    {
+      "id": 14,
+      "type": "Networking/Local Player",
+      "x": 240,
+      "y": 1000
+    },
+    {
+      "id": 15,
+      "type": "Actions/Get Variable On",
+      "x": 480,
+      "y": 1000,
+      "values": {
+        "Variable": "Health"
+      }
+    },
+    {
+      "id": 16,
+      "type": "Math/Round",
+      "x": 760,
+      "y": 1000
+    },
+    {
+      "id": 17,
+      "type": "Values/Join Text",
+      "x": 1000,
+      "y": 1000,
+      "values": {
+        "A": "Health "
+      }
+    },
+    {
+      "id": 18,
+      "type": "Variables/Get Variable",
+      "x": 1000,
+      "y": 1140,
+      "values": {
+        "Variable": "Health Text"
+      }
+    },
+    {
+      "id": 19,
+      "type": "Actions/Set Text",
+      "x": 1240,
+      "y": 900
+    },
+    {
+      "id": 20,
+      "type": "Variables/Get Variable",
+      "x": 240,
+      "y": 1320,
+      "values": {
+        "Variable": "Mine"
+      }
+    },
+    {
+      "id": 21,
+      "type": "Variables/Get Variable",
+      "x": 240,
+      "y": 1440,
+      "values": {
+        "Variable": "Theirs"
+      }
+    },
+    {
+      "id": 22,
+      "type": "Values/Join Text",
+      "x": 480,
+      "y": 1320,
+      "values": {
+        "B": " - "
+      }
+    },
+    {
+      "id": 23,
+      "type": "Values/Join Text",
+      "x": 720,
+      "y": 1360
+    },
+    {
+      "id": 24,
+      "type": "Variables/Get Variable",
+      "x": 960,
+      "y": 1460,
+      "values": {
+        "Variable": "Score Text"
+      }
+    },
+    {
+      "id": 25,
+      "type": "Actions/Set Text",
+      "x": 1240,
+      "y": 1260
+    },
+    {
+      "id": 26,
+      "type": "Events/On Network Event",
+      "x": 0,
+      "y": 1680,
+      "values": {
+        "Name": "Scored"
+      }
+    },
+    {
+      "id": 27,
+      "type": "Networking/Local Player",
+      "x": 0,
+      "y": 1900
+    },
+    {
+      "id": 28,
+      "type": "Objects/Same Object",
+      "x": 260,
+      "y": 1880
+    },
+    {
+      "id": 29,
+      "type": "Flow/Branch",
+      "x": 300,
+      "y": 1680
+    },
+    {
+      "id": 30,
+      "type": "Variables/Get Variable",
+      "x": 560,
+      "y": 1880,
+      "values": {
+        "Variable": "Mine"
+      }
+    },
+    {
+      "id": 31,
+      "type": "Math/Add",
+      "x": 800,
+      "y": 1880,
+      "values": {
+        "B": 1
+      }
+    },
+    {
+      "id": 32,
+      "type": "Variables/Set Variable",
+      "x": 600,
+      "y": 1620,
+      "values": {
+        "Variable": "Mine"
+      }
+    },
+    {
+      "id": 33,
+      "type": "Variables/Get Variable",
+      "x": 560,
+      "y": 2040,
+      "values": {
+        "Variable": "Theirs"
+      }
+    },
+    {
+      "id": 34,
+      "type": "Math/Add",
+      "x": 800,
+      "y": 2040,
+      "values": {
+        "B": 1
+      }
+    },
+    {
+      "id": 35,
+      "type": "Variables/Set Variable",
+      "x": 1060,
+      "y": 1760,
+      "values": {
+        "Variable": "Theirs"
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": 2,
+      "out": "Online",
+      "to": 3,
+      "in": "Value"
+    },
+    {
+      "from": 1,
+      "out": "Then",
+      "to": 4,
+      "in": "In"
+    },
+    {
+      "from": 3,
+      "out": "Result",
+      "to": 4,
+      "in": "Condition"
+    },
+    {
+      "from": 4,
+      "out": "True",
+      "to": 5,
+      "in": "In"
+    },
+    {
+      "from": 6,
+      "out": "Then",
+      "to": 7,
+      "in": "In"
+    },
+    {
+      "from": 8,
+      "out": "Status",
+      "to": 9,
+      "in": "A"
+    },
+    {
+      "from": 7,
+      "out": "Then 1",
+      "to": 11,
+      "in": "In"
+    },
+    {
+      "from": 9,
+      "out": "Result",
+      "to": 11,
+      "in": "Condition"
+    },
+    {
+      "from": 11,
+      "out": "True",
+      "to": 12,
+      "in": "In"
+    },
+    {
+      "from": 10,
+      "out": "Value",
+      "to": 12,
+      "in": "Target"
+    },
+    {
+      "from": 11,
+      "out": "False",
+      "to": 13,
+      "in": "In"
+    },
+    {
+      "from": 10,
+      "out": "Value",
+      "to": 13,
+      "in": "Target"
+    },
+    {
+      "from": 8,
+      "out": "Status",
+      "to": 13,
+      "in": "Text"
+    },
+    {
+      "from": 14,
+      "out": "Object",
+      "to": 15,
+      "in": "Target"
+    },
+    {
+      "from": 15,
+      "out": "Value",
+      "to": 16,
+      "in": "Value"
+    },
+    {
+      "from": 16,
+      "out": "Result",
+      "to": 17,
+      "in": "B"
+    },
+    {
+      "from": 7,
+      "out": "Then 2",
+      "to": 19,
+      "in": "In"
+    },
+    {
+      "from": 18,
+      "out": "Value",
+      "to": 19,
+      "in": "Target"
+    },
+    {
+      "from": 17,
+      "out": "Result",
+      "to": 19,
+      "in": "Text"
+    },
+    {
+      "from": 20,
+      "out": "Value",
+      "to": 22,
+      "in": "A"
+    },
+    {
+      "from": 22,
+      "out": "Result",
+      "to": 23,
+      "in": "A"
+    },
+    {
+      "from": 21,
+      "out": "Value",
+      "to": 23,
+      "in": "B"
+    },
+    {
+      "from": 7,
+      "out": "Then 3",
+      "to": 25,
+      "in": "In"
+    },
+    {
+      "from": 24,
+      "out": "Value",
+      "to": 25,
+      "in": "Target"
+    },
+    {
+      "from": 23,
+      "out": "Result",
+      "to": 25,
+      "in": "Text"
+    },
+    {
+      "from": 26,
+      "out": "A",
+      "to": 28,
+      "in": "A"
+    },
+    {
+      "from": 27,
+      "out": "Object",
+      "to": 28,
+      "in": "B"
+    },
+    {
+      "from": 26,
+      "out": "Then",
+      "to": 29,
+      "in": "In"
+    },
+    {
+      "from": 28,
+      "out": "Result",
+      "to": 29,
+      "in": "Condition"
+    },
+    {
+      "from": 30,
+      "out": "Value",
+      "to": 31,
+      "in": "A"
+    },
+    {
+      "from": 29,
+      "out": "True",
+      "to": 32,
+      "in": "In"
+    },
+    {
+      "from": 31,
+      "out": "Result",
+      "to": 32,
+      "in": "Value"
+    },
+    {
+      "from": 33,
+      "out": "Value",
+      "to": 34,
+      "in": "A"
+    },
+    {
+      "from": 29,
+      "out": "False",
+      "to": 35,
+      "in": "In"
+    },
+    {
+      "from": 34,
+      "out": "Result",
+      "to": 35,
+      "in": "Value"
+    }
+  ]
+}

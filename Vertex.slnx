@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/Samples/">
+    <Project Path="Samples/CodeOnly/CodeOnly.csproj" />
+    <Project Path="Samples/Duel/Duel.csproj" />
+  </Folder>
   <Project Path="Vertex.Editor.Tests/Vertex.Editor.Tests.csproj" />
   <Project Path="Vertex.Editor/Vertex.Editor.csproj" />
   <Project Path="Vertex.Tests/Vertex.Tests.csproj" />

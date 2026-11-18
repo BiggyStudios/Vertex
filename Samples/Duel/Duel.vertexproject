@@ -1,0 +1,8 @@
+{
+  "Name": "Duel",
+  "Version": "0.1",
+  "StartupScene": "Scenes/Duel (CSharp).scene",
+  "GameProject": "Duel.csproj",
+  "PhysicsRate": 60,
+  "ShadowResolution": 2048
+}

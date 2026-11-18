@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A 1v1 shooter made in the editor, with C# scripts and visual scripts (see the README). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Duel</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The engine this sample comes with. Opened in the Vertex editor, it's built against the editor's own instead. -->
+    <ProjectReference Include="..\..\Vertex\Vertex.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Assets\**" Exclude="Assets\**\*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Tells Steam which app this is while developing: 480 is Valve's Spacewar test app. -->
+    <None Include="steam_appid.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

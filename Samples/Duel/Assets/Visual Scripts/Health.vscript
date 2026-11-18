@@ -1,0 +1,275 @@
+{
+  "format": 1,
+  "kind": "script",
+  "variables": [
+    {
+      "name": "Health",
+      "type": "Number",
+      "value": 100
+    },
+    {
+      "name": "Max Health",
+      "type": "Number",
+      "value": 100
+    }
+  ],
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Events/On Start",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "type": "Variables/Get Variable",
+      "x": 0,
+      "y": 120,
+      "values": {
+        "Variable": "Max Health"
+      }
+    },
+    {
+      "id": 3,
+      "type": "Variables/Set Variable",
+      "x": 280,
+      "y": 0,
+      "values": {
+        "Variable": "Health"
+      }
+    },
+    {
+      "id": 4,
+      "type": "Events/On Network Event",
+      "x": 0,
+      "y": 300,
+      "values": {
+        "Name": "Hit"
+      }
+    },
+    {
+      "id": 5,
+      "type": "Networking/Is Mine",
+      "x": 0,
+      "y": 520
+    },
+    {
+      "id": 6,
+      "type": "Flow/Branch",
+      "x": 300,
+      "y": 300
+    },
+    {
+      "id": 7,
+      "type": "Variables/Get Variable",
+      "x": 300,
+      "y": 520,
+      "values": {
+        "Variable": "Health"
+      }
+    },
+    {
+      "id": 8,
+      "type": "Math/Subtract",
+      "x": 540,
+      "y": 520
+    },
+    {
+      "id": 9,
+      "type": "Variables/Set Variable",
+      "x": 560,
+      "y": 300,
+      "values": {
+        "Variable": "Health"
+      }
+    },
+    {
+      "id": 10,
+      "type": "Variables/Get Variable",
+      "x": 820,
+      "y": 520,
+      "values": {
+        "Variable": "Health"
+      }
+    },
+    {
+      "id": 11,
+      "type": "Logic/Compare",
+      "x": 1040,
+      "y": 520,
+      "values": {
+        "B": 0,
+        "Is": "LessOrEqual"
+      }
+    },
+    {
+      "id": 12,
+      "type": "Flow/Branch",
+      "x": 820,
+      "y": 300
+    },
+    {
+      "id": 13,
+      "type": "Networking/Send Network Event",
+      "x": 1080,
+      "y": 300,
+      "values": {
+        "Every Script": true,
+        "Name": "Scored",
+        "To": "Everyone"
+      }
+    },
+    {
+      "id": 14,
+      "type": "Networking/Respawn Point",
+      "x": 1380,
+      "y": 520
+    },
+    {
+      "id": 15,
+      "type": "Actions/Set Position",
+      "x": 1380,
+      "y": 300
+    },
+    {
+      "id": 16,
+      "type": "Actions/Set Rotation",
+      "x": 1640,
+      "y": 300
+    },
+    {
+      "id": 17,
+      "type": "Variables/Get Variable",
+      "x": 1640,
+      "y": 520,
+      "values": {
+        "Variable": "Max Health"
+      }
+    },
+    {
+      "id": 18,
+      "type": "Variables/Set Variable",
+      "x": 1900,
+      "y": 300,
+      "values": {
+        "Variable": "Health"
+      }
+    }
+  ],
+  "links": [
+    {
+      "from": 1,
+      "out": "Then",
+      "to": 3,
+      "in": "In"
+    },
+    {
+      "from": 2,
+      "out": "Value",
+      "to": 3,
+      "in": "Value"
+    },
+    {
+      "from": 4,
+      "out": "Then",
+      "to": 6,
+      "in": "In"
+    },
+    {
+      "from": 5,
+      "out": "Mine",
+      "to": 6,
+      "in": "Condition"
+    },
+    {
+      "from": 7,
+      "out": "Value",
+      "to": 8,
+      "in": "A"
+    },
+    {
+      "from": 4,
+      "out": "A",
+      "to": 8,
+      "in": "B"
+    },
+    {
+      "from": 6,
+      "out": "True",
+      "to": 9,
+      "in": "In"
+    },
+    {
+      "from": 8,
+      "out": "Result",
+      "to": 9,
+      "in": "Value"
+    },
+    {
+      "from": 10,
+      "out": "Value",
+      "to": 11,
+      "in": "A"
+    },
+    {
+      "from": 9,
+      "out": "Then",
+      "to": 12,
+      "in": "In"
+    },
+    {
+      "from": 11,
+      "out": "Result",
+      "to": 12,
+      "in": "Condition"
+    },
+    {
+      "from": 12,
+      "out": "True",
+      "to": 13,
+      "in": "In"
+    },
+    {
+      "from": 4,
+      "out": "B",
+      "to": 13,
+      "in": "A"
+    },
+    {
+      "from": 13,
+      "out": "Then",
+      "to": 15,
+      "in": "In"
+    },
+    {
+      "from": 14,
+      "out": "Position",
+      "to": 15,
+      "in": "Position"
+    },
+    {
+      "from": 15,
+      "out": "Then",
+      "to": 16,
+      "in": "In"
+    },
+    {
+      "from": 14,
+      "out": "Degrees",
+      "to": 16,
+      "in": "Degrees"
+    },
+    {
+      "from": 16,
+      "out": "Then",
+      "to": 18,
+      "in": "In"
+    },
+    {
+      "from": 17,
+      "out": "Value",
+      "to": 18,
+      "in": "Value"
+    }
+  ]
+}

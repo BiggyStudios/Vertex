@@ -1,0 +1,258 @@
+{
+  "format": 1,
+  "kind": "script",
+  "variables": [
+    {
+      "name": "Damage",
+      "type": "Number",
+      "value": 25
+    }
+  ],
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Events/On Update",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "type": "Networking/Is Mine",
+      "x": 0,
+      "y": 140
+    },
+    {
+      "id": 3,
+      "type": "Input/Cursor Locked",
+      "x": 0,
+      "y": 260
+    },
+    {
+      "id": 4,
+      "type": "Input/Mouse Held",
+      "x": 0,
+      "y": 380
+    },
+    {
+      "id": 5,
+      "type": "Logic/And",
+      "x": 240,
+      "y": 180
+    },
+    {
+      "id": 6,
+      "type": "Logic/And",
+      "x": 460,
+      "y": 260
+    },
+    {
+      "id": 7,
+      "type": "Flow/Branch",
+      "x": 700,
+      "y": 0
+    },
+    {
+      "id": 8,
+      "type": "Flow/Cooldown",
+      "x": 940,
+      "y": 0,
+      "values": {
+        "Seconds": 0.2
+      }
+    },
+    {
+      "id": 9,
+      "type": "Networking/Send Network Event",
+      "x": 1180,
+      "y": 0,
+      "values": {
+        "Name": "Shot",
+        "To": "Everyone"
+      }
+    },
+    {
+      "id": 10,
+      "type": "Physics/Camera Ray",
+      "x": 1180,
+      "y": 360
+    },
+    {
+      "id": 11,
+      "type": "Physics/Raycast",
+      "x": 1480,
+      "y": 0,
+      "values": {
+        "Distance": 100
+      }
+    },
+    {
+      "id": 12,
+      "type": "Variables/Get Variable",
+      "x": 1480,
+      "y": 420,
+      "values": {
+        "Variable": "Damage"
+      }
+    },
+    {
+      "id": 13,
+      "type": "Objects/Self",
+      "x": 1480,
+      "y": 540
+    },
+    {
+      "id": 14,
+      "type": "Networking/Send Network Event",
+      "x": 1780,
+      "y": 0,
+      "values": {
+        "Name": "Hit",
+        "To": "Owner"
+      }
+    },
+    {
+      "id": 15,
+      "type": "Events/On Network Event",
+      "x": 0,
+      "y": 640,
+      "values": {
+        "Name": "Shot"
+      }
+    },
+    {
+      "id": 16,
+      "type": "Sound/Play Sound",
+      "x": 280,
+      "y": 640,
+      "values": {
+        "Sound": "Sounds/Shot.wav",
+        "Volume": 0.6
+      }
+    },
+    {
+      "id": 17,
+      "type": "Objects/Get Child",
+      "x": 280,
+      "y": 860,
+      "values": {
+        "Name": "Muzzle Flash"
+      }
+    },
+    {
+      "id": 18,
+      "type": "Effects/Play Effect",
+      "x": 560,
+      "y": 640
+    }
+  ],
+  "links": [
+    {
+      "from": 2,
+      "out": "Mine",
+      "to": 5,
+      "in": "A"
+    },
+    {
+      "from": 3,
+      "out": "Locked",
+      "to": 5,
+      "in": "B"
+    },
+    {
+      "from": 5,
+      "out": "Result",
+      "to": 6,
+      "in": "A"
+    },
+    {
+      "from": 4,
+      "out": "Held",
+      "to": 6,
+      "in": "B"
+    },
+    {
+      "from": 1,
+      "out": "Then",
+      "to": 7,
+      "in": "In"
+    },
+    {
+      "from": 6,
+      "out": "Result",
+      "to": 7,
+      "in": "Condition"
+    },
+    {
+      "from": 7,
+      "out": "True",
+      "to": 8,
+      "in": "In"
+    },
+    {
+      "from": 8,
+      "out": "Then",
+      "to": 9,
+      "in": "In"
+    },
+    {
+      "from": 9,
+      "out": "Then",
+      "to": 11,
+      "in": "In"
+    },
+    {
+      "from": 10,
+      "out": "Origin",
+      "to": 11,
+      "in": "Origin"
+    },
+    {
+      "from": 10,
+      "out": "Direction",
+      "to": 11,
+      "in": "Direction"
+    },
+    {
+      "from": 11,
+      "out": "Hit",
+      "to": 14,
+      "in": "In"
+    },
+    {
+      "from": 11,
+      "out": "Object",
+      "to": 14,
+      "in": "Target"
+    },
+    {
+      "from": 12,
+      "out": "Value",
+      "to": 14,
+      "in": "A"
+    },
+    {
+      "from": 13,
+      "out": "Object",
+      "to": 14,
+      "in": "B"
+    },
+    {
+      "from": 15,
+      "out": "Then",
+      "to": 16,
+      "in": "In"
+    },
+    {
+      "from": 16,
+      "out": "Then",
+      "to": 18,
+      "in": "In"
+    },
+    {
+      "from": 17,
+      "out": "Object",
+      "to": 18,
+      "in": "Target"
+    }
+  ]
+}

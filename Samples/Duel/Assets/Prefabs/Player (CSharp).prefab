@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "objects": [
+    {
+      "id": 1,
+      "name": "Player",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Physics.CharacterController, Vertex",
+          "values": {
+            "Radius": 0.4,
+            "Height": 1.8,
+            "StepHeight": 0.45,
+            "MaxSlopeAngle": 45.57,
+            "Mass": 80,
+            "PushStrength": 300,
+            "Velocity": [
+              0,
+              0,
+              0
+            ],
+            "Center": [
+              0,
+              0,
+              0
+            ],
+            "Friction": 0.5,
+            "Bounciness": 0,
+            "IsTrigger": false
+          }
+        },
+        {
+          "type": "Vertex.Networking.NetworkObject, Vertex",
+          "values": {}
+        },
+        {
+          "type": "Vertex.Networking.NetworkTransform, Vertex",
+          "values": {
+            "SendRate": 20,
+            "Smoothing": 18
+          }
+        },
+        {
+          "type": "Duel.PlayerMovement, Duel",
+          "values": {
+            "Speed": 6,
+            "JumpSpeed": 5,
+            "Gravity": 20,
+            "MouseSensitivity": 0.15,
+            "Head": {
+              "object": 3
+            }
+          }
+        },
+        {
+          "type": "Duel.PlayerGun, Duel",
+          "values": {
+            "Damage": 25,
+            "FireRate": 5,
+            "Range": 100,
+            "Head": {
+              "object": 3
+            },
+            "ShotSound": {
+              "sound": "file:Sounds/Shot.wav"
+            },
+            "MuzzleFlash": {
+              "object": 5,
+              "component": 0
+            }
+          }
+        },
+        {
+          "type": "Duel.Health, Duel",
+          "values": {
+            "MaxHealth": 100
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Body",
+      "parent": 1,
+      "position": [
+        0,
+        0.9,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        0.8,
+        1.8,
+        0.8
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.9,
+                  0.45,
+                  0.25,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Head",
+      "parent": 1,
+      "position": [
+        0,
+        1.6,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.Camera, Vertex",
+          "values": {
+            "Target": null,
+            "FieldOfView": 75,
+            "NearPlane": 0.1,
+            "FarPlane": 1000,
+            "ClearColor": [
+              0.39215687,
+              0.58431375,
+              0.92941177,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Gun",
+      "parent": 3,
+      "position": [
+        0.25,
+        -0.2,
+        -0.45
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        0.08,
+        0.1,
+        0.45
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.MeshRenderer, Vertex",
+          "values": {
+            "Mesh": {
+              "mesh": "builtin:Cube"
+            },
+            "Material": {
+              "values": {
+                "Shading": "Lit",
+                "Color": [
+                  0.15,
+                  0.15,
+                  0.17,
+                  1
+                ],
+                "Texture": null,
+                "NormalMap": null,
+                "NormalStrength": 1,
+                "TextureScale": [
+                  1,
+                  1
+                ],
+                "TextureOffset": [
+                  0,
+                  0
+                ],
+                "Roughness": 0.6,
+                "Metallic": 0,
+                "Specular": 0.5,
+                "Emission": [
+                  0,
+                  0,
+                  0,
+                  1
+                ],
+                "EmissionStrength": 1
+              }
+            },
+            "CastShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Muzzle Flash",
+      "parent": 3,
+      "position": [
+        0.25,
+        -0.17,
+        -0.72
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "components": [
+        {
+          "type": "Vertex.Rendering.ParticleSystem, Vertex",
+          "values": {
+            "Shape": "Box",
+            "Radius": 0.5,
+            "FromEdge": false,
+            "Outward": false,
+            "Look": "Spark",
+            "Rotation": [
+              0,
+              0
+            ],
+            "Spin": [
+              0,
+              0
+            ],
+            "FadeIn": 0,
+            "Turbulence": 0,
+            "TurbulenceScale": 1,
+            "LocalSpace": true,
+            "Prewarm": false,
+            "Rate": 0,
+            "Emitting": false,
+            "Burst": 10,
+            "Duration": 0.1,
+            "Loop": false,
+            "MaxParticles": 500,
+            "DestroyWhenFinished": false,
+            "Direction": [
+              -0,
+              -0,
+              -1
+            ],
+            "Spread": 25,
+            "Area": [
+              0,
+              0,
+              0
+            ],
+            "Lifetime": [
+              0.04,
+              0.09
+            ],
+            "Speed": [
+              2,
+              5
+            ],
+            "Size": [
+              0.06,
+              0.12
+            ],
+            "EndSize": 0.3,
+            "StartColor": [
+              1,
+              0.85,
+              0.45,
+              1
+            ],
+            "EndColor": [
+              1,
+              0.4,
+              0.1,
+              0
+            ],
+            "Glow": 3,
+            "Blend": "Additive",
+            "Stretch": 0,
+            "Gravity": 0,
+            "Drag": 0
+          }
+        }
+      ]
+    }
+  ],
+  "resources": {}
+}

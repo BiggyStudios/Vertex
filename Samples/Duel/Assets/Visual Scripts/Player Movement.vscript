@@ -1,0 +1,490 @@
+{
+  "format": 1,
+  "kind": "script",
+  "variables": [
+    {
+      "name": "Speed",
+      "type": "Number",
+      "value": 6
+    },
+    {
+      "name": "Jump Speed",
+      "type": "Number",
+      "value": 5
+    },
+    {
+      "name": "Mouse Sensitivity",
+      "type": "Number",
+      "value": 0.15
+    },
+    {
+      "name": "Head",
+      "type": "Object"
+    },
+    {
+      "name": "Pitch",
+      "type": "Number",
+      "value": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Events/On Mouse Pressed",
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": 2,
+      "type": "Actions/Lock Cursor",
+      "x": 280,
+      "y": 0,
+      "values": {
+        "Locked": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "Events/On Key Pressed",
+      "x": 0,
+      "y": 130,
+      "values": {
+        "Key": "Escape"
+      }
+    },
+    {
+      "id": 4,
+      "type": "Actions/Lock Cursor",
+      "x": 280,
+      "y": 130,
+      "values": {
+        "Locked": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "Events/On Update",
+      "x": 0,
+      "y": 320
+    },
+    {
+      "id": 6,
+      "type": "Networking/Is Mine",
+      "x": 0,
+      "y": 440
+    },
+    {
+      "id": 7,
+      "type": "Flow/Branch",
+      "x": 260,
+      "y": 320
+    },
+    {
+      "id": 8,
+      "type": "Flow/Sequence",
+      "x": 500,
+      "y": 320
+    },
+    {
+      "id": 9,
+      "type": "Input/Cursor Locked",
+      "x": 500,
+      "y": 520
+    },
+    {
+      "id": 10,
+      "type": "Flow/Branch",
+      "x": 760,
+      "y": 320
+    },
+    {
+      "id": 11,
+      "type": "Input/Mouse Movement",
+      "x": 760,
+      "y": 520
+    },
+    {
+      "id": 12,
+      "type": "Variables/Get Variable",
+      "x": 760,
+      "y": 660,
+      "values": {
+        "Variable": "Mouse Sensitivity"
+      }
+    },
+    {
+      "id": 13,
+      "type": "Math/Multiply",
+      "x": 1020,
+      "y": 520
+    },
+    {
+      "id": 14,
+      "type": "Math/Multiply",
+      "x": 1240,
+      "y": 520,
+      "values": {
+        "B": -1
+      }
+    },
+    {
+      "id": 15,
+      "type": "Vectors/Make Vector",
+      "x": 1460,
+      "y": 520
+    },
+    {
+      "id": 16,
+      "type": "Actions/Rotate By",
+      "x": 1020,
+      "y": 320
+    },
+    {
+      "id": 17,
+      "type": "Variables/Get Variable",
+      "x": 1020,
+      "y": 780,
+      "values": {
+        "Variable": "Pitch"
+      }
+    },
+    {
+      "id": 18,
+      "type": "Math/Multiply",
+      "x": 1240,
+      "y": 700
+    },
+    {
+      "id": 19,
+      "type": "Math/Subtract",
+      "x": 1460,
+      "y": 700
+    },
+    {
+      "id": 20,
+      "type": "Math/Clamp",
+      "x": 1680,
+      "y": 700,
+      "values": {
+        "Max": 85,
+        "Min": -85
+      }
+    },
+    {
+      "id": 21,
+      "type": "Variables/Set Variable",
+      "x": 1280,
+      "y": 320,
+      "values": {
+        "Variable": "Pitch"
+      }
+    },
+    {
+      "id": 22,
+      "type": "Variables/Get Variable",
+      "x": 1540,
+      "y": 200,
+      "values": {
+        "Variable": "Head"
+      }
+    },
+    {
+      "id": 23,
+      "type": "Variables/Get Variable",
+      "x": 1540,
+      "y": 440,
+      "values": {
+        "Variable": "Pitch"
+      }
+    },
+    {
+      "id": 24,
+      "type": "Vectors/Make Vector",
+      "x": 1780,
+      "y": 440
+    },
+    {
+      "id": 25,
+      "type": "Actions/Set Rotation",
+      "x": 1820,
+      "y": 300
+    },
+    {
+      "id": 26,
+      "type": "Variables/Get Variable",
+      "x": 500,
+      "y": 1060,
+      "values": {
+        "Variable": "Speed"
+      }
+    },
+    {
+      "id": 27,
+      "type": "Input/Axis",
+      "x": 500,
+      "y": 900,
+      "values": {
+        "Negative": "A",
+        "Positive": "D"
+      }
+    },
+    {
+      "id": 28,
+      "type": "Input/Axis",
+      "x": 500,
+      "y": 1180,
+      "values": {
+        "Negative": "W",
+        "Positive": "S"
+      }
+    },
+    {
+      "id": 29,
+      "type": "Math/Multiply",
+      "x": 760,
+      "y": 900
+    },
+    {
+      "id": 30,
+      "type": "Math/Multiply",
+      "x": 760,
+      "y": 1120
+    },
+    {
+      "id": 31,
+      "type": "Vectors/Make Vector",
+      "x": 1000,
+      "y": 980
+    },
+    {
+      "id": 32,
+      "type": "Input/Key Held",
+      "x": 1000,
+      "y": 1160,
+      "values": {
+        "Key": "Space"
+      }
+    },
+    {
+      "id": 33,
+      "type": "Variables/Get Variable",
+      "x": 1000,
+      "y": 1280,
+      "values": {
+        "Variable": "Jump Speed"
+      }
+    },
+    {
+      "id": 34,
+      "type": "Physics/Move Character",
+      "x": 1280,
+      "y": 900
+    }
+  ],
+  "links": [
+    {
+      "from": 1,
+      "out": "Then",
+      "to": 2,
+      "in": "In"
+    },
+    {
+      "from": 3,
+      "out": "Then",
+      "to": 4,
+      "in": "In"
+    },
+    {
+      "from": 5,
+      "out": "Then",
+      "to": 7,
+      "in": "In"
+    },
+    {
+      "from": 6,
+      "out": "Mine",
+      "to": 7,
+      "in": "Condition"
+    },
+    {
+      "from": 7,
+      "out": "True",
+      "to": 8,
+      "in": "In"
+    },
+    {
+      "from": 8,
+      "out": "Then 1",
+      "to": 10,
+      "in": "In"
+    },
+    {
+      "from": 9,
+      "out": "Locked",
+      "to": 10,
+      "in": "Condition"
+    },
+    {
+      "from": 11,
+      "out": "X",
+      "to": 13,
+      "in": "A"
+    },
+    {
+      "from": 12,
+      "out": "Value",
+      "to": 13,
+      "in": "B"
+    },
+    {
+      "from": 13,
+      "out": "Result",
+      "to": 14,
+      "in": "A"
+    },
+    {
+      "from": 14,
+      "out": "Result",
+      "to": 15,
+      "in": "Y"
+    },
+    {
+      "from": 10,
+      "out": "True",
+      "to": 16,
+      "in": "In"
+    },
+    {
+      "from": 15,
+      "out": "Vector",
+      "to": 16,
+      "in": "Degrees"
+    },
+    {
+      "from": 11,
+      "out": "Y",
+      "to": 18,
+      "in": "A"
+    },
+    {
+      "from": 12,
+      "out": "Value",
+      "to": 18,
+      "in": "B"
+    },
+    {
+      "from": 17,
+      "out": "Value",
+      "to": 19,
+      "in": "A"
+    },
+    {
+      "from": 18,
+      "out": "Result",
+      "to": 19,
+      "in": "B"
+    },
+    {
+      "from": 19,
+      "out": "Result",
+      "to": 20,
+      "in": "Value"
+    },
+    {
+      "from": 16,
+      "out": "Then",
+      "to": 21,
+      "in": "In"
+    },
+    {
+      "from": 20,
+      "out": "Result",
+      "to": 21,
+      "in": "Value"
+    },
+    {
+      "from": 23,
+      "out": "Value",
+      "to": 24,
+      "in": "X"
+    },
+    {
+      "from": 21,
+      "out": "Then",
+      "to": 25,
+      "in": "In"
+    },
+    {
+      "from": 22,
+      "out": "Value",
+      "to": 25,
+      "in": "Target"
+    },
+    {
+      "from": 24,
+      "out": "Vector",
+      "to": 25,
+      "in": "Degrees"
+    },
+    {
+      "from": 27,
+      "out": "Value",
+      "to": 29,
+      "in": "A"
+    },
+    {
+      "from": 26,
+      "out": "Value",
+      "to": 29,
+      "in": "B"
+    },
+    {
+      "from": 28,
+      "out": "Value",
+      "to": 30,
+      "in": "A"
+    },
+    {
+      "from": 26,
+      "out": "Value",
+      "to": 30,
+      "in": "B"
+    },
+    {
+      "from": 29,
+      "out": "Result",
+      "to": 31,
+      "in": "X"
+    },
+    {
+      "from": 30,
+      "out": "Result",
+      "to": 31,
+      "in": "Z"
+    },
+    {
+      "from": 8,
+      "out": "Then 2",
+      "to": 34,
+      "in": "In"
+    },
+    {
+      "from": 31,
+      "out": "Vector",
+      "to": 34,
+      "in": "Move"
+    },
+    {
+      "from": 32,
+      "out": "Held",
+      "to": 34,
+      "in": "Jump"
+    },
+    {
+      "from": 33,
+      "out": "Value",
+      "to": 34,
+      "in": "Jump Speed"
+    }
+  ]
+}
