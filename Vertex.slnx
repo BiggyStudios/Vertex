@@ -3,6 +3,9 @@
     <Project Path="Samples/CodeOnly/CodeOnly.csproj" />
     <Project Path="Samples/Duel/Duel.csproj" />
   </Folder>
+  <Folder Name="/Tools/">
+    <Project Path="Tools/DocsData/DocsData.csproj" />
+  </Folder>
   <Project Path="Vertex.Editor.Tests/Vertex.Editor.Tests.csproj" />
   <Project Path="Vertex.Editor/Vertex.Editor.csproj" />
   <Project Path="Vertex.Tests/Vertex.Tests.csproj" />
