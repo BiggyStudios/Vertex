@@ -227,6 +227,21 @@ namespace Vertex.Networking
                 : Scene.Active.FindComponents<VisualScript>().ToList();
             foreach (VisualScript script in scripts) script.Fire("Network Event", outputs);
 
+            // Then the C# side: each component's OnNetworkEvent, on the object or, for an event about none, everywhere.
+            List<Component> components = received.Target != null ? received.Target.Components.ToList() : Scene.Active.FindComponents<Component>().ToList();
+            foreach (Component component in components)
+            {
+                if (component is VisualScript) continue;
+                try
+                {
+                    component.OnNetworkEvent(received);
+                }
+                catch (Exception exception)
+                {
+                    Log.Error($"{component.GetType().Name} on {component.GameObject.Name} failed handling network event {received.Name}: {exception.Message}", exception);
+                }
+            }
+
             EventReceived?.Invoke(received);
         }
 

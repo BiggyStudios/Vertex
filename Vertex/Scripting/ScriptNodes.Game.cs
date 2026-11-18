@@ -130,15 +130,17 @@ namespace Vertex.Scripting
                 "Starts On Event nodes with this name in the scripts on one object, with a value: tell what was hit that it was.", "message custom notify");
             Action("Actions", "Set Variable On", [Target, Text("Variable", ""), In("Value", PortType.Any)], run =>
                 {
-                    ScriptInstance script = ScriptOn(run.In<GameObject>("Target"));
                     string name = run.In<string>("Variable");
-                    GraphVariable variable = script.Graph.Variable(name) ?? throw new InvalidOperationException($"{script.Self.Name}'s script has no variable called {name}");
-                    script.Variables[name] = variable.Type.Convert(run.In("Value"));
+                    ScriptWith(run.In<GameObject>("Target"), name).SetVariable(name, run.In("Value"));
                 },
                 "Changes a variable in another object's visual script.", "other object write remote");
-            Node("Actions", "Get Variable On", [Target, Text("Variable", "")], [Out("Value", PortType.Any)],
-                run => run.Out("Value", ScriptOn(run.In<GameObject>("Target")).Variables.GetValueOrDefault(run.In<string>("Variable"))),
-                "A variable's value in another object's visual script.", "other object read remote");
+            Node("Actions", "Get Variable On", [Target, Text("Variable", "")], [Out("Value", PortType.Any)], run =>
+                {
+                    // Nothing there (a player not made yet) reads as nothing, rather than stopping the script.
+                    string name = run.In<string>("Variable");
+                    run.Out("Value", run.In<GameObject>("Target") is { IsDestroyed: false } target ? ScriptWith(target, name).GetVariable(name) : null);
+                },
+                "A variable's value in another object's visual script (nothing, if there's no object).", "other object read remote");
 
             // ---------------------------------------------------------------- Physics and movement
 
@@ -240,6 +242,8 @@ namespace Vertex.Scripting
 
             Node("Input", "Mouse Held", [Setting("Button", PortType.Enum<MouseButton>(), MouseButton.Left)], [Out("Held", PortType.Boolean)],
                 run => run.Out("Held", InputSystem.GetMouseButton(run.In<MouseButton>("Button"))), "Whether a mouse button is down right now: automatic fire.", "click button");
+            Node("Input", "Cursor Locked", [], [Out("Locked", PortType.Boolean)], run => run.Out("Locked", InputSystem.CursorLocked),
+                "Whether the mouse pointer is locked in the window (see Lock Cursor): only look around while it is.", "mouse captured pointer hidden");
             Node("Input", "Mouse Movement", [], [Out("X", PortType.Number), Out("Y", PortType.Number)], run =>
                 {
                     Vector2 delta = InputSystem.MouseDelta;
@@ -366,10 +370,10 @@ namespace Vertex.Scripting
         private static NetworkManager Manager() =>
             NetworkManager.Instance ?? throw new InvalidOperationException("There's no Network Manager in the scene: add one to an object");
 
-        /// <summary>The visual script running on <paramref name="target"/>.</summary>
-        private static ScriptInstance ScriptOn(GameObject target) =>
-            target.GetComponents<VisualScript>().Select(s => s.Instance).FirstOrDefault(i => i != null)
-            ?? throw new InvalidOperationException($"{target.Name} has no visual script running");
+        /// <summary>The visual script on <paramref name="target"/> that has a variable called <paramref name="name"/> (started or not).</summary>
+        private static VisualScript ScriptWith(GameObject target, string name) =>
+            target.GetComponents<VisualScript>().FirstOrDefault(s => s.Script?.Variable(name) != null)
+            ?? throw new InvalidOperationException(target.GetComponent<VisualScript>() == null ? $"{target.Name} has no visual script" : $"{target.Name}'s script has no variable called {name}");
 
         private static GameObject? FindUnder(GameObject parent, string name)
         {

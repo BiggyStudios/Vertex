@@ -95,6 +95,12 @@ namespace Vertex
             return component;
         }
 
+        /// <summary>
+        /// Whether this machine is in charge of this object in a network game: its owner moves it and reads keys for it.
+        /// Always true for an object that isn't networked (it has no <see cref="Networking.NetworkObject"/>), and playing alone.
+        /// </summary>
+        public bool IsMine => GetComponent<Networking.NetworkObject>() is not { } networked || networked.IsMine;
+
         /// <summary>The first object in the active scene called <paramref name="name"/>, or null: to find one made in the editor from code.</summary>
         public static GameObject? Find(string name) => Scene.Active.Find(name);
 

@@ -43,6 +43,17 @@ namespace Vertex
         /// <summary>Called when the component or its GameObject is destroyed.</summary>
         protected internal virtual void OnDestroy() {}
 
+        /// <summary>
+        /// Called when a network event arrives about this component's object (or about no object in particular: then every
+        /// component hears it). Sent with <see cref="Networking.NetworkScene.SendEvent"/>; the C# side of a visual script's
+        /// On Network Event.
+        /// </summary>
+        protected internal virtual void OnNetworkEvent(Networking.NetworkEvent networkEvent) {}
+
+        /// <summary>Whether this machine is in charge of this object in a network game (see <see cref="GameObject.IsMine"/>).</summary>
+        [HideInInspector]
+        public bool IsMine => GameObject.IsMine;
+
         public T AddComponent<T>() where T : Component, new() => GameObject.AddComponent<T>();
         public T? GetComponent<T>() where T : Component => GameObject.GetComponent<T>();
     }

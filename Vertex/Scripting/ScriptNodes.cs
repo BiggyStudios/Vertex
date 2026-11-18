@@ -39,6 +39,14 @@ namespace Vertex.Scripting
             };
         }
 
+        /// <summary>Whether two values are the same: numbers nearly enough (so 0.1 + 0.2 is 0.3), text and objects exactly.</summary>
+        private static bool Same(object? a, object? b)
+        {
+            if (a is float or double or int && b is float or double or int) return Math.Abs(Convert.ToDouble(a) - Convert.ToDouble(b)) < 1e-5;
+            if (a is string || b is string) return PortType.Text.Convert(a) as string == PortType.Text.Convert(b) as string;
+            return Equals(a, b);
+        }
+
         /// <summary>Every kind of node a visual script can have.</summary>
         public static NodeLibrary Library { get; } = Build();
 
@@ -255,6 +263,8 @@ namespace Vertex.Scripting
                 run => run.Out("Result", run.In<bool>("A") || run.In<bool>("B")), "True if either is.", "|| either");
             Node("Logic", "Not", [In("Value", PortType.Boolean)], [Out("Result", PortType.Boolean)],
                 run => run.Out("Result", !run.In<bool>("Value")), "True if it isn't, false if it is.", "! invert opposite");
+            Node("Logic", "Equal", [In("A", PortType.Any), In("B", PortType.Any)], [Out("Result", PortType.Boolean)], run => run.Out("Result", Same(run.In("A"), run.In("B"))),
+                "Whether A and B are the same: two pieces of text, two numbers, two objects.", "equals == same text compare is");
 
             // ---------------------------------------------------------------- Vectors
 

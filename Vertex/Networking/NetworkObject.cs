@@ -22,7 +22,7 @@ namespace Vertex.Networking
         public bool IsPlayer { get; internal set; }
 
         /// <summary>Whether this machine is in charge of it. Always, playing alone.</summary>
-        public bool IsMine => Owner == default ? Network.IsHost : Owner == Network.LocalPeer;
+        public new bool IsMine => Owner == default ? Network.IsHost : Owner == Network.LocalPeer;
 
         /// <summary>The name of the player in charge of it.</summary>
         public string OwnerName => IsMine ? NetworkScene.LocalName : Network.GetName(Owner == default ? Network.HostPeer : Owner);
