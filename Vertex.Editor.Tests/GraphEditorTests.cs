@@ -95,11 +95,64 @@ namespace Vertex.Editor.Tests
             setup.Context.Redo();
             Assert.Single(setup.Graph.Links);
 
-            // Dragging the linked input away unlinks it.
+            // Dragging the linked input away and letting go on nothing just disconnects it.
             setup.Frame();
             setup.Drag(setup.Port(print, "Value", output: false), new Vector2(700f, 600f));
             Assert.Empty(setup.Graph.Links);
-            Assert.True(Popup.AnyOpen);
+            Assert.False(Popup.AnyOpen);
+        }
+
+        [Fact]
+        public void Wires_come_off_by_dragging_them_off_alt_clicking_or_the_right_click_menu()
+        {
+            var setup = new Setup();
+            GraphNode start = setup.Graph.AddNode("Events/On Start", new Vector2(0f, 0f));
+            GraphNode print = setup.Graph.AddNode("Actions/Print", new Vector2(320f, 0f));
+            GraphNode add = setup.Graph.AddNode("Math/Add", new Vector2(0f, 160f));
+            void LinkAll()
+            {
+                setup.Graph.Link(start.Id, "Then", print.Id, "In");
+                setup.Graph.Link(add.Id, "Result", print.Id, "Value");
+            }
+
+            void Click(Vector2 at, MouseButton button = MouseButton.Left, Key? holding = null)
+            {
+                InputSystem.MoveMouse(at);
+                setup.Frame(2);
+                if (holding is Key key) InputSystem.PressKey(key);
+                InputSystem.PressButton(button);
+                setup.Frame();
+                InputSystem.ReleaseButton(button);
+                setup.Frame();
+                if (holding is Key held) InputSystem.ReleaseKey(held);
+                setup.Frame();
+            }
+
+            // A flow wire dragged off the input it goes into.
+            LinkAll();
+            setup.Frame(2);
+            setup.Drag(setup.Port(print, "In", output: false), new Vector2(700f, 650f));
+            Assert.Empty(setup.Graph.LinksTo(print.Id, "In"));
+            Assert.Single(setup.Graph.Links);
+
+            // Alt-click on a wire, halfway along it.
+            Vector2 middle = (setup.Port(add, "Result", output: true) + setup.Port(print, "Value", output: false)) * 0.5f;
+            Click(middle, holding: Key.AltLeft);
+            Assert.Empty(setup.Graph.Links);
+
+            // Alt-click on a port takes every wire there.
+            LinkAll();
+            setup.Frame(2);
+            Click(setup.Port(print, "In", output: false), holding: Key.AltLeft);
+            Assert.Empty(setup.Graph.LinksTo(print.Id, "In"));
+
+            // Right-clicking a wire offers to disconnect it.
+            Click(middle, MouseButton.Right);
+            Assert.True(Menu.IsAnyOpen);
+
+            // And all of it undoes.
+            setup.Context.Undo();
+            Assert.Single(setup.Graph.LinksTo(print.Id, "In"));
         }
 
         [Fact]

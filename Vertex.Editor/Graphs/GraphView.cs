@@ -13,8 +13,8 @@ namespace Vertex.Editor.Graphs
     /// and zooms.
     /// <list type="bullet">
     /// <item>Right-click (or Space) on empty space: add a node, searched for by name.</item>
-    /// <item>Drag from a port to another to link them; let go on empty space to add a node already linked. Drag a
-    /// linked input away to unlink it.</item>
+    /// <item>Drag from a port to another to link them; let go on empty space to add a node already linked. Drag a wire
+    /// off an input and let go anywhere empty to disconnect it; or Alt-click a wire or port, or right-click it for Disconnect.</item>
     /// <item>Click or drag a box to select nodes (Ctrl or Shift adds); drag them to move them.</item>
     /// <item>Delete, Ctrl+D (duplicate), Ctrl+C and Ctrl+V, Ctrl+A, F (frame), all undoable.</item>
     /// <item>Middle or right drag to pan, the wheel to zoom.</item>
@@ -61,6 +61,7 @@ namespace Vertex.Editor.Graphs
         private bool _panning;
         private bool _rightDown;
         private Vector2 _rightAt;
+        private GraphLink? _rightLink;
 
         // Adding a node: where it goes, and the link it'll be joined to, if it was asked for by letting go of one.
         private string _search = "";
@@ -80,6 +81,7 @@ namespace Vertex.Editor.Graphs
 
         private static bool Ctrl => InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
         private static bool Shift => InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+        private static bool Alt => InputSystem.GetKey(Key.AltLeft) || InputSystem.GetKey(Key.AltRight);
 
         // ---------------------------------------------------------------- Drawing
 
@@ -123,14 +125,20 @@ namespace Vertex.Editor.Graphs
             Ui.PushView(rect, doc.Offset, doc.Zoom);
             DrawGrid(new Rect(doc.Offset.X, doc.Offset.Y, rect.Width / doc.Zoom, rect.Height / doc.Zoom), doc.Zoom);
 
-            // A press on empty space: a box to select with (what was selected stays only with Ctrl or Shift).
-            if (background.Pressed)
+            DrawLinks(graph, id, doc.Zoom);
+
+            // A press on empty space: a box to select with (what was selected stays only with Ctrl or Shift). With Alt
+            // on a wire, it cuts the wire.
+            if (background.Pressed && Alt && _hoveredLink is { } cut)
+            {
+                Disconnect(doc, [cut]);
+            }
+            else if (background.Pressed)
             {
                 if (!Ctrl && !Shift) doc.Selected.Clear();
                 _boxFrom = Ui.Mouse;
             }
 
-            DrawLinks(graph, library);
             DrawNodes(id, doc, library);
             UpdateWire(doc, library, id);
             UpdateNodeDrag(doc);
@@ -234,16 +242,38 @@ namespace Vertex.Editor.Graphs
 
         // ---------------------------------------------------------------- Links
 
-        private void DrawLinks(Graph graph, NodeLibrary library)
+        // The wire under the mouse (over empty space), to cut: it's highlighted.
+        private GraphLink? _hoveredLink;
+
+        private void DrawLinks(Graph graph, int viewId, float zoom)
         {
             double now = Graph.Clock;
+
+            // Which wire's under the mouse: the nearest, if near enough and nothing else (a node) is.
+            GraphLink? hovered = null;
+            if (Ui.HotId == viewId && _wire == null && !_dragging && _boxFrom == null && !_panning)
+            {
+                float best = 7f / MathF.Min(zoom, 1f);
+                Span<Vector2> points = stackalloc Vector2[_wirePoints];
+                foreach (GraphLink link in graph.Links)
+                {
+                    if (Ends(link) is not var (a, b, _)) continue;
+                    WirePoints(a, b, points);
+                    for (int i = 1; i < points.Length; i++)
+                    {
+                        float distance = SegmentDistance(Ui.Mouse, points[i - 1], points[i]);
+                        if (distance >= best) continue;
+                        best = distance;
+                        hovered = link;
+                    }
+                }
+            }
+
+            _hoveredLink = hovered;
+
             foreach (GraphLink link in graph.Links)
             {
-                if (!_layouts.TryGetValue(link.FromNode, out Layout? from) || !_layouts.TryGetValue(link.ToNode, out Layout? to)) continue;
-                if (!from.Outputs.TryGetValue(link.FromPort, out Vector2 a) || !to.Inputs.TryGetValue(link.ToPort, out Vector2 b)) continue;
-                if (_pickedUp == link) continue;
-
-                PortType type = from.Type.Output(link.FromPort)!.Type;
+                if (Ends(link) is not var (a, b, type) || _pickedUp == link) continue;
                 Color color = type.Color;
 
                 // Flow that's just gone along it shows.
@@ -252,22 +282,57 @@ namespace Vertex.Editor.Graphs
                     color = Color.Lerp(color, Theme.Hex(0x5FC9B5), (float)(1.0 - (now - ran) / 0.5));
                 }
 
-                Wire(a, b, color, type.IsFlow ? 2.6f : 2f);
+                // Under the mouse: brighter and thicker, to show which would be cut.
+                bool lit = link == hovered;
+                if (lit) color = Color.Lerp(color, Theme.AccentHover, 0.7f);
+                Wire(a, b, color, (type.IsFlow ? 2.6f : 2f) + (lit ? 1.6f : 0f));
             }
         }
 
-        private static void Wire(Vector2 from, Vector2 to, Color color, float thickness)
+        /// <summary>Where a link starts and ends, and what it carries; null if either end isn't shown.</summary>
+        private (Vector2 From, Vector2 To, PortType Type)? Ends(GraphLink link)
+        {
+            if (!_layouts.TryGetValue(link.FromNode, out Layout? from) || !_layouts.TryGetValue(link.ToNode, out Layout? to)) return null;
+            if (!from.Outputs.TryGetValue(link.FromPort, out Vector2 a) || !to.Inputs.TryGetValue(link.ToPort, out Vector2 b)) return null;
+            return (a, b, from.Type.Output(link.FromPort)!.Type);
+        }
+
+        private const int _wirePoints = 28;
+
+        /// <summary>Points along the curve of a wire from an output at <paramref name="from"/> to an input at <paramref name="to"/>.</summary>
+        private static void WirePoints(Vector2 from, Vector2 to, Span<Vector2> points)
         {
             float reach = MathF.Max(MathF.Abs(to.X - from.X) * 0.5f, 40f);
             Vector2 c1 = from + new Vector2(reach, 0f), c2 = to - new Vector2(reach, 0f);
-            Span<Vector2> points = stackalloc Vector2[28];
             for (int i = 0; i < points.Length; i++)
             {
                 float t = i / (points.Length - 1f), u = 1f - t;
                 points[i] = u * u * u * from + 3f * u * u * t * c1 + 3f * u * t * t * c2 + t * t * t * to;
             }
+        }
 
+        private static float SegmentDistance(Vector2 point, Vector2 a, Vector2 b)
+        {
+            Vector2 along = b - a;
+            float t = Math.Clamp(Vector2.Dot(point - a, along) / MathF.Max(along.LengthSquared(), 1e-6f), 0f, 1f);
+            return Vector2.Distance(point, a + along * t);
+        }
+
+        private static void Wire(Vector2 from, Vector2 to, Color color, float thickness)
+        {
+            Span<Vector2> points = stackalloc Vector2[_wirePoints];
+            WirePoints(from, to, points);
             Vertex.UI.Canvas.DrawPolyline(points, thickness, Ui.Fade(color));
+        }
+
+        /// <summary>Takes wires away, as one change to undo.</summary>
+        private void Disconnect(GraphDocument doc, IReadOnlyList<GraphLink> links)
+        {
+            if (links.Count == 0) return;
+            doc.Edit(_context.History, links.Count == 1 ? "Disconnect" : $"Disconnect {links.Count} Wires", () =>
+            {
+                foreach (GraphLink link in links) doc.Graph.Unlink(link);
+            });
         }
 
         // ---------------------------------------------------------------- Nodes
@@ -391,7 +456,8 @@ namespace Vertex.Editor.Graphs
         private void DrawPort(int nodeId, GraphDocument doc, Layout layout, Port port, Vector2 at, bool output, bool linked)
         {
             int portId = Ui.Id(nodeId, (output ? "out." : "in.") + port.Name);
-            Interaction interaction = Ui.Interact(portId, new Rect(at.X - 9f, at.Y - 9f, 18f, 18f));
+            Interaction interaction = Ui.Interact(portId, new Rect(at.X - 9f, at.Y - 9f, 18f, 18f), rightClick: true);
+            List<GraphLink> wires = (output ? doc.Graph.LinksFrom(layout.Node.Id, port.Name) : doc.Graph.LinksTo(layout.Node.Id, port.Name)).ToList();
 
             bool usable = _wire is not { } wire || CanJoin(doc.Graph, wire, layout.Node.Id, port.Name, output);
             Color color = port.Type.Color.WithAlpha(usable ? 1f : 0.2f);
@@ -409,10 +475,28 @@ namespace Vertex.Editor.Graphs
             }
 
             Ui.Tooltip(portId, port.Tooltip ?? (port.Type.IsFlow ? null : port.Type.Name));
+
+            // Right-click: a menu to cut its wires.
+            if (interaction.RightClicked)
+            {
+                Menu.Open(Ui.Id(portId, "menu"), Ui.Mouse,
+                [
+                    new MenuItem(wires.Count > 1 ? $"Disconnect {wires.Count} Wires" : "Disconnect", () => Disconnect(doc, wires)) { Enabled = wires.Count > 0, Shortcut = "Alt+Click" }
+                ]);
+            }
+
             if (!interaction.Pressed) return;
 
-            // Pressed: a link starts from here, or (an input already linked) the link's picked up from its other end.
-            if (!output && doc.Graph.LinksTo(layout.Node.Id, port.Name).FirstOrDefault() is { } existing && !port.Type.IsFlow)
+            // Alt-click: cut its wires there and then.
+            if (Alt)
+            {
+                Disconnect(doc, wires);
+                return;
+            }
+
+            // Pressed: a link starts from here, or (an input already linked) the link's picked up from its other end, to
+            // go somewhere else or be let go of (which takes it away).
+            if (!output && wires.Count > 0 && wires[^1] is var existing)
             {
                 _pickedUp = existing;
                 _wire = (existing.FromNode, existing.FromPort, true);
@@ -616,9 +700,9 @@ namespace Vertex.Editor.Graphs
                 return;
             }
 
-            // Let go on nothing: a picked-up link is taken away, and the add menu offers what could go on the end.
-            if (pickedUp != null) doc.Edit(_context.History, "Unlink", () => graph.Unlink(pickedUp));
-            OpenAdd(viewId, Ui.Mouse, Ui.Mouse, wire);
+            // Let go on nothing: a wire picked up off an input is taken away; a new one offers what could go on its end.
+            if (pickedUp != null) Disconnect(doc, [pickedUp]);
+            else OpenAdd(viewId, Ui.Mouse, Ui.Mouse, wire);
         }
 
         private void PanAndZoom(Rect rect, GraphDocument doc, bool over, Interaction background, int viewId)
@@ -637,6 +721,7 @@ namespace Vertex.Editor.Graphs
             {
                 _rightDown = true;
                 _rightAt = Ui.Mouse;
+                _rightLink = _hoveredLink;
             }
 
             if (_rightDown && Vector2.Distance(Ui.Mouse, _rightAt) > 4f) _panning = true;
@@ -648,10 +733,18 @@ namespace Vertex.Editor.Graphs
                 if (!Ui.MouseHeld(MouseButton.Middle) && !Ui.MouseHeld(MouseButton.Right)) _panning = false;
             }
 
-            // Right-clicked without dragging: the add menu, there.
+            // Right-clicked without dragging: on a wire, a menu to cut it; otherwise the add menu, there.
             if (_rightDown && !Ui.MouseHeld(MouseButton.Right))
             {
-                if (Vector2.Distance(Ui.Mouse, _rightAt) <= 4f) OpenAdd(viewId, doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom, Ui.Mouse, null);
+                bool stayed = Vector2.Distance(Ui.Mouse, _rightAt) <= 4f;
+                if (stayed && _rightLink is { } link && doc.Graph.Links.Contains(link))
+                {
+                    Menu.Open(Ui.Id(viewId, "wireMenu"), Ui.Mouse, [new MenuItem("Disconnect", () => Disconnect(doc, [link])) { Shortcut = "Alt+Click", Icon = Icons.Trash }]);
+                }
+                else if (stayed)
+                {
+                    OpenAdd(viewId, doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom, Ui.Mouse, null);
+                }
                 _rightDown = false;
                 _panning = false;
             }
@@ -960,7 +1053,7 @@ namespace Vertex.Editor.Graphs
                 Frame(doc, rect, selectedOnly: doc.Selected.Count > 0);
             }
 
-            const string hint = "Right-click or Space: add  ·  drag from a port: link  ·  middle-drag: pan  ·  wheel: zoom";
+            const string hint = "Right-click or Space: add  ·  drag from a port: link  ·  drag a wire off an input, or Alt-click it: disconnect  ·  middle-drag: pan  ·  wheel: zoom";
             Ui.Text(new Rect(rect.X + 12f, rect.Bottom - 24f, rect.Width - 24f, 18f), hint, Theme.TextFaint, size: Theme.SmallTextSize);
         }
 
