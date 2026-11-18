@@ -98,6 +98,41 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void A_variable_nodes_value_takes_the_variables_type()
+        {
+            Graph graph = NewGraph();
+            var alive = new GraphVariable("Alive", PortType.Boolean, false);
+            graph.Variables.Add(alive);
+            GraphNode start = graph.AddNode("Events/On Start", Vector2.Zero);
+            GraphNode set = graph.AddNode("Variables/Set Variable", Vector2.Zero);
+            GraphNode get = graph.AddNode("Variables/Get Variable", Vector2.Zero);
+            GraphNode name = graph.AddNode("Objects/Get Name", Vector2.Zero);
+            GraphNode compare = graph.AddNode("Logic/Compare", Vector2.Zero);
+            set.Values["Variable"] = "Alive";
+            get.Values["Variable"] = "Alive";
+
+            ScriptNode setType = (ScriptNode)ScriptNodes.Library.Find(set.Type)!;
+            Assert.Same(PortType.Boolean, graph.TypeOf(set, setType.Input("Value")!));
+            Assert.Same(PortType.Boolean, graph.TypeOf(get, ScriptNodes.Library.Find(get.Type)!.Output("Value")!));
+
+            // Only what fits a true/false goes in.
+            Assert.False(graph.Link(name.Id, "Name", set.Id, "Value"));
+            Assert.True(graph.Link(compare.Id, "Result", set.Id, "Value"));
+
+            // Changing the variable's type takes away links that no longer fit.
+            alive.Type = PortType.Vector;
+            graph.Tidy();
+            Assert.Empty(graph.LinksTo(set.Id, "Value"));
+
+            // A true/false set on the node is set as one.
+            alive.Type = PortType.Boolean;
+            set.Values["Value"] = true;
+            graph.Link(start.Id, "Then", set.Id, "In");
+            GameObject runner = Run(graph);
+            Assert.Equal(true, runner.GetComponent<VisualScript>()!.Instance!.Variables["Alive"]);
+        }
+
+        [Fact]
         public void Key_events_run_when_their_key_goes_down()
         {
             Graph graph = NewGraph();

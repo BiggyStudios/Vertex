@@ -173,7 +173,7 @@ namespace Vertex.Editor.Graphs
                     {
                         Port port = type.Inputs[i];
                         l = 14f + LabelWidth(port);
-                        if (ShowsEditor(graph, node, port)) l += 6f + EditorWidth(port);
+                        if (ShowsEditor(graph, node, port)) l += 6f + EditorWidth(port, graph.TypeOf(node, port));
                     }
 
                     if (i < type.Outputs.Count) r = LabelWidth(type.Outputs[i]) + 14f;
@@ -181,7 +181,7 @@ namespace Vertex.Editor.Graphs
                     right = MathF.Max(right, r);
                 }
 
-                float width = MathF.Max(MathF.Max(150f, Ui.TextWidth(type.Title, Theme.TextSize, bold: true) + 40f), left + right + 18f);
+                float width = MathF.Max(MathF.Max(150f, Ui.TextWidth(Title(node, type), Theme.TextSize, bold: true) + 40f), left + right + 18f);
                 var layout = new Layout
                 {
                     Node = node,
@@ -210,20 +210,26 @@ namespace Vertex.Editor.Graphs
         // Flow ports called In and Then go without saying.
         private static string Label(Port port) => port.Type.IsFlow && port.Name is "In" or "Then" ? "" : port.Name;
 
+        /// <summary>A node's title: a variable node's says which variable ("Set Health").</summary>
+        private static string Title(GraphNode node, NodeType type) =>
+            type.Inputs.FirstOrDefault(p => p.IsVariableName) is { } setting && node.Values.TryGetValue(setting.Name, out object? name) && name is string { Length: > 0 } chosen
+                ? type.Title.Replace("Variable", chosen)
+                : type.Title;
+
         private static float LabelWidth(Port port) => Label(port) is { Length: > 0 } label ? Ui.TextWidth(label, Theme.SmallTextSize) : 0f;
 
-        private static bool ShowsEditor(Graph graph, GraphNode node, Port port) =>
-            !port.Type.IsFlow && EditorWidth(port) > 0f && (!port.Linkable || !graph.LinksTo(node.Id, port.Name).Any());
+        private static bool ShowsEditor(Graph graph, GraphNode node, Port port) => graph.TypeOf(node, port) is var type &&
+            !type.IsFlow && EditorWidth(port, type) > 0f && (!port.Linkable || !graph.LinksTo(node.Id, port.Name).Any());
 
-        private static float EditorWidth(Port port)
+        private static float EditorWidth(Port port, PortType type)
         {
             if (port.IsVariableName) return 110f;
-            if (port.Type == PortType.Vector) return 150f;
-            if (port.Type == PortType.Number) return 56f;
-            if (port.Type == PortType.Boolean) return 18f;
-            if (port.Type == PortType.Text || port.Type == PortType.Any) return 110f;
-            if (port.Type.ValueType is { IsEnum: true }) return 100f;
-            if (port.Type == PortType.Object) return 30f;
+            if (type == PortType.Vector) return 150f;
+            if (type == PortType.Number) return 56f;
+            if (type == PortType.Boolean) return 18f;
+            if (type == PortType.Text || type == PortType.Any) return 110f;
+            if (type.ValueType is { IsEnum: true }) return 100f;
+            if (type == PortType.Object) return 30f;
             return 0f;
         }
 
@@ -294,7 +300,7 @@ namespace Vertex.Editor.Graphs
         {
             if (!_layouts.TryGetValue(link.FromNode, out Layout? from) || !_layouts.TryGetValue(link.ToNode, out Layout? to)) return null;
             if (!from.Outputs.TryGetValue(link.FromPort, out Vector2 a) || !to.Inputs.TryGetValue(link.ToPort, out Vector2 b)) return null;
-            return (a, b, from.Type.Output(link.FromPort)!.Type);
+            return (a, b, _doc!.Graph.TypeOf(from.Node, from.Type.Output(link.FromPort)!));
         }
 
         private const int _wirePoints = 28;
@@ -370,7 +376,7 @@ namespace Vertex.Editor.Graphs
             var header = new Rect(r.X, r.Y, r.Width, _header);
             Ui.Rect(header, category.WithAlpha(0.85f), 8f);
             Ui.Rect(new Rect(r.X, r.Y + _header - 8f, r.Width, 8f), category.WithAlpha(0.85f));
-            Ui.Text(new Rect(r.X + 10f, r.Y, r.Width - 20f, _header), type.Title, Color.White, bold: true);
+            Ui.Text(new Rect(r.X + 10f, r.Y, r.Width - 20f, _header), Title(node, type), Color.White, bold: true);
 
             Ui.Outline(r, error != null ? Theme.Danger : selected ? Theme.AccentHover : new Color(0f, 0f, 0f, 0.5f), 8f, error != null || selected ? 2f : 1f);
 
@@ -434,8 +440,9 @@ namespace Vertex.Editor.Graphs
 
             if (ShowsEditor(graph, node, port))
             {
-                var field = new Rect(x, centre - (_row - 6f) * 0.5f, EditorWidth(port), _row - 6f);
-                DrawEditor(Ui.Id(nodeId, "value." + port.Name), doc, node, port, field);
+                PortType type = graph.TypeOf(node, port);
+                var field = new Rect(x, centre - (_row - 6f) * 0.5f, EditorWidth(port, type), _row - 6f);
+                DrawEditor(Ui.Id(nodeId, "value." + port.Name), doc, node, port, type, field);
             }
         }
 
@@ -460,10 +467,11 @@ namespace Vertex.Editor.Graphs
             List<GraphLink> wires = (output ? doc.Graph.LinksFrom(layout.Node.Id, port.Name) : doc.Graph.LinksTo(layout.Node.Id, port.Name)).ToList();
 
             bool usable = _wire is not { } wire || CanJoin(doc.Graph, wire, layout.Node.Id, port.Name, output);
-            Color color = port.Type.Color.WithAlpha(usable ? 1f : 0.2f);
+            PortType type = doc.Graph.TypeOf(layout.Node, port);
+            Color color = type.Color.WithAlpha(usable ? 1f : 0.2f);
             float size = interaction.Hovered && _wire == null || _wire != null && usable && Vector2.Distance(Ui.Mouse, at) < 12f ? 6.5f : 5f;
 
-            if (port.Type.IsFlow)
+            if (type.IsFlow)
             {
                 Vertex.UI.Canvas.DrawTriangle(at + new Vector2(-size * 0.7f, -size), at + new Vector2(size, 0f), at + new Vector2(-size * 0.7f, size), Ui.Fade(color));
                 if (!linked) Vertex.UI.Canvas.DrawTriangle(at + new Vector2(-size * 0.3f, -size * 0.45f), at + new Vector2(size * 0.4f, 0f), at + new Vector2(-size * 0.3f, size * 0.45f), Ui.Fade(Theme.Hex(0x25272C)));
@@ -474,7 +482,7 @@ namespace Vertex.Editor.Graphs
                 if (!linked) Ui.Circle(at, size - 2f, Theme.Hex(0x25272C));
             }
 
-            Ui.Tooltip(portId, port.Tooltip ?? (port.Type.IsFlow ? null : port.Type.Name));
+            Ui.Tooltip(portId, port.Tooltip ?? (type.IsFlow ? null : type.Name));
 
             // Right-click: a menu to cut its wires.
             if (interaction.RightClicked)
@@ -517,7 +525,7 @@ namespace Vertex.Editor.Graphs
 
         // ---------------------------------------------------------------- Values set on nodes
 
-        private void DrawEditor(int id, GraphDocument doc, GraphNode node, Port port, Rect field)
+        private void DrawEditor(int id, GraphDocument doc, GraphNode node, Port port, PortType type, Rect field)
         {
             object? raw = node.Values.TryGetValue(port.Name, out object? set) ? set : port.DefaultValue;
             void Set(object? value) => doc.Edit(_context.History, $"Change {port.Name}", () => node.Values[port.Name] = value, ("graphValue", doc, node.Id, port.Name));
@@ -531,40 +539,48 @@ namespace Vertex.Editor.Graphs
                     return;
                 }
 
-                if (Widgets.Dropdown(id, field, names, names.IndexOf(raw as string ?? "")) is int picked) Set(names[picked]);
+                if (Widgets.Dropdown(id, field, names, names.IndexOf(raw as string ?? "")) is int picked)
+                {
+                    // Its value port takes the new variable's type: links that don't fit it go.
+                    doc.Edit(_context.History, "Choose Variable", () =>
+                    {
+                        node.Values[port.Name] = names[picked];
+                        doc.Graph.Tidy();
+                    });
+                }
             }
-            else if (port.Type == PortType.Number)
+            else if (type == PortType.Number)
             {
                 float number = (float)PortType.Number.Convert(raw)!;
                 if (NumberField.Float(id, field, ref number)) Set(number);
             }
-            else if (port.Type == PortType.Boolean)
+            else if (type == PortType.Boolean)
             {
                 bool on = (bool)PortType.Boolean.Convert(raw)!;
                 if (Widgets.Checkbox(id, field, ref on)) Set(on);
             }
-            else if (port.Type == PortType.Vector)
+            else if (type == PortType.Vector)
             {
                 var vector = (Vector3)PortType.Vector.Convert(raw)!;
                 if (NumberField.Vector3(id, field, ref vector)) Set(vector);
             }
-            else if (port.Type == PortType.Text || port.Type == PortType.Any)
+            else if (type == PortType.Text || type == PortType.Any)
             {
                 string text = raw == null ? "" : PortType.Describe(raw);
                 if (TextInput.Draw(id, field, ref text)) Set(text);
             }
-            else if (port.Type.ValueType == typeof(Key))
+            else if (type.ValueType == typeof(Key))
             {
-                KeyField(id, field, (Key)port.Type.Convert(raw)!, Set);
+                KeyField(id, field, (Key)type.Convert(raw)!, Set);
             }
-            else if (port.Type.ValueType is { IsEnum: true } enumType)
+            else if (type.ValueType is { IsEnum: true } enumType)
             {
                 Array values = Enum.GetValues(enumType);
-                object current = port.Type.Convert(raw)!;
+                object current = type.Convert(raw)!;
                 string[] names = values.Cast<object>().Select(v => Inspection.ComponentCatalog.SplitWords(v.ToString()!)).ToArray();
                 if (Widgets.Dropdown(id, field, names, Array.IndexOf(values, current)) is int picked) Set(values.GetValue(picked));
             }
-            else if (port.Type == PortType.Object)
+            else if (type == PortType.Object)
             {
                 Ui.Text(field, "Self", Theme.TextFaint, size: Theme.SmallTextSize);
             }
@@ -661,7 +677,7 @@ namespace Vertex.Editor.Graphs
             }
 
             Vector2 from = wire.FromOutput ? start.Outputs.GetValueOrDefault(wire.Port) : start.Inputs.GetValueOrDefault(wire.Port);
-            PortType type = (wire.FromOutput ? start.Type.Output(wire.Port) : start.Type.Input(wire.Port))?.Type ?? PortType.Any;
+            PortType type = (wire.FromOutput ? start.Type.Output(wire.Port) : start.Type.Input(wire.Port)) is { } startPort ? graph.TypeOf(start.Node, startPort) : PortType.Any;
 
             // The port it would join: the nearest that can take it, near enough.
             (int Node, string Port, Vector2 At)? target = null;
@@ -806,7 +822,7 @@ namespace Vertex.Editor.Graphs
             PortType? linkType = null;
             if (_addLinked is { } linked && doc.Graph.Node(linked.Node) is { } linkedNode && library.Find(linkedNode.Type) is { } linkedType)
             {
-                linkType = (linked.FromOutput ? linkedType.Output(linked.Port) : linkedType.Input(linked.Port))?.Type;
+                linkType = (linked.FromOutput ? linkedType.Output(linked.Port) : linkedType.Input(linked.Port)) is { } linkedPort ? doc.Graph.TypeOf(linkedNode, linkedPort) : null;
             }
 
             string search = _search.Trim();
@@ -890,9 +906,28 @@ namespace Vertex.Editor.Graphs
                 doc.Selected.Clear();
                 doc.Selected.Add(node.Id);
 
-                if (linked is not { } link || graph.Node(link.Node) is not { } other || library.Find(other.Type) is not { } otherType) return;
-                PortType? linkType = (link.FromOutput ? otherType.Output(link.Port) : otherType.Input(link.Port))?.Type;
-                if (linkType == null || JoinablePort(type, linkType, link.FromOutput) is not { } port) return;
+                PortType? linkType = null;
+                GraphNode? other = linked is { } wanted ? graph.Node(wanted.Node) : null;
+                if (linked is { } from && other != null && library.Find(other.Type) is { } otherType &&
+                    (from.FromOutput ? otherType.Output(from.Port) : otherType.Input(from.Port)) is { } otherPort)
+                {
+                    linkType = graph.TypeOf(other, otherPort);
+                }
+
+                // A variable node starts on a variable: one of the link's type if it was asked for by a link, else the first.
+                if (type.Inputs.FirstOrDefault(p => p.IsVariableName) is { } setting && graph.Variables.Count > 0)
+                {
+                    GraphVariable? fits = linkType == null ? null : graph.Variables.FirstOrDefault(v => linked!.Value.FromOutput ? linkType.CanLinkTo(v.Type) : v.Type.CanLinkTo(linkType));
+                    node.Values[setting.Name] = (fits ?? graph.Variables[0]).Name;
+                }
+
+                if (linked is not { } link || linkType == null) return;
+
+                // The first of its ports the link fits, as it is now (with its variable chosen).
+                Port? port = link.FromOutput
+                    ? type.Inputs.FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(graph.TypeOf(node, p)))
+                    : type.Outputs.FirstOrDefault(p => graph.TypeOf(node, p).CanLinkTo(linkType));
+                if (port == null) return;
 
                 if (link.FromOutput) graph.Link(link.Node, link.Port, node.Id, port.Name);
                 else graph.Link(node.Id, port.Name, link.Node, link.Port);
@@ -1082,7 +1117,9 @@ namespace Vertex.Editor.Graphs
                 var row = new Rect(panel.X + 8f, y, panel.Width - 16f, rowHeight - 4f);
 
                 string name = variable.Name;
-                if (TextInput.Draw(Ui.Id(id, "name"), row.TakeLeft(100f), ref name) && name.Trim().Length > 0 && graph.Variable(name.Trim()) == null)
+                // A dot in its type's colour, as its ports are.
+                Ui.Circle(new Vector2(row.X + 5f, row.Centre.Y), 4.5f, variable.Type.Color);
+                if (TextInput.Draw(Ui.Id(id, "name"), row.CutLeft(14f).TakeLeft(88f), ref name) && name.Trim().Length > 0 && graph.Variable(name.Trim()) == null)
                 {
                     string old = variable.Name, renamed = name.Trim();
                     doc.Edit(_context.History, "Rename Variable", () =>
@@ -1106,6 +1143,7 @@ namespace Vertex.Editor.Graphs
                     {
                         variable.Type = type;
                         variable.Value = type.Convert(variable.Value);
+                        graph.Tidy();
                     });
                 }
 
@@ -1114,7 +1152,11 @@ namespace Vertex.Editor.Graphs
 
                 if (Widgets.IconButton(Ui.Id(id, "delete"), row.TakeRight(24f), Icons.Close, "Delete the variable"))
                 {
-                    doc.Edit(_context.History, "Delete Variable", () => graph.Variables.Remove(variable));
+                    doc.Edit(_context.History, "Delete Variable", () =>
+                    {
+                        graph.Variables.Remove(variable);
+                        graph.Tidy();
+                    });
                 }
 
                 y += rowHeight;

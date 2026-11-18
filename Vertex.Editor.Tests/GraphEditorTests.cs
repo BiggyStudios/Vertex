@@ -224,6 +224,35 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_set_variable_node_for_a_boolean_has_a_tick_box_and_a_new_one_picks_a_variable()
+        {
+            var setup = new Setup();
+            setup.Graph.Variables.Add(new GraphVariable("Alive", PortType.Boolean, false));
+            GraphNode start = setup.Graph.AddNode("Events/On Start", new Vector2(0f, 0f));
+            setup.Frame(2);
+
+            // Asked for from On Start's flow: the new Set Variable node starts on Alive.
+            setup.Drag(setup.Port(start, "Then", output: true), new Vector2(700f, 400f));
+            setup.Type("Set Variable");
+            setup.Press(Key.Enter);
+            GraphNode set = Assert.Single(setup.Graph.Nodes, n => n.Type == "Variables/Set Variable");
+            Assert.Equal("Alive", set.Values["Variable"]);
+            setup.Frame(2);
+
+            // Its value is a tick box: clicking it sets true (not text).
+            float offset = (12f + Ui.TextWidth("Value", Theme.SmallTextSize) + 6f + 9f) * setup.Doc.Zoom;
+            Vector2 box = setup.Port(set, "Value", output: false) + new Vector2(offset, 0f);
+            InputSystem.MoveMouse(box);
+            setup.Frame(2);
+            InputSystem.PressButton(MouseButton.Left);
+            setup.Frame();
+            InputSystem.ReleaseButton(MouseButton.Left);
+            setup.Frame();
+
+            Assert.Equal(true, set.Values["Value"]);
+        }
+
+        [Fact]
         public void Nodes_dragged_by_their_header_move_together_and_a_box_selects()
         {
             var setup = new Setup();

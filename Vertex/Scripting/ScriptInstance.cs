@@ -230,8 +230,10 @@ namespace Vertex.Scripting
                 value = node.Node.Values.TryGetValue(port, out object? set) ? set : info.DefaultValue;
             }
 
-            value = info.Type.Convert(value);
-            if (value == null && info.Type == PortType.Object && !node.Inputs.ContainsKey(port)) value = Self;
+            // As the type it is on this node (a variable's value, the variable's type).
+            PortType type = Graph.TypeOf(node.Node, info);
+            value = type.Convert(value);
+            if (value == null && type == PortType.Object && !node.Inputs.ContainsKey(port)) value = Self;
             return value;
         }
     }

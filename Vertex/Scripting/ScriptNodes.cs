@@ -170,9 +170,9 @@ namespace Vertex.Scripting
 
             // ---------------------------------------------------------------- Variables
 
-            Node("Variables", "Get Variable", [VariableSetting], [Out("Value", PortType.Any)],
+            Node("Variables", "Get Variable", [VariableSetting], [new Port("Value", PortType.Any) { TypeFromVariable = true }],
                 run => run.Out("Value", run.GetVariable(run.In<string>("Variable"))), "A variable's value now.", "read");
-            Node("Variables", "Set Variable", [FlowIn(), VariableSetting, In("Value", PortType.Any)], [FlowOut()], run =>
+            Node("Variables", "Set Variable", [FlowIn(), VariableSetting, new Port("Value", PortType.Any) { TypeFromVariable = true }], [FlowOut()], run =>
                 {
                     run.SetVariable(run.In<string>("Variable"), run.In("Value"));
                     run.Continue("Then");

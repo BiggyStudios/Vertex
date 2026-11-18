@@ -14,6 +14,12 @@ namespace Vertex.Graphs
         /// For a setting that names one of the graph's variables (a Get Variable node's): its dropdown lists them.
         /// </summary>
         public bool IsVariableName { get; init; }
+
+        /// <summary>
+        /// Takes the type of the variable the node's variable setting names (a Set Variable node's value is a true/false
+        /// for a Boolean variable): see <see cref="Graph.TypeOf"/>. <see cref="Type"/> is what it is before one's chosen.
+        /// </summary>
+        public bool TypeFromVariable { get; init; }
     }
 
     /// <summary>

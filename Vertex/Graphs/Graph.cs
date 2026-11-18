@@ -127,7 +127,37 @@ namespace Vertex.Graphs
             if (fromNode == toNode || Library is not { } library) return false;
             if (Node(fromNode) is not { } from || Node(toNode) is not { } to) return false;
             if (library.Find(from.Type)?.Output(fromPort) is not { } output || library.Find(to.Type)?.Input(toPort) is not { } input) return false;
-            return input.Linkable && output.Type.CanLinkTo(input.Type);
+            return input.Linkable && TypeOf(from, output).CanLinkTo(TypeOf(to, input));
+        }
+
+        /// <summary>
+        /// What port <paramref name="port"/> of <paramref name="node"/> carries: its own type, or for one that takes its
+        /// variable's (<see cref="Port.TypeFromVariable"/>), the type of the variable the node has chosen.
+        /// </summary>
+        public PortType TypeOf(GraphNode node, Port port)
+        {
+            if (!port.TypeFromVariable) return port.Type;
+            return node.Values.TryGetValue("Variable", out object? name) && name is string chosen && Variable(chosen) is { } variable ? variable.Type : port.Type;
+        }
+
+        /// <summary>
+        /// Takes away links that no longer fit (a variable's type changed under one), and turns values set on nodes into
+        /// their ports' types (a variable's value typed as text, now it's a true/false).
+        /// </summary>
+        public void Tidy()
+        {
+            if (Library is not { } library) return;
+            Links.RemoveAll(l => !CanLink(l.FromNode, l.FromPort, l.ToNode, l.ToPort));
+            foreach (GraphNode node in Nodes)
+            {
+                if (library.Find(node.Type) is not { } type) continue;
+                foreach (Port port in type.Inputs)
+                {
+                    if (port.TypeFromVariable && node.Values.TryGetValue(port.Name, out object? value)) node.Values[port.Name] = TypeOf(node, port).Convert(value);
+                }
+            }
+
+            Changed();
         }
 
         /// <summary>
