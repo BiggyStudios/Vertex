@@ -26,6 +26,12 @@ namespace Vertex
         /// <summary>The sky, the soft light it gives, fog and shadow settings.</summary>
         public Lighting Lighting { get; } = new();
 
+        /// <summary>
+        /// Lights that light the scene without being in it (they belong to another scene): an editor's light for a prefab
+        /// shown on its own, which isn't part of the prefab.
+        /// </summary>
+        public List<Rendering.Light> OutsideLights { get; } = new();
+
         /// <summary>This scene's physics simulation. Created the first time it is used, or when the scene first has a collider.</summary>
         public PhysicsWorld Physics => _physics ??= new PhysicsWorld(this);
 

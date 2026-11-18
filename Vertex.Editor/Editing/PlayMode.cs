@@ -45,6 +45,9 @@ namespace Vertex.Editor.Editing
         {
             if (Playing || _context.Busy != null) return;
 
+            // The scene plays, not a prefab being edited.
+            _context.ShowPrefab(null);
+
             Scene scene = _context.Scene;
             scene.ApplyChanges();
             List<GameObject> all = scene.GameObjects.ToList();

@@ -154,10 +154,17 @@ namespace Vertex.Editor
     /// </summary>
     public sealed class EditorContext
     {
+        /// <summary>The scene being edited: the one open, or the prefab whose tab is showing (see <see cref="Stage"/>).</summary>
         public Scene Scene => Vertex.Scene.Active;
 
+        /// <summary>The scene that's open, even while a prefab's tab shows.</summary>
+        public Scene MainScene => Stage != null && _mainScene != null ? _mainScene : Vertex.Scene.Active;
+
         public Selection Selection { get; } = new();
-        public UndoHistory History { get; } = new();
+        /// <summary>The changes made to what's being edited: the scene's, or the prefab's whose tab is showing.</summary>
+        public UndoHistory History => Stage?.History ?? _sceneHistory;
+
+        private readonly UndoHistory _sceneHistory = new();
         public Preferences Preferences { get; }
         public PlayMode Play { get; }
         public TransformTool Tool { get; set; } = TransformTool.Move;
@@ -199,9 +206,9 @@ namespace Vertex.Editor
         }
 
         /// <summary>Whether there are changes since the scene was last saved (or opened).</summary>
-        public bool Dirty => History.Version != _savedVersion && !Play.Playing;
+        public bool Dirty => _sceneHistory.Version != _savedVersion && !Play.Playing;
 
-        public void MarkSaved() => _savedVersion = History.Version;
+        public void MarkSaved() => _savedVersion = _sceneHistory.Version;
 
         /// <summary>Where textures and models a scene refers to are looked for.</summary>
         public string[] AssetFolders => Project?.AssetFolders(Game?.OutputDirectory) ?? [Application.AssetPath()];
@@ -245,12 +252,12 @@ namespace Vertex.Editor
 
         // ---------------------------------------------------------------- Objects
 
-        /// <summary>Makes a new object, records it, and selects it.</summary>
+        /// <summary>Makes a new object, records it, and selects it. In a prefab's tab, it goes in the prefab (under its top object).</summary>
         public GameObject Create(string name, Action<GameObject>? build = null, Transform? parent = null)
         {
             var gameObject = new GameObject(name, Scene);
             build?.Invoke(gameObject);
-            gameObject.Transform.Parent = parent;
+            gameObject.Transform.Parent = parent ?? Stage?.Root.Transform;
             Scene.ApplyChanges();
             History.Record(new CreateObject(gameObject));
             Selection.Select(gameObject);
@@ -259,6 +266,7 @@ namespace Vertex.Editor
 
         public void Delete(GameObject gameObject)
         {
+            if (IsPrefabRoot(gameObject)) return;
             History.Do(new DeleteObject(gameObject));
             if (Selection.Contains(gameObject)) Selection.Clear();
             Notify($"Deleted {gameObject.Name}");
@@ -268,6 +276,7 @@ namespace Vertex.Editor
         public void DeleteSelected()
         {
             List<GameObject> tops = Selection.Tops();
+            if (tops.Any(IsPrefabRoot)) tops = Selection.Objects.Where(o => !IsPrefabRoot(o)).ToList();
             if (tops.Count == 0) return;
             if (tops.Count == 1)
             {
@@ -280,10 +289,19 @@ namespace Vertex.Editor
             Notify($"Deleted {tops.Count} objects");
         }
 
+        /// <summary>Whether <paramref name="gameObject"/> is the top of the prefab whose tab shows: it is the prefab, so it stays.</summary>
+        private bool IsPrefabRoot(GameObject gameObject)
+        {
+            if (Stage?.Root != gameObject) return false;
+            Notify($"{gameObject.Name} is the prefab itself, so it can't be deleted: delete the file in Assets instead");
+            return true;
+        }
+
         /// <summary>Duplicates what's selected, each copy just after its original, and selects the copies.</summary>
         public void DuplicateSelected()
         {
             List<GameObject> tops = Selection.Tops();
+            if (tops.Count > 1) tops.Remove(Stage?.Root!);
             if (tops.Count == 1) Duplicate(tops[0]);
             if (tops.Count <= 1) return;
 
@@ -314,6 +332,12 @@ namespace Vertex.Editor
         /// <summary>Copies an object and everything under it, just after it, and selects the copy.</summary>
         public GameObject? Duplicate(GameObject original)
         {
+            if (Stage?.Root == original)
+            {
+                Notify("A prefab has one top object: duplicate what's under it instead");
+                return null;
+            }
+
             try
             {
                 List<GameObject> made = SceneFile.TakeSnapshot(Scene, [original]).Restore(Scene);
@@ -350,6 +374,7 @@ namespace Vertex.Editor
         private void ReplaceScene()
         {
             if (Play.Playing) Play.Stop();
+            CloseAllPrefabs();
             // The scene being edited never ran, so it has nothing to clean up: thrown away without running its code.
             Vertex.Scene.Active.Discard();
             Vertex.Scene.Active = new Scene();
@@ -410,6 +435,9 @@ namespace Vertex.Editor
                 return false;
             }
 
+            // The prefab being edited is saved too (it's saved as it changes anyway), along with the scene.
+            if (Stage != null) SaveOpenPrefab();
+
             if (ScenePath != null && !saveAs) return SaveSceneTo(ScenePath);
 
             string folder = Project != null ? Path.Combine(Project.AssetsDirectory, "Scenes") : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -425,7 +453,7 @@ namespace Vertex.Editor
         {
             try
             {
-                SceneFile.Save(Scene, path, AssetFolders);
+                SceneFile.Save(MainScene, path, AssetFolders);
             }
             catch (Exception exception)
             {
@@ -540,6 +568,7 @@ namespace Vertex.Editor
             ConsoleLog.Update();
             SaveChangedMaterials();
             SaveChangedGraphs();
+            if (!InputSystem.GetMouseButton(MouseButton.Left)) SaveOpenPrefab();
             RebuildIfCodeChanged();
             if (_build is not { IsCompleted: true } build) return;
 
@@ -601,6 +630,7 @@ namespace Vertex.Editor
         private KeptScene KeepScene()
         {
             if (Play.Playing) Play.Stop();
+            ShowPrefab(null);
             IReadOnlyList<GameObject> objects = Scene.GameObjects;
             int[] selected = Selection.Objects.Select(o => IndexOf(objects, o)).Where(i => i >= 0).ToArray();
             return new KeptScene(SceneFile.TakeSnapshot(Scene), ScenePath, Origin, _untitledName, Dirty, selected);
@@ -1003,12 +1033,19 @@ namespace Vertex.Editor
         /// <summary>A copy of the prefab in <paramref name="path"/> at <paramref name="position"/>, as one undoable change, selected.</summary>
         public GameObject? AddPrefab(string path, Vector3 position, Transform? parent = null)
         {
+            if (Stage != null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(Stage.Path), StringComparison.OrdinalIgnoreCase))
+            {
+                Notify($"{Stage.Title} can't go inside itself");
+                return null;
+            }
+
             try
             {
                 Prefab prefab = Vertex.Assets.LoadPrefab(path);
                 GameObject copy = prefab.Instantiate(Scene, AssetFolders);
-                copy.Transform.Parent = parent;
-                if (parent == null) copy.Transform.Position = position;
+                // In a prefab's tab, it goes in the prefab, under its top object.
+                copy.Transform.Parent = parent ?? Stage?.Root.Transform;
+                if (parent == null) copy.Transform.WorldPosition = position;
                 Scene.ApplyChanges();
                 History.Record(new CreateObject(copy, $"Add {prefab.Name}"));
                 Selection.Select(copy);
@@ -1086,6 +1123,163 @@ namespace Vertex.Editor
             delete.Redo();
             if (Selection.Object == old) Selection.Select(fresh);
             return [create, delete];
+        }
+
+        // ---------------------------------------------------------------- Prefabs open in tabs of their own
+
+        private readonly List<PrefabStage> _prefabs = new();
+        private Scene? _mainScene;
+        private List<GameObject> _sceneSelected = new();
+
+        // Each prefab opened, and what it was when the scene's copies of it were last made: copies of one that's changed
+        // since are made again when the scene shows again.
+        private readonly Dictionary<Prefab, string> _copiesMadeFrom = new();
+
+        /// <summary>The prefab whose tab is showing, edited in place of the scene; null while the scene is.</summary>
+        public PrefabStage? Stage { get; private set; }
+
+        /// <summary>The prefabs open in tabs.</summary>
+        public IReadOnlyList<PrefabStage> OpenPrefabs => _prefabs;
+
+        /// <summary>Raised when a prefab is opened in a tab of its own, for the scene view to show it.</summary>
+        public event Action<PrefabStage>? PrefabOpened;
+
+        /// <summary>Opens the prefab in <paramref name="path"/> in a tab of its own (or shows the tab it's in already).</summary>
+        public PrefabStage? OpenPrefab(string path)
+        {
+            if (Play.Playing)
+            {
+                Notify("Stop playing to edit prefabs");
+                return null;
+            }
+
+            path = Path.GetFullPath(path);
+            PrefabStage? stage = _prefabs.FirstOrDefault(p => string.Equals(Path.GetFullPath(p.Path), path, StringComparison.OrdinalIgnoreCase));
+            if (stage == null)
+            {
+                try
+                {
+                    Prefab prefab = Vertex.Assets.LoadPrefab(path);
+                    stage = new PrefabStage(prefab, AssetFolders);
+                    _copiesMadeFrom.TryAdd(prefab, prefab.Json);
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't open {Path.GetFileName(path)}: {exception.Message}");
+                    return null;
+                }
+
+                _prefabs.Add(stage);
+                ShowPrefab(stage);
+                PrefabOpened?.Invoke(stage);
+            }
+            else
+            {
+                ShowPrefab(stage);
+            }
+
+            return stage;
+        }
+
+        /// <summary>
+        /// Shows <paramref name="stage"/>'s prefab to edit in place of the scene (the outliner, inspector and undo work on
+        /// it), or the scene again for null. Each keeps what was selected in it.
+        /// </summary>
+        public void ShowPrefab(PrefabStage? stage)
+        {
+            if (Stage == stage) return;
+
+            if (Stage is { } leaving)
+            {
+                leaving.Selected = Selection.Objects.ToList();
+                SaveOpenPrefab();
+            }
+            else
+            {
+                _sceneSelected = Selection.Objects.ToList();
+                _mainScene = Vertex.Scene.Active;
+            }
+
+            Stage = stage;
+            Vertex.Scene.Active = stage?.Scene ?? _mainScene ?? Vertex.Scene.Active;
+            Selection.Select((stage?.Selected ?? _sceneSelected).Where(o => !o.IsDestroyed && o.Scene == Scene));
+            if (stage == null)
+            {
+                _mainScene = null;
+                UpdatePrefabCopies();
+            }
+        }
+
+        /// <summary>Closes a prefab's tab, saving it first.</summary>
+        public void ClosePrefab(PrefabStage stage)
+        {
+            if (!_prefabs.Contains(stage)) return;
+            if (Stage == stage) ShowPrefab(null);
+
+            stage.SaveIfChanged(AssetFolders);
+            _prefabs.Remove(stage);
+            stage.Close();
+            if (Stage == null) UpdatePrefabCopies();
+        }
+
+        private void CloseAllPrefabs()
+        {
+            if (Stage != null) ShowPrefab(null);
+            foreach (PrefabStage stage in _prefabs)
+            {
+                stage.SaveIfChanged(AssetFolders);
+                stage.Close();
+            }
+
+            _prefabs.Clear();
+            _copiesMadeFrom.Clear();
+        }
+
+        /// <summary>Saves the prefab being edited, if it's been changed.</summary>
+        private void SaveOpenPrefab()
+        {
+            if (Stage is not { } stage) return;
+            try
+            {
+                if (stage.SaveIfChanged(AssetFolders)) Assets?.Refresh();
+            }
+            catch (Exception exception)
+            {
+                Notify($"Couldn't save {stage.Title}: {exception.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Makes the scene's copies of prefabs changed in their tabs again from them (each keeping its own place, name and
+        /// parent), as one change to undo.
+        /// </summary>
+        private void UpdatePrefabCopies()
+        {
+            var changes = new List<IUndoable>();
+            var names = new List<string>();
+            foreach ((Prefab prefab, string madeFrom) in _copiesMadeFrom.ToList())
+            {
+                if (prefab.Json == madeFrom) continue;
+
+                _copiesMadeFrom[prefab] = prefab.Json;
+                int before = changes.Count;
+                foreach (GameObject copy in Scene.GameObjects.ToList())
+                {
+                    if (copy.Prefab == prefab && !copy.IsDestroyed) changes.AddRange(Remake(copy, prefab));
+                }
+
+                if (changes.Count > before) names.Add(prefab.Name);
+            }
+
+            // Prefabs no longer open have nothing more to bring over.
+            foreach (Prefab prefab in _copiesMadeFrom.Keys.ToList())
+            {
+                if (!_prefabs.Any(p => p.Prefab == prefab)) _copiesMadeFrom.Remove(prefab);
+            }
+
+            if (changes.Count == 0) return;
+            _sceneHistory.Record(new ChangeGroup($"Update {string.Join(", ", names)}", changes));
+            Notify($"Updated {changes.Count / 2} cop{(changes.Count == 2 ? "y" : "ies")} of {string.Join(", ", names)} in the scene");
         }
 
         private static bool IsUnder(GameObject gameObject, GameObject ancestor)

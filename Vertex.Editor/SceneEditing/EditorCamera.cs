@@ -191,6 +191,25 @@ namespace Vertex.Editor.SceneEditing
             Apply();
         }
 
+        /// <summary>Where the camera is headed, to come back to later: each tab of the scene view keeps its own.</summary>
+        public readonly record struct Placement(Vector3 Pivot, float Yaw, float Pitch, float Distance);
+
+        public Placement Remember()
+        {
+            EndLook();
+            return new Placement(_target.Pivot, _target.Yaw, _target.Pitch, _target.Distance);
+        }
+
+        /// <summary>Puts the camera straight back where it was when <paramref name="placement"/> was remembered.</summary>
+        public void Restore(Placement placement)
+        {
+            EndLook();
+            _target = new View { Pivot = placement.Pivot, Yaw = placement.Yaw, Pitch = placement.Pitch, Distance = placement.Distance };
+            _current = _target;
+            _flyVelocity = Vector3.Zero;
+            Apply();
+        }
+
         /// <summary>Jumps straight to where the camera is headed: for tests, and opening a scene.</summary>
         public void Settle()
         {

@@ -272,7 +272,7 @@ namespace Vertex.Editor.Panels
                     AddModel(_context, entry.Path, _context.SpawnPoint);
                     break;
                 case AssetKind.Prefab:
-                    _context.AddPrefab(entry.Path, _context.SpawnPoint);
+                    _context.OpenPrefab(entry.Path);
                     break;
                 case AssetKind.Sound:
                     SoundPreview.Toggle(entry.Path);
@@ -353,13 +353,14 @@ namespace Vertex.Editor.Panels
             var items = new List<MenuItem>();
             string? open = entry.Kind switch
             {
-                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript => "Open",
-                AssetKind.Model or AssetKind.Prefab => "Add to Scene",
+                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.Prefab => "Open",
+                AssetKind.Model => "Add to Scene",
                 AssetKind.Sound => SoundPreview.IsPlaying(entry.Path) ? "Stop" : "Play",
                 AssetKind.Script => "Open in Code Editor",
                 _ => null
             };
             if (open != null) items.Add(new MenuItem(open, () => Open(entry)));
+            if (entry.Kind == AssetKind.Prefab) items.Add(new MenuItem("Add to Scene", () => _context.AddPrefab(entry.Path, _context.SpawnPoint)));
             items.Add(new MenuItem("Rename", () => BeginRename(entry)) { Shortcut = "F2" });
             if (entry.Kind != AssetKind.Folder) items.Add(new MenuItem("Duplicate", () => Duplicate(entry)) { Shortcut = "Ctrl+D" });
             items.Add(new MenuItem("Delete", () => AskDelete(entry)) { Shortcut = "Del", Icon = Icons.Trash });

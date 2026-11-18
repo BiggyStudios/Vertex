@@ -159,6 +159,22 @@ namespace Vertex.Rendering
         }
 
         /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
+        private void AddLight(Light light)
+        {
+            if (!light.Enabled) return;
+            Color color = light.Color * light.Intensity;
+
+            if (light.Type == LightType.Directional)
+            {
+                if (light.CastShadows && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
+                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color));
+            }
+            else
+            {
+                _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range));
+            }
+        }
+
         private void Collect(Scene scene, Camera? camera, int width, int height, RenderTexture? target)
         {
             _frame.Clear();
@@ -186,20 +202,8 @@ namespace Vertex.Rendering
             _frame.CameraPosition = camera.Transform.WorldPosition;
             _frame.CameraForward = camera.Transform.Forward;
 
-            foreach (Light light in scene.FindComponents<Light>())
-            {
-                Color color = light.Color * light.Intensity;
-
-                if (light.Type == LightType.Directional)
-                {
-                    if (light.CastShadows && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
-                    _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color));
-                }
-                else
-                {
-                    _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range));
-                }
-            }
+            foreach (Light light in scene.FindComponents<Light>()) AddLight(light);
+            foreach (Light light in scene.OutsideLights) AddLight(light);
 
             int sun = _frame.ShadowLightIndex;
             _frame.HasShadows = sun >= 0 && sun < Shaders.ShaderLibrary.MaxDirectionalLights && _frame.ShadowDistance > 0f;

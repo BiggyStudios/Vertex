@@ -144,6 +144,16 @@ namespace Vertex.Editor.Panels
             var row = new Rect(x, y, width, _rowHeight);
             int id = Ui.Id("outliner.sceneRow");
             Interaction interaction = Ui.Interact(id, row);
+
+            // A prefab open in its tab: its name, and (its scene being just for showing it) nothing to select.
+            if (_context.Stage is { } stage)
+            {
+                HoverBackground(id, row, false);
+                Icons.Prefab(new Vector2(row.X + 12f, row.Centre.Y), 14f, Theme.Hex(0x6FA8FF));
+                Ui.Text(new Rect(row.X + 26f, row.Y, row.Width - 30f, row.Height), $"{stage.Title}  ·  prefab", Theme.Hex(0x8FBCFF), bold: true);
+                return y + _rowHeight + 2f;
+            }
+
             if (interaction.Pressed) _context.Selection.SelectScene();
             if (_context.Selection.Scene) _selectedY = row.Y;
 
@@ -457,6 +467,7 @@ namespace Vertex.Editor.Panels
                 items.Add(new MenuItem("Make Prefab", () => _context.CreatePrefab(gameObject, Path.Combine(assets.Root, "Prefabs"))) { Icon = Icons.Prefab });
                 if (gameObject.Prefab != null)
                 {
+                    items.Add(new MenuItem("Open Prefab", () => _context.OpenPrefab(gameObject.Prefab.Source)) { Icon = Icons.Prefab });
                     items.Add(new MenuItem("Apply to Prefab", () => _context.ApplyPrefab(gameObject)));
                     items.Add(new MenuItem("Revert to Prefab", () => _context.RevertPrefab(gameObject)));
                 }

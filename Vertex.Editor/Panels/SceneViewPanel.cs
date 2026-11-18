@@ -79,6 +79,11 @@ namespace Vertex.Editor.Panels
             CreateMenu.MadeUI += ShowGame;
             _graphView = new GraphView(context);
             context.GraphOpenRequested += OpenGraph;
+            context.PrefabOpened += _ =>
+            {
+                _graph = null;
+                _gameTab = false;
+            };
         }
 
         /// <summary>
@@ -133,6 +138,7 @@ namespace Vertex.Editor.Panels
             }
             _wasPlaying = play.Playing;
 
+            FollowPrefab();
             Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);
             DrawTabs(rect.TakeTop(_tabsHeight));
             Rect viewport = rect.CutTop(_tabsHeight).Shrink(1f);
@@ -162,11 +168,12 @@ namespace Vertex.Editor.Panels
                 Interaction interaction = Ui.Interact(id, tab);
                 if (interaction.Clicked)
                 {
+                    _context.ShowPrefab(null);
                     _gameTab = game;
                     _graph = null;
                 }
 
-                bool on = _graph == null && _gameTab == game;
+                bool on = _graph == null && _context.Stage == null && _gameTab == game;
                 Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
                 if (game) Icons.Play(new Vector2(tab.X + 15f, tab.Centre.Y), 13f, on ? Theme.AccentText : Theme.TextFaint);
                 else Icons.Cube(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? Theme.AccentText : Theme.TextFaint);
@@ -174,41 +181,104 @@ namespace Vertex.Editor.Panels
                 x += width + 4f;
             }
 
-            // Open graphs: click to show, the cross (or a middle click) to close.
+            // Open graphs, then open prefabs: click to show, the cross (or a middle click) to close.
             GraphDocument? closing = null;
             foreach (GraphDocument doc in _graphs)
             {
-                string name = Ui.Fit(doc.Title, 160f);
-                float width = Ui.TextWidth(name) + 60f;
-                var tab = new Rect(x, tabs.Y + 5f, width, tabs.Height - 10f);
-                int id = Ui.Id(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(doc), "graphTab");
-                Interaction interaction = Ui.Interact(id, tab);
-                Rect close = tab.TakeRight(24f).Shrink(3f);
-                bool overClose = close.Contains(Ui.Mouse);
-                if (interaction.Clicked && !overClose) _graph = doc;
-                if (interaction.Clicked && overClose || interaction.Hovered && Ui.MousePressed(MouseButton.Middle)) closing = doc;
-
-                bool on = _graph == doc;
-                Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
-                Icons.Graph(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? Theme.Hex(0x5FC9B5) : Theme.TextFaint);
-                Ui.Text(tab.CutLeft(28f).CutRight(24f), name, on ? Theme.Text : Theme.TextDim);
-                if (on || interaction.Hovered)
+                (bool clicked, bool close) = DocumentTab(ref x, tabs, doc, doc.Title, doc.Path, _graph == doc, Icons.Graph, Theme.Hex(0x5FC9B5));
+                if (clicked)
                 {
-                    if (overClose) Ui.Rect(close, Theme.Hover.WithAlpha(2f), 4f);
-                    Icons.Close(close.Centre, 10f, overClose ? Theme.Text : Theme.TextFaint);
+                    _context.ShowPrefab(null);
+                    _graph = doc;
                 }
 
-                Ui.Tooltip(id, doc.Path);
-                x += width + 4f;
+                if (close) closing = doc;
             }
 
             if (closing != null) CloseGraph(closing);
+
+            PrefabStage? closingPrefab = null;
+            foreach (PrefabStage stage in _context.OpenPrefabs)
+            {
+                (bool clicked, bool close) = DocumentTab(ref x, tabs, stage, stage.Title, stage.Path, _graph == null && _context.Stage == stage, Icons.Prefab, Theme.Hex(0x6FA8FF));
+                if (clicked)
+                {
+                    _graph = null;
+                    _gameTab = false;
+                    _context.ShowPrefab(stage);
+                }
+
+                if (close) closingPrefab = stage;
+            }
+
+            if (closingPrefab != null) _context.ClosePrefab(closingPrefab);
 
             if (_context.Play.Playing)
             {
                 PlayMode play = _context.Play;
                 string hint = play.Paused ? "Paused" : play.GameFocused ? "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
                 Ui.Text(tabs.Shrink(12f, 0f), hint, play.Paused ? Theme.AccentText : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+            }
+        }
+
+        /// <summary>A tab for an open file (a graph, a prefab): whether it was clicked to show, and whether to close it.</summary>
+        private static (bool Clicked, bool Close) DocumentTab(ref float x, Rect tabs, object doc, string title, string path, bool on, Icon icon, Color color)
+        {
+            string name = Ui.Fit(title, 160f);
+            float width = Ui.TextWidth(name) + 60f;
+            var tab = new Rect(x, tabs.Y + 5f, width, tabs.Height - 10f);
+            int id = Ui.Id(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(doc), "documentTab");
+            Interaction interaction = Ui.Interact(id, tab);
+            Rect close = tab.TakeRight(24f).Shrink(3f);
+            bool overClose = close.Contains(Ui.Mouse);
+            bool clicked = interaction.Clicked && !overClose;
+            bool closing = interaction.Clicked && overClose || interaction.Hovered && Ui.MousePressed(MouseButton.Middle);
+
+            Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
+            icon(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? color : Theme.TextFaint);
+            Ui.Text(tab.CutLeft(28f).CutRight(24f), name, on ? Theme.Text : Theme.TextDim);
+            if (on || interaction.Hovered)
+            {
+                if (overClose) Ui.Rect(close, Theme.Hover.WithAlpha(2f), 4f);
+                Icons.Close(close.Centre, 10f, overClose ? Theme.Text : Theme.TextFaint);
+            }
+
+            Ui.Tooltip(id, path);
+            x += width + 4f;
+            return (clicked, closing);
+        }
+
+        // Which prefab's tab the camera was last placed for (null: the scene's), and where it was for the scene.
+        private PrefabStage? _cameraFor;
+        private EditorCamera.Placement? _sceneCamera;
+
+        /// <summary>
+        /// Keeps the camera where it was for each tab: switching to a prefab remembers where it was for the scene and goes
+        /// to where it was for the prefab (framing it, the first time); switching back puts it back.
+        /// </summary>
+        private void FollowPrefab()
+        {
+            PrefabStage? stage = _context.Stage;
+            if (stage == _cameraFor) return;
+
+            if (_cameraFor != null) _cameraFor.Camera = Camera.Remember();
+            else _sceneCamera = Camera.Remember();
+            _cameraFor = stage;
+
+            if (stage != null)
+            {
+                _graph = null;
+                _gameTab = false;
+                if (stage.Camera is { } placed) Camera.Restore(placed);
+                else
+                {
+                    Frame([stage.Root]);
+                    Camera.Settle();
+                }
+            }
+            else if (_sceneCamera is { } back)
+            {
+                Camera.Restore(back);
             }
         }
 
@@ -252,6 +322,7 @@ namespace Vertex.Editor.Panels
         /// <summary>Shows the game's picture, where UI is arranged: after a piece of UI is made.</summary>
         public void ShowGame()
         {
+            _context.ShowPrefab(null);
             _gameTab = true;
             _graph = null;
         }
@@ -278,6 +349,7 @@ namespace Vertex.Editor.Panels
                 _graphs.Add(doc);
             }
 
+            _context.ShowPrefab(null);
             _graph = doc;
 
             // Shown while the game runs: the editor has the mouse, to edit it.
@@ -376,7 +448,7 @@ namespace Vertex.Editor.Panels
                 Interaction chipPress = Ui.Interact(chipId, chip);
                 Ui.Rect(chip, chipPress.Hovered ? Theme.AccentHover : Theme.Accent, 14f);
                 Ui.Text(chip, text, Color.White, align: 0.5f);
-                if (chipPress.Clicked) _gameTab = true;
+                if (chipPress.Clicked) ShowGame();
             }
 
             // The others selected (not UI) are outlined too, and move with the main one's handles. What's under one of
@@ -440,6 +512,7 @@ namespace Vertex.Editor.Panels
             Ui.PopClip();
 
             DrawToolbar(viewport);
+            if (_context.Stage is { } stage) DrawPrefabBar(viewport, stage);
             DrawAxes(viewport);
             DrawSpeed(viewport);
         }
@@ -586,17 +659,21 @@ namespace Vertex.Editor.Panels
         public void FrameSelection()
         {
             if (_context.Selection.Object is not { } selected || !_context.InScene(selected)) return;
+            Frame(_context.Selection.Objects);
+        }
 
-            // Everything selected, together: what they draw, or where they are if they draw nothing.
+        /// <summary>Points the camera at these objects, together: what they draw, or where they are if they draw nothing.</summary>
+        private void Frame(IEnumerable<GameObject> objects)
+        {
             (Vector3 Min, Vector3 Max)? bounds = null;
-            foreach (GameObject gameObject in _context.Selection.Objects)
+            foreach (GameObject gameObject in objects)
             {
                 Vector3 at = gameObject.Transform.WorldPosition;
                 (Vector3 low, Vector3 high) = Bounds(gameObject) ?? (at, at);
                 bounds = bounds is (Vector3 min, Vector3 max) ? (Vector3.Min(min, low), Vector3.Max(max, high)) : (low, high);
             }
 
-            (Vector3 lowest, Vector3 highest) = bounds!.Value;
+            if (bounds is not (Vector3 lowest, Vector3 highest)) return;
             float radius = Vector3.Distance(lowest, highest) * 0.5f;
             Camera.Frame((lowest + highest) * 0.5f, radius > 0.01f ? radius : 1f);
         }
@@ -838,6 +915,29 @@ namespace Vertex.Editor.Panels
         }
 
         // ---------------------------------------------------------------- Overlays
+
+        /// <summary>Along the bottom while a prefab's open: which it is, that it's saved as it's changed, and the way back.</summary>
+        private void DrawPrefabBar(Rect viewport, PrefabStage stage)
+        {
+            const string note = "saved as you change it";
+            const string back = "Back to Scene";
+            float nameWidth = Ui.TextWidth(stage.Title, bold: true);
+            float width = 34f + nameWidth + 10f + Ui.TextWidth(note, Theme.SmallTextSize) + 16f + Ui.TextWidth(back) + 26f + 6f;
+            var bar = new Rect(viewport.Centre.X - width * 0.5f, viewport.Bottom - 50f, width, 36f);
+            Ui.Shadow(bar, 8f, 14f, 0.5f);
+            Ui.Rect(bar, Theme.Panel.WithAlpha(0.94f), 18f);
+            Ui.Outline(bar, Theme.Hex(0x6FA8FF).WithAlpha(0.45f), 18f);
+            Ui.Block(Ui.Id("sceneView.prefabBar"), bar);
+
+            Icons.Prefab(new Vector2(bar.X + 20f, bar.Centre.Y), 14f, Theme.Hex(0x6FA8FF));
+            float x = bar.X + 34f;
+            Ui.Text(new Rect(x, bar.Y, nameWidth + 4f, bar.Height), stage.Title, Theme.Text, bold: true);
+            x += nameWidth + 10f;
+            Ui.Text(new Rect(x, bar.Y, 200f, bar.Height), note, Theme.TextFaint, size: Theme.SmallTextSize);
+
+            var button = new Rect(bar.Right - Ui.TextWidth(back) - 26f - 6f, bar.Y + 5f, Ui.TextWidth(back) + 26f, 26f);
+            if (Widgets.Button(Ui.Id("sceneView.backToScene"), button, back, ButtonStyle.Normal)) _context.ShowPrefab(null);
+        }
 
         private void DrawToolbar(Rect viewport)
         {

@@ -173,10 +173,14 @@ namespace Vertex.Editor.Panels
                 }
 
                 case AssetKind.Prefab:
-                    if (Widgets.Button(Ui.Id("asset.addPrefab"), new Rect(x, y, width, 30f), "Add to Scene", ButtonStyle.Primary)) _context.AddPrefab(asset.Path, _context.SpawnPoint);
+                {
+                    var buttons = new Rect(x, y, width, 30f);
+                    if (Widgets.Button(Ui.Id("asset.openPrefab"), buttons.Column(0, 2, 6f), "Open", ButtonStyle.Primary)) _context.OpenPrefab(asset.Path);
+                    if (Widgets.Button(Ui.Id("asset.addPrefab"), buttons.Column(1, 2, 6f), "Add to Scene")) _context.AddPrefab(asset.Path, _context.SpawnPoint);
                     y += 40f;
-                    y = Note("Drag it into the scene for more copies. To change it, change a copy, then Apply in that copy's inspector: every copy updates.", x, y, width);
+                    y = Note("Open it (or double-click it) to change it in a tab of its own: every copy in the scene updates. Drag it into the scene for more copies.", x, y, width);
                     break;
+                }
 
                 case AssetKind.VisualScript:
                     y = DrawVisualScriptAsset(asset, x, y, width);
@@ -282,7 +286,7 @@ namespace Vertex.Editor.Panels
 
             y += 30f + 12f;
 
-            if (gameObject.Prefab is { } prefab) y = PrefabBar(gameObject, prefab, x, y, width);
+            if (gameObject.Prefab is { } prefab && _context.Stage?.Root != gameObject) y = PrefabBar(gameObject, prefab, x, y, width);
 
             // A piece of UI is placed by its rectangle, not its transform: that comes first instead.
             UIRect? uiRect = gameObject.GetComponent<UIRect>();
@@ -772,10 +776,10 @@ namespace Vertex.Editor.Panels
             Rect apply = buttons.Column(2, 3, 4f), revert = buttons.Column(1, 3, 4f), select = buttons.Column(0, 3, 4f);
             Ui.Text(new Rect(bar.X + 30f, bar.Y, buttons.X - bar.X - 34f, bar.Height), prefab.Name, Theme.Hex(0x8FBCFF));
 
-            if (Widgets.Button(Ui.Id("prefab.select"), select, "Select", ButtonStyle.Subtle, $"Show {prefab.Name}.prefab in the assets") &&
-                _context.Assets != null && File.Exists(prefab.Source))
+            if (Widgets.Button(Ui.Id("prefab.open"), select, "Open", ButtonStyle.Subtle, $"Open {prefab.Name}.prefab in a tab of its own, to change it and every copy") &&
+                File.Exists(prefab.Source))
             {
-                _context.Selection.SelectAsset(new AssetEntry(prefab.Source, AssetKind.Prefab));
+                _context.OpenPrefab(prefab.Source);
             }
 
             if (Widgets.Button(Ui.Id("prefab.revert"), revert, "Revert", ButtonStyle.Subtle, "Throw away this copy's changes: make it again from the prefab"))
