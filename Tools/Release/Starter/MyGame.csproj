@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A game made in code. Run it with "dotnet run" in this folder. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The engine, from the download's Engine folder (see the nuget.config beside the download's README). -->
+    <PackageReference Include="Vertex.Engine" Version="$(VertexVersion)" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,81 @@
+# Makes a release when a version's tag is pushed:
+#   git tag v0.1.0
+#   git push origin v0.1.0
+# It tests the engine and editor, makes the downloads with Tools/Release/Build.ps1, and publishes them as a GitHub
+# release, which the docs site's Download page lists. A version with a dash (v0.2.0-beta.1) is marked a pre-release.
+#
+# Run by hand (Actions > Release > Run workflow), it makes the downloads without releasing them: they're kept with the
+# run, to try first.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # every commit and tag, for the release's list of changes
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: |
+          dotnet test Vertex.Tests -c Release
+          dotnet test Vertex.Editor.Tests -c Release
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0-build.${{ github.run_number }}" }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Make the downloads
+        shell: pwsh
+        run: ./Tools/Release/Build.ps1 -Version ${{ steps.version.outputs.value }}
+
+      - name: Keep them with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vertex-${{ steps.version.outputs.value }}
+          path: |
+            dist/*.zip
+            dist/*.nupkg
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = "${{ steps.version.outputs.value }}"
+
+          # What's changed since the last release, from the commits (their messages say what changed for the user).
+          $previous = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $changes = if ($LASTEXITCODE -eq 0 -and $previous) { git log "$previous..$tag" --no-merges --format="- %s" } else { $null }
+
+          $notes = @(
+            "Download **Vertex-$version-win-x64.zip**, unzip it, and run ``Editor\Vertex.Editor.exe``. It needs Windows 10 or 11 (64-bit), a graphics card with Vulkan or OpenGL 3.3, and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The README inside says what's where, and the [documentation](https://biggystudios.github.io/Vertex/) has tutorials."
+            ""
+            "**Vertex.Engine.$version.nupkg** is the engine on its own, for games made in code."
+            ""
+            "## What's changed"
+            ""
+          )
+          $notes += if ($changes) { $changes } else { "- The first release." }
+          $notes | Set-Content release-notes.md -Encoding utf8
+
+          $flags = @("--title", "Vertex $version", "--notes-file", "release-notes.md")
+          if ($version.Contains("-")) { $flags += "--prerelease" }
+          gh release create $tag (Get-ChildItem dist -File).FullName @flags
