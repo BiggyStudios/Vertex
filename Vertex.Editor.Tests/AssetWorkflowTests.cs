@@ -193,6 +193,49 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_UI_button_dragged_in_the_game_view_follows_the_mouse_without_jumping()
+        {
+            var context = new EditorContext();
+            GameObject button = CreateMenu.MakeUI(context, "Button", new Vector2(200f, 50f), g => g.AddComponent<UIButton>());
+            UIRect rect = button.GetComponent<UIRect>()!;
+            rect.AnchorMin = rect.AnchorMax = rect.Pivot = new Vector2(0f, 1f);
+            rect.Position = new Vector2(40f, -40f);
+
+            // The game's picture: smaller than the window, and away from its corner, as in the editor.
+            var editing = new Vertex.Editor.SceneEditing.UIEditing(context);
+            var viewport = new Rect(300f, 80f, 900f, 500f);
+            void Draw() => editing.Draw(viewport, focused: true);
+            UiFrame(Draw);
+
+            // From the picture's units to the window's.
+            float scale = viewport.Width / UISystem.ScreenSize.X;
+            Vector2 ToWindow(Vector2 point) => viewport.Position + point * scale;
+            Vector2 grab = ToWindow(rect.ScreenPosition + rect.ScreenSize * 0.5f);
+            Vector2 before = rect.ScreenPosition;
+
+            InputSystem.MoveMouse(grab);
+            UiFrame(Draw);
+            UiFrame(Draw);
+            InputSystem.PressButton(MouseButton.Left);
+            UiFrame(Draw);
+            for (int i = 1; i <= 10; i++)
+            {
+                InputSystem.MoveMouse(grab + new Vector2(6f, 3f) * i);
+                UiFrame(Draw);
+
+                // Wherever it is on the way, the point grabbed stays under the mouse.
+                Vector2 expected = before + new Vector2(6f, 3f) * i / scale;
+                Assert.True(Vector2.Distance(rect.ScreenPosition, expected) < 1.01f, $"Step {i}: at {rect.ScreenPosition}, expected {expected}");
+            }
+
+            InputSystem.ReleaseButton(MouseButton.Left);
+            UiFrame(Draw);
+
+            context.Undo();
+            Assert.Equal(new Vector2(40f, -40f), rect.Position);
+        }
+
+        [Fact]
         public void A_component_dragged_down_the_inspector_moves_below_the_next()
         {
             var app = new EditorApp();

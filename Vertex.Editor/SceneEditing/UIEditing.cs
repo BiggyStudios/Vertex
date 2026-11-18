@@ -204,6 +204,9 @@ namespace Vertex.Editor.SceneEditing
             (Vector2 newPosition, Vector2 newSize) = rect.PlacementFor(position, size, parentPosition, parentSize);
             rect.Position = new Vector2(MathF.Round(newPosition.X, 2), MathF.Round(newPosition.Y, 2));
             rect.Size = new Vector2(MathF.Round(newSize.X, 2), MathF.Round(newSize.Y, 2));
+
+            // Laid out again now, so the outline and handles are where it is this frame, not where it was.
+            rect.Layout(parentPosition, parentSize);
         }
 
         private void Record(UIRect rect, string name)

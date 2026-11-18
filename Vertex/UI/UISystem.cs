@@ -17,6 +17,12 @@ namespace Vertex.UI
         private static readonly List<Element> _elements = new();
         private static UIButton? _pressed;
 
+        /// <summary>
+        /// The size of the screen the UI was last laid out on, in UI units: the whole window in a game, the game's picture in
+        /// an editor. Pieces at the top of a canvas are placed against this.
+        /// </summary>
+        public static Vector2 ScreenSize { get; private set; }
+
         /// <summary>Whether the mouse is over a piece of UI that takes clicks (a button), so the game can leave the click alone.</summary>
         public static bool MouseOverUI { get; private set; }
 
@@ -68,6 +74,7 @@ namespace Vertex.UI
         internal static void Layout(Scene scene)
         {
             _elements.Clear();
+            ScreenSize = Canvas.Size;
 
             var canvases = new List<UICanvas>();
             foreach (GameObject gameObject in scene.GameObjects)
@@ -122,7 +129,7 @@ namespace Vertex.UI
                 if (parent.GameObject.GetComponent<UICanvas>() != null) break;
             }
 
-            return (Vector2.Zero, Canvas.Size);
+            return (Vector2.Zero, ScreenSize);
         }
 
         internal static void Reset()
