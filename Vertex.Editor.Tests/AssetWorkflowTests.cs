@@ -56,6 +56,61 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_submenu_opens_beside_its_item_and_what_is_picked_from_it_runs()
+        {
+            string? picked = null;
+            List<MenuItem> items =
+            [
+                new MenuItem("Rename", () => picked = "Rename"),
+                new MenuItem("Create") { Children = [new MenuItem("Cube", () => picked = "Cube"), new MenuItem("Sphere", () => picked = "Sphere")] }
+            ];
+            int owner = Ui.Id("test.submenu");
+
+            // Resting on "Create" (the second row) opens its menu to the right, level with it.
+            InputSystem.MoveMouse(new Vector2(150f, 144f));
+            UiFrame(() => Menu.Open(owner, new Vector2(100f, 100f), items));
+            for (int i = 0; i < 20; i++) UiFrame(() => { });
+
+            // Across into it, onto "Cube", and click.
+            InputSystem.MoveMouse(new Vector2(300f, 144f));
+            UiFrame(() => { });
+            UiFrame(() => { });
+            InputSystem.PressButton(MouseButton.Left);
+            UiFrame(() => { });
+            InputSystem.ReleaseButton(MouseButton.Left);
+            UiFrame(() => { });
+
+            Assert.Equal("Cube", picked);
+            Assert.False(Menu.IsAnyOpen);
+
+            // And with the keys: down to "Create", right into it, down to "Sphere", Enter.
+            UiFrame(() => Menu.Open(owner, new Vector2(100f, 100f), items));
+            foreach (Key key in new[] { Key.Down, Key.Down, Key.Right, Key.Down, Key.Enter })
+            {
+                InputSystem.PressKey(key);
+                UiFrame(() => { });
+                InputSystem.ReleaseKey(key);
+                UiFrame(() => { });
+            }
+
+            Assert.Equal("Sphere", picked);
+        }
+
+        [Fact]
+        public void Something_made_from_an_objects_menu_goes_under_it()
+        {
+            var context = new EditorContext();
+            GameObject holder = context.Create("Holder", g => g.Transform.Position = new Vector3(3f, 0f, 0f));
+
+            MenuItem cube = CreateMenu.Items(context, holder.Transform).Single(item => item.Label == "Cube");
+            cube.Action!();
+
+            GameObject made = context.Selection.Object!;
+            Assert.Same(holder.Transform, made.Transform.Parent);
+            Assert.Equal(new Vector3(3f, 0f, 0f), made.Transform.WorldPosition);
+        }
+
+        [Fact]
         public void Build_errors_are_shown_once_each_and_short()
         {
             const string output = """

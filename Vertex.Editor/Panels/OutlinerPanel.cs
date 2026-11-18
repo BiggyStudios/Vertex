@@ -358,8 +358,12 @@ namespace Vertex.Editor.Panels
 
         private List<MenuItem> RowMenu(GameObject gameObject)
         {
+            // Things made from here go under the object: a cube on an empty, a light on a lamp post.
             var items = new List<MenuItem>
             {
+                new("Create") { Icon = Icons.Plus, Children = CreateMenu.Items(_context, gameObject.Transform, flat: true) },
+                new("Duplicate", () => _context.Duplicate(gameObject)) { Shortcut = "Ctrl+D" },
+                MenuItem.Separator,
                 new("Rename", () => BeginRename(gameObject)) { Shortcut = "F2" },
                 new("Delete", () => _context.Delete(gameObject)) { Shortcut = "Del", Icon = Icons.Trash }
             };
@@ -386,12 +390,6 @@ namespace Vertex.Editor.Panels
                 }
             }
 
-            items.Add(MenuItem.Separator);
-            items.Add(new MenuItem("Create Empty Child", () =>
-            {
-                _expanded.Add(gameObject);
-                _context.Create("Empty", parent: gameObject.Transform);
-            }) { Icon = Icons.Plus });
             return items;
         }
 

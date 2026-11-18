@@ -7,7 +7,7 @@ namespace Vertex.Editor.Gui
 {
     /// <summary>
     /// One line of a <see cref="Menu"/>: a label, and what happens when it's picked. A separator is a thin line between
-    /// groups instead.
+    /// groups instead. One with <see cref="Children"/> opens a menu of its own beside it.
     /// </summary>
     public sealed record MenuItem(string Label, Action? Action = null)
     {
@@ -18,13 +18,17 @@ namespace Vertex.Editor.Gui
         public Icon? Icon { get; init; }
         public bool IsSeparator { get; init; }
 
+        /// <summary>A menu that opens beside this item when it's pointed at ("Create ▸"), instead of an action.</summary>
+        public IReadOnlyList<MenuItem>? Children { get; init; }
+
         public static MenuItem Separator { get; } = new("") { IsSeparator = true };
     }
 
     /// <summary>
     /// A list of choices that drops open over everything else: right-click menus and dropdowns. One is open at a time.
     /// It eases in, the highlight slides from item to item, and the arrow keys and Enter work too. Clicking outside or
-    /// Escape closes it.
+    /// Escape closes it. An item with <see cref="MenuItem.Children"/> opens them in a second menu beside it, when the
+    /// mouse rests on it (or with the right arrow key).
     /// <para>
     /// Picking an item runs its action, and its number can be collected by whatever opened the menu with
     /// <see cref="TakeChoice"/> on the next frame.
@@ -47,9 +51,21 @@ namespace Vertex.Editor.Gui
         private static int _choiceOwner;
         private static int _choice = -1;
 
+        // The menu opened beside an item: which item, its highlight, when it opened, and whether the keys are its.
+        private static int _subOf = -1;
+        private static int _subHighlighted = -1;
+        private static float _subOpenedAt;
+        private static bool _keysInSub;
+
+        // The item the mouse is resting on, and since when: a submenu opens (or another closes) once it's rested a moment,
+        // so crossing other items on the way to a submenu doesn't close it.
+        private static int _resting = -1;
+        private static float _restingSince;
+
         private const float _itemHeight = 26f;
         private const float _separatorHeight = 9f;
         private const float _padding = 5f;
+        private const float _restBeforeSwitching = 0.15f;
 
         public static bool IsAnyOpen => _items != null && _closedAt < 0f;
 
@@ -67,6 +83,8 @@ namespace Vertex.Editor.Gui
             _flipBy = flipBy;
             _closedAt = -1f;
             _highlighted = -1;
+            _resting = -1;
+            CloseSub();
 
             // Starts on the ticked item, for a dropdown.
             for (int i = 0; i < items.Count; i++)
@@ -95,7 +113,57 @@ namespace Vertex.Editor.Gui
             return choice;
         }
 
-        /// <summary>Draws the open menu, over everything. Called by <see cref="Ui.EndFrame"/>.</summary>
+        private static void OpenSub(int index, bool withKeys)
+        {
+            _subOf = index;
+            _subOpenedAt = Ui.Time;
+            _keysInSub = withKeys;
+            _subHighlighted = withKeys ? FirstEnabled(_items![index].Children!) : -1;
+        }
+
+        private static void CloseSub()
+        {
+            _subOf = -1;
+            _subHighlighted = -1;
+            _keysInSub = false;
+        }
+
+        private static int FirstEnabled(IReadOnlyList<MenuItem> items)
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (!items[i].IsSeparator && items[i].Enabled) return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>How big a menu of <paramref name="items"/> is.</summary>
+        private static Vector2 Measure(IReadOnlyList<MenuItem> items, float minWidth)
+        {
+            float width = minWidth;
+            float height = _padding * 2f;
+            foreach (MenuItem item in items)
+            {
+                height += item.IsSeparator ? _separatorHeight : _itemHeight;
+                if (item.IsSeparator) continue;
+
+                float right = item.Children != null ? 24f : item.Shortcut != null ? Ui.TextWidth(item.Shortcut, Theme.SmallTextSize) + 24f : 0f;
+                width = MathF.Max(width, Ui.TextWidth(item.Label) + right + 56f);
+            }
+
+            return new Vector2(MathF.Max(width, 150f), height);
+        }
+
+        /// <summary>Where item <paramref name="index"/>'s row is in a menu drawn at <paramref name="rect"/>.</summary>
+        private static Rect Row(IReadOnlyList<MenuItem> items, Rect rect, int index)
+        {
+            float y = rect.Y + _padding;
+            for (int i = 0; i < index; i++) y += items[i].IsSeparator ? _separatorHeight : _itemHeight;
+            return new Rect(rect.X + _padding, y, rect.Width - _padding * 2f, _itemHeight);
+        }
+
+        /// <summary>Draws the open menu (and the one beside it, if one's open), over everything. Called by <see cref="Ui.EndFrame"/>.</summary>
         internal static void Draw()
         {
             if (_items == null) return;
@@ -106,130 +174,200 @@ namespace Vertex.Editor.Gui
             if (closing && shown <= 0f)
             {
                 _items = null;
+                CloseSub();
                 return;
             }
 
             IReadOnlyList<MenuItem> items = _items;
+            Vector2 size = Measure(items, _minWidth);
+            Vector2 position = _position;
+            if (position.X + size.X > Canvas.Width - 6f) position.X = MathF.Max(Canvas.Width - 6f - size.X, 6f);
+            if (position.Y + size.Y > Canvas.Height - 6f) position.Y = MathF.Max(position.Y - size.Y - _flipBy, 6f);
+            var rect = new Rect(position.X, position.Y + (1f - shown) * -6f, size.X, size.Y);
 
-            float width = _minWidth;
-            float height = _padding * 2f;
-            foreach (MenuItem item in items)
+            // The menu beside an item: to its right, or its left if there's no room, level with the item.
+            IReadOnlyList<MenuItem>? subItems = _subOf >= 0 && _subOf < items.Count ? items[_subOf].Children : null;
+            Rect subRect = default;
+            if (subItems != null)
             {
-                height += item.IsSeparator ? _separatorHeight : _itemHeight;
-                if (!item.IsSeparator)
-                {
-                    float shortcut = item.Shortcut != null ? Ui.TextWidth(item.Shortcut, Theme.SmallTextSize) + 24f : 0f;
-                    width = MathF.Max(width, Ui.TextWidth(item.Label) + shortcut + 56f);
-                }
+                Vector2 subSize = Measure(subItems, 0f);
+                Rect parentRow = Row(items, rect, _subOf);
+                float x = rect.Right - 3f;
+                if (x + subSize.X > Canvas.Width - 6f) x = MathF.Max(rect.X - subSize.X + 3f, 6f);
+                float y = Math.Clamp(parentRow.Y - _padding, 6f, MathF.Max(Canvas.Height - 6f - subSize.Y, 6f));
+                float subShown = Ui.EaseOut((Ui.Time - _subOpenedAt) / 0.12f);
+                subRect = new Rect(x + (1f - subShown) * -4f, y, subSize.X, subSize.Y);
             }
 
-            width = MathF.Max(width, 150f);
-            Vector2 position = _position;
-            if (position.X + width > Canvas.Width - 6f) position.X = MathF.Max(Canvas.Width - 6f - width, 6f);
-            if (position.Y + height > Canvas.Height - 6f) position.Y = MathF.Max(position.Y - height - _flipBy, 6f);
-
-            var rect = new Rect(position.X, position.Y + (1f - shown) * -6f, width, height);
             Ui.Opacity = shown;
-
             int menuId = Ui.Id(_owner, "menu");
             if (!closing)
             {
                 // Everything outside is covered by an invisible blocker, so a click outside only closes the menu.
                 Interaction outside = Ui.Interact(Ui.Id(menuId, "outside"), new Rect(0f, 0f, Canvas.Width, Canvas.Height));
+                bool inside = rect.Contains(Ui.Mouse) || subItems != null && subRect.Contains(Ui.Mouse);
+
                 // Not on the frame it opened: the right-click that opened it would count as one outside it.
                 bool justOpened = _openedFrame == Ui.Frame;
-                if (!justOpened && (outside.Pressed || Ui.MousePressed(MouseButton.Right) && !rect.Contains(Ui.Mouse)) || InputSystem.GetKeyDown(Key.Escape))
+                if (!justOpened && (outside.Pressed || Ui.MousePressed(MouseButton.Right) && !inside)) Close();
+                else if (InputSystem.GetKeyDown(Key.Escape))
                 {
+                    // Escape backs out of a submenu first.
                     InputSystem.Consume(Key.Escape);
-                    Close();
+                    if (subItems != null && _keysInSub) CloseSub();
+                    else Close();
                 }
 
                 Ui.Block(menuId, rect);
+                if (subItems != null) Ui.Block(Ui.Id(menuId, "sub"), subRect);
+                HandleKeys(items);
             }
 
-            Ui.Shadow(rect, 7f, 18f);
-            Ui.Rect(rect, Theme.Popup, 7f);
-            Ui.Outline(rect, Theme.BorderStrong, 7f);
-
-            if (!closing) HandleKeys(items);
-
-            // Where the highlight is now, so it can slide there.
-            float y = rect.Y + _padding;
-            float highlightY = -1f;
-            for (int i = 0; i < items.Count; i++)
+            DrawPanel(items, rect, menuId, ref _highlighted, sub: false, closing);
+            if (subItems != null && _subOf >= 0)
             {
-                MenuItem item = items[i];
-                if (item.IsSeparator)
-                {
-                    Ui.Rect(new Rect(rect.X + 10f, y + _separatorHeight * 0.5f, rect.Width - 20f, 1f), Theme.Border);
-                    y += _separatorHeight;
-                    continue;
-                }
-
-                var row = new Rect(rect.X + _padding, y, rect.Width - _padding * 2f, _itemHeight);
-                if (!closing && item.Enabled)
-                {
-                    Interaction interaction = Ui.Interact(Ui.Id(menuId, i), row);
-                    if (interaction.Hovered && Ui.MouseMovedLately) _highlighted = i;
-                    if (interaction.Clicked) Pick(i);
-                }
-
-                if (i == _highlighted && item.Enabled) highlightY = row.Y;
-                y += _itemHeight;
-            }
-
-            if (highlightY >= 0f)
-            {
-                float slid = Ui.Smooth(Ui.Id(menuId, "highlight"), highlightY, 30f, highlightY);
-                Ui.Rect(new Rect(rect.X + _padding, slid, rect.Width - _padding * 2f, _itemHeight), Theme.Accent.WithAlpha(0.85f), 4f);
-            }
-
-            y = rect.Y + _padding;
-            for (int i = 0; i < items.Count; i++)
-            {
-                MenuItem item = items[i];
-                if (item.IsSeparator)
-                {
-                    y += _separatorHeight;
-                    continue;
-                }
-
-                var row = new Rect(rect.X + _padding, y, rect.Width - _padding * 2f, _itemHeight);
-                bool lit = i == _highlighted && item.Enabled;
-                Color text = !item.Enabled ? Theme.TextFaint : lit ? Color.White : Theme.Text;
-
-                if (item.Checked) Icons.Check(new Vector2(row.X + 12f, row.Centre.Y), 13f, lit ? Color.White : Theme.AccentText);
-                else item.Icon?.Invoke(new Vector2(row.X + 12f, row.Centre.Y), 14f, lit ? Color.White : Theme.TextDim);
-
-                Ui.Text(new Rect(row.X + 26f, row.Y, row.Width - 30f, row.Height), item.Label, text);
-                if (item.Shortcut != null)
-                {
-                    Ui.Text(row.Shrink(10f, 0f), item.Shortcut, lit ? Color.White.WithAlpha(0.8f) : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
-                }
-
-                y += _itemHeight;
+                DrawPanel(subItems, subRect, Ui.Id(menuId, "subPanel" + _subOf), ref _subHighlighted, sub: true, closing);
             }
 
             Ui.Opacity = 1f;
         }
 
-        private static void HandleKeys(IReadOnlyList<MenuItem> items)
+        private static void DrawPanel(IReadOnlyList<MenuItem> items, Rect rect, int id, ref int highlighted, bool sub, bool closing)
         {
-            int step = InputSystem.GetKeyDown(Key.Down) ? 1 : InputSystem.GetKeyDown(Key.Up) ? -1 : 0;
-            if (step != 0)
+            Ui.Shadow(rect, 7f, 18f);
+            Ui.Rect(rect, Theme.Popup, 7f);
+            Ui.Outline(rect, Theme.BorderStrong, 7f);
+
+            bool overSomething = false;
+            for (int i = 0; i < items.Count; i++)
             {
-                for (int tries = 0; tries < items.Count; tries++)
+                MenuItem item = items[i];
+                if (item.IsSeparator)
                 {
-                    _highlighted = ((_highlighted < 0 && step < 0 ? 0 : _highlighted) + step + items.Count) % items.Count;
-                    if (!items[_highlighted].IsSeparator && items[_highlighted].Enabled) break;
+                    Rect line = Row(items, rect, i);
+                    Ui.Rect(new Rect(rect.X + 10f, line.Y + _separatorHeight * 0.5f, rect.Width - 20f, 1f), Theme.Border);
+                    continue;
+                }
+
+                if (closing || !item.Enabled) continue;
+
+                Rect row = Row(items, rect, i);
+                Interaction interaction = Ui.Interact(Ui.Id(id, i), row);
+                if (interaction.Hovered)
+                {
+                    overSomething = true;
+                    if (Ui.MouseMovedLately)
+                    {
+                        highlighted = i;
+                        _keysInSub = sub;
+                    }
+                }
+
+                if (!sub && interaction.Hovered && _resting != i)
+                {
+                    _resting = i;
+                    _restingSince = Ui.Time;
+                }
+
+                if (interaction.Clicked)
+                {
+                    if (sub) PickSub(i);
+                    else if (item.Children != null) OpenSub(i, withKeys: false);
+                    else Pick(i);
                 }
             }
 
-            if ((InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter)) && _highlighted >= 0)
+            // Resting on an item opens its submenu, or closes another's.
+            if (!sub && !closing && overSomething && _resting >= 0 && Ui.Time - _restingSince > _restBeforeSwitching)
+            {
+                if (items[_resting].Children != null && _subOf != _resting) OpenSub(_resting, withKeys: false);
+                else if (items[_resting].Children == null && _subOf >= 0) CloseSub();
+            }
+
+            if (!sub && !overSomething) _resting = -1;
+
+            // The highlight slides from item to item; an item whose submenu is open stays lit.
+            int lit = !sub && _subOf >= 0 ? _subOf : highlighted;
+            if (lit >= 0 && lit < items.Count && items[lit].Enabled && !items[lit].IsSeparator)
+            {
+                Rect row = Row(items, rect, lit);
+                float slid = Ui.Smooth(Ui.Id(id, "highlight"), row.Y, 30f, row.Y);
+                Ui.Rect(new Rect(row.X, slid, row.Width, _itemHeight), Theme.Accent.WithAlpha(!sub && _keysInSub ? 0.45f : 0.85f), 4f);
+            }
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                MenuItem item = items[i];
+                if (item.IsSeparator) continue;
+
+                Rect row = Row(items, rect, i);
+                bool on = i == lit && item.Enabled;
+                Color text = !item.Enabled ? Theme.TextFaint : on ? Color.White : Theme.Text;
+
+                if (item.Checked) Icons.Check(new Vector2(row.X + 12f, row.Centre.Y), 13f, on ? Color.White : Theme.AccentText);
+                else item.Icon?.Invoke(new Vector2(row.X + 12f, row.Centre.Y), 14f, on ? Color.White : Theme.TextDim);
+
+                Ui.Text(new Rect(row.X + 26f, row.Y, row.Width - 30f, row.Height), item.Label, text);
+                if (item.Children != null)
+                {
+                    Icons.Chevron(new Vector2(row.Right - 10f, row.Centre.Y), 12f, on ? Color.White : Theme.TextDim);
+                }
+                else if (item.Shortcut != null)
+                {
+                    Ui.Text(row.Shrink(10f, 0f), item.Shortcut, on ? Color.White.WithAlpha(0.8f) : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+                }
+            }
+        }
+
+        private static void HandleKeys(IReadOnlyList<MenuItem> items)
+        {
+            IReadOnlyList<MenuItem>? subItems = _subOf >= 0 ? items[_subOf].Children : null;
+            bool enter = InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter);
+            int step = InputSystem.GetKeyDown(Key.Down) ? 1 : InputSystem.GetKeyDown(Key.Up) ? -1 : 0;
+
+            if (subItems != null && _keysInSub)
+            {
+                if (step != 0) _subHighlighted = Step(subItems, _subHighlighted, step);
+                if (InputSystem.GetKeyDown(Key.Left)) _keysInSub = false;
+                if (enter && _subHighlighted >= 0)
+                {
+                    InputSystem.Consume(Key.Enter);
+                    PickSub(_subHighlighted);
+                }
+
+                return;
+            }
+
+            if (step != 0)
+            {
+                _highlighted = Step(items, _highlighted, step);
+                if (_subOf >= 0 && _subOf != _highlighted) CloseSub();
+            }
+
+            bool hasChildren = _highlighted >= 0 && items[_highlighted].Children != null;
+            if (hasChildren && (InputSystem.GetKeyDown(Key.Right) || enter))
+            {
+                InputSystem.Consume(Key.Enter);
+                OpenSub(_highlighted, withKeys: true);
+            }
+            else if (enter && _highlighted >= 0)
             {
                 InputSystem.Consume(Key.Enter);
                 Pick(_highlighted);
             }
+        }
+
+        /// <summary>The next item that can be picked, going <paramref name="step"/> from <paramref name="from"/>, round the ends.</summary>
+        private static int Step(IReadOnlyList<MenuItem> items, int from, int step)
+        {
+            int index = from;
+            for (int tries = 0; tries < items.Count; tries++)
+            {
+                index = ((index < 0 && step < 0 ? 0 : index) + step + items.Count) % items.Count;
+                if (!items[index].IsSeparator && items[index].Enabled) return index;
+            }
+
+            return from;
         }
 
         private static void Pick(int index)
@@ -239,6 +377,15 @@ namespace Vertex.Editor.Gui
             _choiceOwner = _owner;
             _choice = index;
             MenuItem item = _items[index];
+            Close();
+            item.Action?.Invoke();
+        }
+
+        private static void PickSub(int index)
+        {
+            if (_items == null || _subOf < 0 || _items[_subOf].Children is not { } children) return;
+
+            MenuItem item = children[index];
             Close();
             item.Action?.Invoke();
         }

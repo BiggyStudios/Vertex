@@ -9,8 +9,26 @@ namespace Vertex.Editor.Editing
     /// <summary>The things the editor can make from nothing: an empty object, simple shapes, lights and a camera.</summary>
     public static class CreateMenu
     {
-        /// <summary>The menu of them, each made under <paramref name="parent"/> (or at the top level) at <paramref name="at"/>.</summary>
-        public static List<MenuItem> Items(EditorContext context, Transform? parent = null)
+        /// <summary>
+        /// The menu of them, each made under <paramref name="parent"/> (or at the top level). With <paramref name="flat"/>,
+        /// the UI pieces are listed in it rather than in a menu of their own: for when this is already a submenu.
+        /// </summary>
+        public static List<MenuItem> Items(EditorContext context, Transform? parent = null, bool flat = false)
+        {
+            List<MenuItem> items = AllItems(context, parent);
+            if (!flat) return items;
+
+            var flattened = new List<MenuItem>();
+            foreach (MenuItem item in items)
+            {
+                if (item.Children == null) flattened.Add(item);
+                else flattened.AddRange(item.Children.Where(child => !child.IsSeparator).Select(child => child with { Label = $"{item.Label} {child.Label}" }));
+            }
+
+            return flattened;
+        }
+
+        private static List<MenuItem> AllItems(EditorContext context, Transform? parent)
         {
             Vector3 at = parent == null ? context.SpawnPoint : Vector3.Zero;
 
@@ -48,11 +66,19 @@ namespace Vertex.Editor.Editing
                 })) { Icon = Icons.Light },
                 new MenuItem("Camera", () => Make("Camera", gameObject => gameObject.AddComponent<Camera>())) { Icon = Icons.Camera },
                 MenuItem.Separator,
-                new MenuItem("UI Canvas", () => context.Create("Canvas", gameObject => gameObject.AddComponent<UICanvas>())) { Icon = Icons.UI },
-                new MenuItem("UI Panel", () => MakeUI(context, "Panel", new Vector2(320f, 220f), gameObject => gameObject.AddComponent<UIPanel>())) { Icon = Icons.UI },
-                new MenuItem("UI Text", () => MakeUI(context, "Text", new Vector2(240f, 50f), gameObject => gameObject.AddComponent<UIText>())) { Icon = Icons.UI },
-                new MenuItem("UI Image", () => MakeUI(context, "Image", new Vector2(120f, 120f), gameObject => gameObject.AddComponent<UIImage>())) { Icon = Icons.Image },
-                new MenuItem("UI Button", () => MakeUI(context, "Button", new Vector2(200f, 50f), gameObject => gameObject.AddComponent<UIButton>())) { Icon = Icons.Scale }
+                new MenuItem("UI")
+                {
+                    Icon = Icons.UI,
+                    Children =
+                    [
+                        new MenuItem("Canvas", () => context.Create("Canvas", gameObject => gameObject.AddComponent<UICanvas>())) { Icon = Icons.UI },
+                        MenuItem.Separator,
+                        new MenuItem("Panel", () => MakeUI(context, "Panel", new Vector2(320f, 220f), gameObject => gameObject.AddComponent<UIPanel>())) { Icon = Icons.UI },
+                        new MenuItem("Text", () => MakeUI(context, "Text", new Vector2(240f, 50f), gameObject => gameObject.AddComponent<UIText>())) { Icon = Icons.UI },
+                        new MenuItem("Image", () => MakeUI(context, "Image", new Vector2(120f, 120f), gameObject => gameObject.AddComponent<UIImage>())) { Icon = Icons.Image },
+                        new MenuItem("Button", () => MakeUI(context, "Button", new Vector2(200f, 50f), gameObject => gameObject.AddComponent<UIButton>())) { Icon = Icons.UI }
+                    ]
+                }
             ];
         }
 
