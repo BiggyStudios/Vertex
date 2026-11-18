@@ -662,12 +662,14 @@ namespace Vertex.Rendering.Shaders
             layout (location = 2) in vec4 aColor;
             layout (location = 3) in float aGlow;
             layout (location = 4) in float aAdditive;
+            layout (location = 5) in float aLook;
 
             VARYING(0) out vec2 vCorner;
             VARYING(1) out vec4 vColor;
             VARYING(2) out float vGlow;
             VARYING(3) out float vAdditive;
             VARYING(4) out vec3 vToCamera;
+            VARYING(5) out float vLook;
 
             void main()
             {
@@ -676,6 +678,7 @@ namespace Vertex.Rendering.Shaders
                 vGlow = aGlow;
                 vAdditive = aAdditive;
                 vToCamera = frame.cameraPosition.xyz - aPosition;
+                vLook = aLook;
                 gl_Position = frame.projection * frame.view * vec4(aPosition, 1.0);
             }
             """;
@@ -709,6 +712,7 @@ namespace Vertex.Rendering.Shaders
             layout (location = 2) out float vGlow;
             layout (location = 3) out float vAdditive;
             layout (location = 4) out vec3 vToCamera;
+            layout (location = 5) out float vLook;
 
             const vec2 corners[6] = vec2[](vec2(-1, -1), vec2(1, -1), vec2(1, 1), vec2(-1, -1), vec2(1, 1), vec2(-1, 1));
 
@@ -724,6 +728,7 @@ namespace Vertex.Rendering.Shaders
                 vGlow = 0.0;
                 vAdditive = 0.0;
                 vToCamera = vec3(0.0, 0.0, 1.0);
+                vLook = 0.0;
 
                 float lifetime = particle.velocityLifetime.w;
                 if (lifetime <= 0.0) return;
@@ -766,14 +771,15 @@ namespace Vertex.Rendering.Shaders
             }
             """;
 
-        // A soft round dot, blended with premultiplied alpha: an alpha of 0 adds light, anything else covers what's
-        // behind. Glowing ones are brighter than white, so they bloom.
+        // A soft round dot (or another shape: see ParticleLook), blended with premultiplied alpha: an alpha of 0 adds
+        // light, anything else covers what's behind. Glowing ones are brighter than white, so they bloom.
         public const string ParticleFragment = Frame + """
             VARYING(0) in vec2 vCorner;
             VARYING(1) in vec4 vColor;
             VARYING(2) in float vGlow;
             VARYING(3) in float vAdditive;
             VARYING(4) in vec3 vToCamera;
+            VARYING(5) in float vLook;
 
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 AmbientColor;
@@ -783,10 +789,26 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                float r2 = dot(vCorner, vCorner);
-                if (r2 >= 1.0) discard;
+                // The shape drawn (see ParticleLook): a soft dot, a disc, a square, a ring, or a spark with four rays.
+                float look = floor(vLook + 0.5);
+                vec2 c = vCorner;
+                float r2 = dot(c, c);
+                float shape;
+                if (look < 0.5)
+                {
+                    if (r2 >= 1.0) discard;
+                    shape = (1.0 - r2) * (1.0 - r2);
+                }
+                else if (look < 1.5) shape = clamp((1.0 - sqrt(r2)) * 12.0, 0.0, 1.0);
+                else if (look < 2.5) shape = clamp((1.0 - max(abs(c.x), abs(c.y))) * 12.0, 0.0, 1.0);
+                else if (look < 3.5) shape = clamp(1.0 - abs(sqrt(r2) - 0.75) * 6.0, 0.0, 1.0);
+                else
+                {
+                    float rays = max(1.0 - abs(c.x) * 8.0, 0.0) * (1.0 - abs(c.y)) + max(1.0 - abs(c.y) * 8.0, 0.0) * (1.0 - abs(c.x));
+                    shape = clamp(pow(max(1.0 - sqrt(r2), 0.0), 3.0) + rays, 0.0, 1.0);
+                }
 
-                float shape = (1.0 - r2) * (1.0 - r2);
+                if (shape <= 0.002) discard;
                 float alpha = vColor.a * shape;
                 float covers = alpha * (1.0 - vAdditive);
 

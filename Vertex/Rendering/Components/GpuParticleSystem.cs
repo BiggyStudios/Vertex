@@ -59,12 +59,13 @@ namespace Vertex.Rendering
 
         protected internal override void Update()
         {
-            int emit = RateEmission(Time.DeltaTime);
-            if (emit > 0) Emit(emit);
+            Tick(Time.DeltaTime);
 
-            if (DestroyWhenFinished && !IsAlive && _pending.Count == 0 && (!Emitting || Rate <= 0f) && _lastEmitTime > _clearedTime)
+            if (DestroyWhenFinished && !IsAlive && _pending.Count == 0 && !Playing && _lastEmitTime > _clearedTime)
                 GameObject.Destroy();
         }
+
+        public override void Simulate(float deltaTime) => Tick(deltaTime);
 
         protected internal override void OnDestroy()
         {

@@ -12,7 +12,7 @@ namespace Vertex.Rendering.OpenGL
     /// </summary>
     internal sealed unsafe class GLParticles : IDisposable
     {
-        private const int _floatsPerVertex = 11; // position xyz, corner xy, colour rgba, glow, additive
+        private const int _floatsPerVertex = 12; // position xyz, corner xy, colour rgba, glow, additive, look
 
         private readonly GL _gl;
         private readonly GLShader _shader;
@@ -42,6 +42,8 @@ namespace Vertex.Rendering.OpenGL
             gl.VertexAttribPointer(3, 1, VertexAttribPointerType.Float, false, stride, (void*)(9 * sizeof(float)));
             gl.EnableVertexAttribArray(4);
             gl.VertexAttribPointer(4, 1, VertexAttribPointerType.Float, false, stride, (void*)(10 * sizeof(float)));
+            gl.EnableVertexAttribArray(5);
+            gl.VertexAttribPointer(5, 1, VertexAttribPointerType.Float, false, stride, (void*)(11 * sizeof(float)));
 
             gl.BindVertexArray(0);
         }
@@ -79,6 +81,13 @@ namespace Vertex.Rendering.OpenGL
                         right = Vector3.Normalize(side);
                         halfLength += stretch * 0.5f;
                     }
+                }
+
+                // Turned in the plane facing the camera (one stretched along its movement already lies along it).
+                if (particle.Rotation != 0f && stretch <= 1e-4f)
+                {
+                    float cos = MathF.Cos(particle.Rotation), sin = MathF.Sin(particle.Rotation);
+                    (right, up) = (right * cos + up * sin, up * cos - right * sin);
                 }
 
                 Vector3 x = right * halfWidth;
@@ -128,6 +137,7 @@ namespace Vertex.Rendering.OpenGL
             v[offset + 8] = particle.Color.A;
             v[offset + 9] = particle.Glow;
             v[offset + 10] = particle.Additive ? 1f : 0f;
+            v[offset + 11] = (float)particle.Look;
             offset += _floatsPerVertex;
         }
 

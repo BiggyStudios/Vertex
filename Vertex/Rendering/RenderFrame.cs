@@ -53,9 +53,11 @@ namespace Vertex.Rendering
 
     /// <summary>
     /// One particle, facing the camera. Velocity is the stretch: it's drawn that much longer along that direction
-    /// (zero for round). Glow is how much it adds to bloom.
+    /// (zero for round). Glow is how much it adds to bloom. Rotation turns it (in radians) where it faces the camera, and
+    /// Look is the shape drawn.
     /// </summary>
-    public readonly record struct ParticleData(Vector3 Position, Vector3 Velocity, float Size, Color Color, float Glow, bool Additive);
+    public readonly record struct ParticleData(Vector3 Position, Vector3 Velocity, float Size, Color Color, float Glow, bool Additive,
+        float Rotation = 0f, ParticleLook Look = ParticleLook.Soft);
 
     /// <summary>One corner of a 2D quad: a position in pixels from the top-left of the screen, and a colour already multiplied by its alpha.</summary>
     public readonly record struct CanvasVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);

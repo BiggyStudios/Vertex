@@ -22,7 +22,7 @@ namespace Vertex.Rendering.Vulkan
     public sealed unsafe class VulkanRenderBackend : IRenderBackend
     {
         private const int _framesInFlight = 2;
-        private const int _particleFloats = 11; // position xyz, corner xy, colour rgba, glow, additive
+        private const int _particleFloats = 12; // position xyz, corner xy, colour rgba, glow, additive, look
 
         [StructLayout(LayoutKind.Sequential)]
         private struct DrawConstants
@@ -325,7 +325,8 @@ namespace Vertex.Rendering.Vulkan
                     (1, Format.R32G32Sfloat, 12),
                     (2, Format.R32G32B32A32Sfloat, 20),
                     (3, Format.R32Sfloat, 36),
-                    (4, Format.R32Sfloat, 40)
+                    (4, Format.R32Sfloat, 40),
+                    (5, Format.R32Sfloat, 44)
                 ],
                 DepthTest = true,
                 Blend = VkBlend.Premultiplied,
@@ -1057,6 +1058,13 @@ namespace Vertex.Rendering.Vulkan
                     }
                 }
 
+                // Turned in the plane facing the camera (one stretched along its movement already lies along it).
+                if (particle.Rotation != 0f && stretch <= 1e-4f)
+                {
+                    float cos = MathF.Cos(particle.Rotation), sin = MathF.Sin(particle.Rotation);
+                    (right, up) = (right * cos + up * sin, up * cos - right * sin);
+                }
+
                 Vector3 x = right * halfWidth;
                 Vector3 y = up * halfLength;
                 Vector3 p = particle.Position;
@@ -1089,6 +1097,7 @@ namespace Vertex.Rendering.Vulkan
             v[8] = particle.Color.A;
             v[9] = particle.Glow;
             v[10] = particle.Additive ? 1f : 0f;
+            v[11] = (float)particle.Look;
             offset += _particleFloats;
         }
 

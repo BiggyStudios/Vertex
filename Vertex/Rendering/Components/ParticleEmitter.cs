@@ -12,6 +12,37 @@ namespace Vertex.Rendering
         Alpha
     }
 
+    /// <summary>The shape each particle's drawn as.</summary>
+    public enum ParticleLook
+    {
+        /// <summary>A soft round dot, brightest in the middle: smoke, dust, glows.</summary>
+        Soft,
+
+        /// <summary>A round dot with a crisp edge: bubbles, confetti, stylised effects.</summary>
+        Disc,
+
+        Square,
+
+        /// <summary>A circle's outline: shockwaves, ripples.</summary>
+        Ring,
+
+        /// <summary>A bright point with four rays: twinkles, magic, glints.</summary>
+        Spark
+    }
+
+    /// <summary>Where a <see cref="ParticleSystem"/>'s particles start.</summary>
+    public enum EmitterShape
+    {
+        /// <summary>Anywhere in a box the size of <see cref="ParticleEmitter.Area"/> (a point, if that's zero).</summary>
+        Box,
+
+        /// <summary>Anywhere in a ball of <see cref="ParticleSystem.Radius"/>.</summary>
+        Sphere,
+
+        /// <summary>Anywhere on a flat disc of <see cref="ParticleSystem.Radius"/>, facing <see cref="ParticleEmitter.Direction"/>.</summary>
+        Circle
+    }
+
     /// <summary>A value picked at random between <see cref="Min"/> and <see cref="Max"/> each time it's used.</summary>
     public readonly record struct FloatRange(float Min, float Max)
     {
@@ -36,15 +67,45 @@ namespace Vertex.Rendering
         private float _toEmit;
 
         /// <summary>Particles per second while <see cref="Emitting"/>. 0 for bursts only.</summary>
+        [Header("Emission")]
         public float Rate { get; set; }
 
         /// <summary>Whether <see cref="Rate"/> is emitting. Bursts work either way.</summary>
         public bool Emitting { get; set; } = true;
 
+        /// <summary>Particles emitted at once each time it starts playing (and each time it loops): an explosion's burst.</summary>
+        public int Burst { get; set; }
+
+        /// <summary>
+        /// Seconds it plays for each time it starts: <see cref="Rate"/> emits for this long, then it stops, or starts again
+        /// with <see cref="Loop"/>. 0 plays for as long as it's on.
+        /// </summary>
+        public float Duration { get; set; }
+
+        /// <summary>Starts again (with its <see cref="Burst"/>) each time <see cref="Duration"/> is up.</summary>
+        public bool Loop { get; set; } = true;
+
         /// <summary>The most alive at once.</summary>
         public int MaxParticles { get; set; } = 500;
 
+        /// <summary>Destroys the GameObject once it's no longer emitting and its last particle is gone. For one-off effects.</summary>
+        public bool DestroyWhenFinished { get; set; }
+
+        /// <summary>Which way particles head, in the emitter's own space. They spread around it by <see cref="Spread"/>.</summary>
+        [Header("Shape")]
+        public Vector3 Direction { get; set; } = Vector3.UnitY;
+
+        /// <summary>
+        /// Degrees either side of <see cref="Direction"/> particles can head: 0 is a straight line, 90 a half sphere,
+        /// 180 every way.
+        /// </summary>
+        public float Spread { get; set; } = 30f;
+
+        /// <summary>The box, in the emitter's own space, that particles start anywhere in. Zero starts them all at its centre.</summary>
+        public Vector3 Area { get; set; }
+
         /// <summary>Seconds each particle lives.</summary>
+        [Header("Particles")]
         public FloatRange Lifetime { get; set; } = new(0.5f, 1f);
 
         /// <summary>Metres per second each one starts at.</summary>
@@ -68,32 +129,97 @@ namespace Vertex.Rendering
 
         public ParticleBlend Blend { get; set; } = ParticleBlend.Additive;
 
-        /// <summary>Which way particles head, in the emitter's own space. They spread around it by <see cref="Spread"/>.</summary>
-        public Vector3 Direction { get; set; } = Vector3.UnitY;
-
-        /// <summary>
-        /// Degrees either side of <see cref="Direction"/> particles can head: 0 is a straight line, 90 a half sphere,
-        /// 180 every way.
-        /// </summary>
-        public float Spread { get; set; } = 30f;
-
-        /// <summary>The box, in the emitter's own space, that particles start anywhere in. Zero starts them all at its centre.</summary>
-        public Vector3 Area { get; set; }
-
-        /// <summary>Downwards pull in metres per second squared: 9.8 falls like a real thing, negative rises like smoke.</summary>
-        public float Gravity { get; set; }
-
-        /// <summary>How quickly they slow down: the fraction of their speed lost each second, more or less. 0 never slows.</summary>
-        public float Drag { get; set; }
-
         /// <summary>
         /// Stretches each one along the way it's moving, by how far it travels in this many seconds, so fast sparks
         /// streak. 0 keeps them round.
         /// </summary>
         public float Stretch { get; set; }
 
-        /// <summary>Destroys the GameObject once it's no longer emitting and its last particle is gone. For one-off effects.</summary>
-        public bool DestroyWhenFinished { get; set; }
+        /// <summary>Downwards pull in metres per second squared: 9.8 falls like a real thing, negative rises like smoke.</summary>
+        [Header("Movement")]
+        public float Gravity { get; set; }
+
+        /// <summary>How quickly they slow down: the fraction of their speed lost each second, more or less. 0 never slows.</summary>
+        public float Drag { get; set; }
+
+        private float _playTime;
+        private bool _started;
+
+        /// <summary>Seconds since it started playing (since it last looped, with a <see cref="Duration"/>).</summary>
+        public float PlayTime => _playTime;
+
+        /// <summary>
+        /// Whether it'll make more particles by itself: it's <see cref="Emitting"/> with a <see cref="Rate"/>, or will
+        /// burst again, and its <see cref="Duration"/> isn't up.
+        /// </summary>
+        public bool Playing => Emitting && (Rate > 0f || Burst > 0 && Duration > 0f && Loop || !_started && Burst > 0) &&
+                               (Duration <= 0f || Loop || _playTime < Duration);
+
+        /// <summary>Starts playing from the beginning (with its <see cref="Burst"/>), keeping particles already out.</summary>
+        public void Play()
+        {
+            Emitting = true;
+            _started = false;
+            _playTime = 0f;
+            _toEmit = 0f;
+        }
+
+        /// <summary>Stops making particles. Those already out live out their lives.</summary>
+        public void Stop() => Emitting = false;
+
+        /// <summary>Back to the start of playing, without changing whether it's <see cref="Emitting"/>: for previewing it.</summary>
+        internal void Rewind()
+        {
+            Clear();
+            _started = false;
+            _playTime = 0f;
+            _toEmit = 0f;
+        }
+
+        /// <summary>Takes away every particle and plays from the beginning.</summary>
+        public void Restart()
+        {
+            Clear();
+            Play();
+        }
+
+        /// <summary>
+        /// Moves the effect on by <paramref name="deltaTime"/> seconds, as each frame of the game does: for showing it
+        /// outside the game, as the editor does while it's selected. Never destroys anything.
+        /// </summary>
+        public abstract void Simulate(float deltaTime);
+
+        /// <summary>
+        /// Plays the effect on by <paramref name="deltaTime"/>: the <see cref="Burst"/> when it starts or loops, and what
+        /// <see cref="Rate"/> wants emitted.
+        /// </summary>
+        private protected void Tick(float deltaTime)
+        {
+            if (!Emitting) return;
+
+            if (!_started)
+            {
+                _started = true;
+                _playTime = 0f;
+                if (Burst > 0) Emit(Burst);
+            }
+
+            _playTime += deltaTime;
+            if (Duration > 0f && _playTime >= Duration)
+            {
+                if (!Loop)
+                {
+                    _playTime = Duration;
+                    return;
+                }
+
+                _playTime %= Duration;
+                if (Burst > 0) Emit(Burst);
+            }
+
+            int emit = RateEmission(deltaTime);
+            if (emit > 0) Emit(emit);
+        }
 
         /// <summary>Emits <paramref name="count"/> particles at once, from the emitter's area and in its direction.</summary>
         public void Emit(int count)

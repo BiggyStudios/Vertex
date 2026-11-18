@@ -513,8 +513,115 @@ namespace Vertex.Editor.Panels
 
             DrawToolbar(viewport);
             if (_context.Stage is { } stage) DrawPrefabBar(viewport, stage);
+            PreviewEffects(viewport);
             DrawAxes(viewport);
             DrawSpeed(viewport);
+        }
+
+        // ---------------------------------------------------------------- Previewing particle effects
+
+        // Particle effects on what's selected play in the scene view while they're edited, so they can be seen as
+        // they're tuned. One that finishes (a burst) starts again a moment later.
+        private readonly List<ParticleEmitter> _previewing = new();
+        private readonly Dictionary<ParticleEmitter, float> _finishedFor = new();
+        private bool _previewPaused;
+
+        /// <summary>The particle effects playing in the scene view now: those on the selected objects and under them.</summary>
+        public IReadOnlyList<ParticleEmitter> PreviewedEffects => _previewing;
+
+        private void PreviewEffects(Rect viewport)
+        {
+            var now = new List<ParticleEmitter>();
+            if (!_context.Play.Playing)
+            {
+                foreach (GameObject selected in _context.Selection.Objects)
+                {
+                    if (_context.InScene(selected)) EffectsUnder(selected, now);
+                }
+            }
+
+            foreach (ParticleEmitter gone in _previewing.Where(e => !now.Contains(e)).ToList())
+            {
+                if (!_context.Play.Playing) gone.Rewind();
+                _previewing.Remove(gone);
+                _finishedFor.Remove(gone);
+            }
+
+            foreach (ParticleEmitter emitter in now)
+            {
+                if (_previewing.Contains(emitter)) continue;
+                _previewing.Add(emitter);
+                emitter.Rewind();
+            }
+
+            if (_previewing.Count == 0) return;
+
+            if (!_previewPaused)
+            {
+                float deltaTime = MathF.Min(Ui.DeltaTime, 0.1f);
+                foreach (ParticleEmitter emitter in _previewing)
+                {
+                    emitter.Simulate(deltaTime);
+
+                    bool finished = !emitter.Playing && (emitter is ParticleSystem cpu ? cpu.Count == 0 : emitter is not GpuParticleSystem { IsAlive: true });
+                    float waited = finished ? _finishedFor.GetValueOrDefault(emitter) + deltaTime : 0f;
+                    _finishedFor[emitter] = waited;
+                    if (waited > 0.8f && emitter.Emitting)
+                    {
+                        emitter.Rewind();
+                        _finishedFor[emitter] = 0f;
+                    }
+                }
+            }
+
+            DrawEffectBar(viewport);
+        }
+
+        private static void EffectsUnder(GameObject gameObject, List<ParticleEmitter> into)
+        {
+            if (!gameObject.ActiveInHierarchy) return;
+            foreach (ParticleEmitter emitter in gameObject.GetComponents<ParticleEmitter>())
+            {
+                if (emitter.Enabled && !into.Contains(emitter)) into.Add(emitter);
+            }
+
+            foreach (Transform child in gameObject.Transform.Children) EffectsUnder(child.GameObject, into);
+        }
+
+        /// <summary>In the corner while effects play: how many particles there are, how far through it is, and the controls.</summary>
+        private void DrawEffectBar(Rect viewport)
+        {
+            int alive = _previewing.OfType<ParticleSystem>().Sum(p => p.Count);
+            bool counted = _previewing.All(p => p is ParticleSystem);
+            ParticleEmitter first = _previewing[0];
+            string label = _previewing.Count == 1 ? "Particle effect" : $"{_previewing.Count} particle effects";
+            string stats = (counted ? $"{alive} alive  ·  " : "") + $"{first.PlayTime:0.0} s";
+
+            float width = 22f + Ui.TextWidth(label, bold: true) + 12f + Ui.TextWidth(stats, Theme.SmallTextSize) + 14f + 2f * 30f + 6f;
+            var bar = new Rect(viewport.Right - width - 12f, viewport.Bottom - 48f, width, 36f);
+            Ui.Shadow(bar, 8f, 14f, 0.5f);
+            Ui.Rect(bar, Theme.Panel.WithAlpha(0.94f), 8f);
+            Ui.Outline(bar, Theme.Border, 8f);
+            Ui.Block(Ui.Id("sceneView.effectBar"), bar);
+
+            float x = bar.X + 12f;
+            float labelWidth = Ui.TextWidth(label, bold: true);
+            Ui.Text(new Rect(x, bar.Y, labelWidth + 4f, bar.Height), label, Theme.Text, bold: true);
+            x += labelWidth + 12f;
+            Ui.Text(new Rect(x, bar.Y, 200f, bar.Height), stats, Theme.TextFaint, size: Theme.SmallTextSize);
+
+            var restart = new Rect(bar.Right - 64f, bar.Y + 4f, 28f, 28f);
+            var pause = new Rect(bar.Right - 34f, bar.Y + 4f, 28f, 28f);
+            if (Widgets.IconButton(Ui.Id("sceneView.effectRestart"), restart, Icons.Rotate, "Play from the start"))
+            {
+                foreach (ParticleEmitter emitter in _previewing) emitter.Rewind();
+                _previewPaused = false;
+            }
+
+            if (Widgets.IconButton(Ui.Id("sceneView.effectPause"), pause, _previewPaused ? Icons.Play : Icons.Pause, _previewPaused ? "Play" : "Pause"))
+            {
+                _previewPaused = !_previewPaused;
+            }
         }
 
         /// <summary>Things dragged in from the assets: a model goes where it's dropped, a texture onto the object it's dropped on.</summary>
