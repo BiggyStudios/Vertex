@@ -42,6 +42,9 @@ namespace Vertex.Editor.Panels
 
         private int _shownSelection = -1;
 
+        // The selection's version when the rows were last drawn, to tell if it changed while they were.
+        private int _measuredVersion = -1;
+
         // Clicked in last, so the arrow keys are its.
         private bool _focused;
 
@@ -548,8 +551,15 @@ namespace Vertex.Editor.Panels
         /// <summary>When something new is selected (in the scene view, say), opens its parents and scrolls it into view.</summary>
         private void RevealSelection()
         {
-            // Last frame's row position, saved for the highlight.
-            Ui.Remember(Ui.Id("outliner.selectedRow"), _selectedY >= 0f ? _selectedY - _scrollTop : -1f);
+            // Last frame's row position, saved for the highlight: unless the selection changed while the rows were being
+            // drawn (a row clicked above the selected one, which was then drawn unselected), which leaves no position to
+            // trust. The old one's kept instead, so the highlight slides from there.
+            if (_measuredVersion == _context.Selection.Version)
+            {
+                Ui.Remember(Ui.Id("outliner.selectedRow"), _selectedY >= 0f ? _selectedY - _scrollTop : -1f);
+            }
+
+            _measuredVersion = _context.Selection.Version;
 
             if (_shownSelection == _context.Selection.Version) return;
             _shownSelection = _context.Selection.Version;

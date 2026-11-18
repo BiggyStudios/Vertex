@@ -88,6 +88,53 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void The_outliners_highlight_slides_up_as_well_as_down()
+        {
+            var context = new EditorContext();
+            GameObject top = context.Create("Top");
+            context.Create("Middle");
+            GameObject bottom = context.Create("Bottom");
+            var outliner = new OutlinerPanel(context);
+            var rect = new Rect(0f, 0f, 300f, 600f);
+            void Draw() => outliner.Draw(rect);
+
+            var rows = new Dictionary<GameObject, Vector2>();
+            for (float y = 0f; y < 400f && rows.Count < 2; y += 4f)
+            {
+                InputSystem.MoveMouse(new Vector2(150f, y));
+                UiFrame(Draw);
+                UiFrame(Draw);
+                foreach (GameObject o in new[] { top, bottom })
+                {
+                    if (Ui.HotId == Ui.Id(RuntimeHelpers.GetHashCode(o), "row")) rows.TryAdd(o, new Vector2(150f, y + 6f));
+                }
+            }
+
+            float Highlight() => Ui.Recall(Ui.Id("outliner.highlight"), -1f);
+
+            foreach ((GameObject from, GameObject to) in new[] { (top, bottom), (bottom, top) })
+            {
+                context.Selection.Select(from);
+                for (int i = 0; i < 90; i++) UiFrame(Draw);
+                float start = Highlight();
+
+                InputSystem.MoveMouse(rows[to]);
+                UiFrame(Draw);
+                InputSystem.PressButton(MouseButton.Left);
+                UiFrame(Draw);
+                InputSystem.ReleaseButton(MouseButton.Left);
+                for (int i = 0; i < 3; i++) UiFrame(Draw);
+                float during = Highlight();
+                for (int i = 0; i < 90; i++) UiFrame(Draw);
+                float end = Highlight();
+
+                // Partway between the two rows a few frames in: sliding, not jumping.
+                Assert.NotEqual(start, end);
+                Assert.True(MathF.Min(start, end) + 1f < during && during < MathF.Max(start, end) - 1f, $"{start} → {during} → {end}");
+            }
+        }
+
+        [Fact]
         public void Typing_a_position_into_the_inspector_moves_every_selected_object_on_that_axis_only()
         {
             var app = new EditorApp();
