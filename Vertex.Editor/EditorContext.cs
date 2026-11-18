@@ -130,6 +130,17 @@ namespace Vertex.Editor
 
         public void Clear() => Select((GameObject?)null);
 
+        /// <summary>What's selected now, to put back with <see cref="Restore"/>.</summary>
+        public (GameObject[] Objects, bool Scene, AssetEntry? Asset) Save() => ([.. _objects], Scene, Asset);
+
+        /// <summary>Selects again what <see cref="Save"/> noted, leaving out objects deleted since.</summary>
+        public void Restore((GameObject[] Objects, bool Scene, AssetEntry? Asset) saved)
+        {
+            if (saved.Scene) SelectScene();
+            else if (saved.Asset != null) SelectAsset(saved.Asset);
+            else Select(saved.Objects.Where(o => !o.IsDestroyed));
+        }
+
         /// <summary>
         /// The selected objects that aren't under another selected one: what to delete, duplicate or move, since what's
         /// under an object goes with it.

@@ -329,8 +329,15 @@ namespace Vertex.Editor.Panels
                 return;
             }
 
-            if (selection.Count > 1 && selection.Contains(gameObject)) _selectOnRelease = true;
-            else selection.Select(gameObject);
+            if (selection.Count > 1 && selection.Contains(gameObject))
+            {
+                _selectOnRelease = true;
+            }
+            else
+            {
+                _selectedBeforePress = selection.Save();
+                selection.Select(gameObject);
+            }
 
             _pressed = gameObject;
             _pressedAt = Ui.Mouse;
@@ -605,6 +612,10 @@ namespace Vertex.Editor.Panels
                 // Dragging one of several selected takes them all (what's under them comes along anyway).
                 _dragging = _pressed;
                 _draggingAll = _context.Selection.Count > 1 && _context.Selection.Contains(_pressed) ? InRowOrder(_context.Selection.Tops()) : [_pressed];
+
+                // What was selected before the press stays in the inspector while dragging, so the object can be dropped
+                // into one of its slots (a gun's muzzle, say). It's selected again if it's let go in here.
+                if (_selectedBeforePress is { } before) _context.Selection.Restore(before);
             }
 
             if (_dragging != null) Dragged = _dragging;
@@ -636,6 +647,8 @@ namespace Vertex.Editor.Panels
 
             if (_dragging != null)
             {
+                if (_selectedBeforePress != null && list.Contains(Ui.Mouse)) _context.Selection.Select(_draggingAll);
+
                 if (_dropTarget != null)
                 {
                     Drop(_draggingAll, _dropTarget, _dropZone);
@@ -656,10 +669,14 @@ namespace Vertex.Editor.Panels
             _dragging = null;
             _draggingAll = [];
             _selectOnRelease = false;
+            _selectedBeforePress = null;
             _draggedLetGo = Dragged != null;
         }
 
         private List<GameObject> _draggingAll = [];
+
+        // What was selected before a press on a row that wasn't, to show again while that row is dragged out.
+        private (GameObject[] Objects, bool Scene, AssetEntry? Asset)? _selectedBeforePress;
 
         /// <summary>A prefab or model dragged here from the assets goes into the scene: under the row it's dropped on, or at the top level.</summary>
         private void HandleAssetDrop(Rect list)

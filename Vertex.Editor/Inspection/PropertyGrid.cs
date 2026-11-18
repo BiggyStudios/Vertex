@@ -255,13 +255,7 @@ namespace Vertex.Editor.Inspection
                     break;
 
                 case MemberKind.Reference:
-                    Ui.Rect(field, Theme.Field, Theme.ControlRadius);
-                    Ui.Text(field.Shrink(8f, 0f), value switch
-                    {
-                        GameObject gameObject => gameObject.Name,
-                        Component component => $"{component.GameObject.Name} ({ComponentCatalog.DisplayName(component.GetType())})",
-                        _ => "None"
-                    }, value == null ? Theme.TextFaint : Theme.TextDim);
+                    ReferenceField(id, field, member.Type, value, member.CanWrite, picked => Set(target, member, picked, others), mixed != 0);
                     break;
             }
         }
@@ -384,6 +378,114 @@ namespace Vertex.Editor.Inspection
         }
 
         private string _pickerSearch = "";
+
+        /// <summary>
+        /// A slot for another object in the scene, or one of its components (<paramref name="type"/> says which): its name,
+        /// and its icon. Click to pick one from a list of those that fit, or drag one onto it from the outliner.
+        /// </summary>
+        /// <param name="mixed">Different objects on the objects being edited together: shows a dash, and what's picked goes on them all.</param>
+        public void ReferenceField(int id, Rect field, Type type, object? value, bool canWrite, Action<object?> set, bool mixed = false)
+        {
+            bool canPick = canWrite && _context != null;
+            Interaction interaction = Ui.Interact(id, field);
+
+            // An object dragged from the outliner lights the slot up if it fits, and lands in it when let go.
+            object? dropped = canPick && Panels.OutlinerPanel.Dragged is { } dragged && field.Contains(Ui.Mouse) ? Fitting(dragged, type) : null;
+            if (dropped != null && Ui.MouseReleased()) set(dropped);
+
+            Color background = Ui.Smooth(id, interaction.Hovered && canPick ? Theme.Control : Theme.Field, 24f);
+            Ui.Rect(field, background, Theme.ControlRadius);
+            Ui.Outline(field, dropped != null ? Theme.Accent : Popup.IsOpen(id) ? Theme.Accent.WithAlpha(0.7f) : Theme.Border, Theme.ControlRadius, dropped != null ? 1.5f : 1f);
+
+            GameObject? shown = mixed ? null : value switch { GameObject gameObject => gameObject, Component component => component.GameObject, _ => null };
+            if (shown is { IsDestroyed: true }) shown = null;
+            Icon icon = shown != null ? Panels.OutlinerPanel.IconFor(shown) : typeof(Component).IsAssignableFrom(type) ? Icons.Component : Icons.Empty;
+            icon(new Vector2(field.X + 13f, field.Centre.Y), 14f, shown != null ? Theme.TextDim : Theme.TextFaint);
+
+            string what = typeof(GameObject).IsAssignableFrom(type) ? "Object" : ComponentCatalog.DisplayName(type);
+            string name = mixed ? "—" : shown == null ? $"None ({what})" : shown.Name;
+            Ui.Text(new Rect(field.X + 26f, field.Y, field.Width - 34f, field.Height), name, shown == null ? Theme.TextFaint : Theme.Text);
+
+            if (!canPick) return;
+            if (interaction.Clicked && !Popup.IsOpen(id))
+            {
+                Popup.Open(id, field);
+                _pickerSearch = "";
+                TextInput.Focus(Ui.Id(id, "search"), selectAll: true);
+            }
+
+            Popup.Show(id, new Vector2(MathF.Max(field.Width, 280f), 320f), inner => ReferencePicker(id, inner, type, mixed ? null : value, set));
+        }
+
+        /// <summary>What a slot of <paramref name="type"/> would hold for <paramref name="gameObject"/>: it, or its component of that type, or null if it hasn't one.</summary>
+        public static object? Fitting(GameObject gameObject, Type type)
+        {
+            if (type.IsInstanceOfType(gameObject)) return gameObject;
+            if (!typeof(Component).IsAssignableFrom(type)) return null;
+            return gameObject.Components.FirstOrDefault(type.IsInstanceOfType);
+        }
+
+        private void ReferencePicker(int id, Rect rect, Type type, object? current, Action<object?> set)
+        {
+            string what = typeof(GameObject).IsAssignableFrom(type) ? "objects" : ComponentCatalog.DisplayName(type) + "s";
+            TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);
+
+            string search = _pickerSearch.Trim();
+            var choices = new List<(GameObject? Object, object? Value)> { (null, null) };
+            foreach (GameObject gameObject in _context!.Scene.GameObjects)
+            {
+                if (gameObject.IsDestroyed || search.Length > 0 && !gameObject.Name.Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
+                if (Fitting(gameObject, type) is { } fits) choices.Add((gameObject, fits));
+            }
+
+            Rect list = rect.CutTop(34f);
+            int scrollId = Ui.Id(id, "pickerScroll");
+            var scroll = ScrollView.Begin(scrollId, list);
+            const float rowHeight = 26f;
+            for (int i = 0; i < choices.Count; i++)
+            {
+                (GameObject? gameObject, object? value) = choices[i];
+                var row = new Rect(list.X, scroll.Top + i * rowHeight, list.Width - 6f, rowHeight - 2f);
+                if (row.Bottom < list.Y || row.Y > list.Bottom) continue;
+
+                Interaction interaction = Ui.Interact(Ui.Id(id, i), row);
+                bool isCurrent = ReferenceEquals(value, current);
+                if (isCurrent) Ui.Rect(row, Theme.Selection, 5f);
+                else if (interaction.Hovered) Ui.Rect(row, Theme.Hover.WithAlpha(1.6f), 5f);
+
+                if (gameObject == null)
+                {
+                    Ui.Text(row.Shrink(10f, 0f), "None", Theme.TextFaint);
+                }
+                else
+                {
+                    Panels.OutlinerPanel.IconFor(gameObject)(new Vector2(row.X + 14f, row.Centre.Y), 14f, Theme.TextDim);
+                    Rect label = new(row.X + 28f, row.Y, row.Width - 34f, row.Height);
+                    Ui.Text(label, gameObject.Name, Theme.Text);
+
+                    // Where it is, so two of the same name can be told apart.
+                    if (gameObject.Transform.Parent is { } parent)
+                    {
+                        float used = Ui.TextWidth(gameObject.Name) + 10f;
+                        Ui.Text(new Rect(label.X + used, label.Y, label.Width - used, label.Height), "in " + parent.GameObject.Name, Theme.TextFaint, size: Theme.SmallTextSize);
+                    }
+                }
+
+                if (interaction.Clicked)
+                {
+                    Popup.Close();
+                    Ui.FocusId = 0;
+                    set(value);
+                }
+            }
+
+            if (choices.Count == 1)
+            {
+                Ui.Text(new Rect(list.X, scroll.Top + rowHeight + 6f, list.Width, 20f), search.Length > 0 ? $"No {what} called that" : $"No {what} in the scene", Theme.TextFaint, align: 0.5f, size: Theme.SmallTextSize);
+            }
+
+            scroll.End(choices.Count * rowHeight);
+        }
 
         private void AssetPicker(int id, Rect rect, AssetKind kind, string? current, bool currentIsNone, Action<string?> set, string? noneLabel)
         {
