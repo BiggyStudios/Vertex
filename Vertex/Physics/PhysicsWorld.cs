@@ -240,7 +240,11 @@ namespace Vertex.Physics
 
             foreach (CharacterController controller in _scene.FindComponents<CharacterController>())
             {
-                if (_characters.TryGetValue(controller, out Character? character)) character.LastSeenStep = _stepIndex;
+                // Made before it first moves, and kept where its Transform is when something else moves it: another
+                // machine's player, moved by the network, is still there to be shot and bumped into.
+                if (!_characters.TryGetValue(controller, out Character? character)) character = CreateCharacter(controller);
+                else if (!character.TransformUnchanged()) Teleport(character);
+                character.LastSeenStep = _stepIndex;
             }
 
             foreach (Character character in _characters.Values)
@@ -521,14 +525,7 @@ namespace Vertex.Physics
             CharacterVirtual jolt = character.Jolt;
 
             // Game code set the Transform directly: teleport the character there.
-            if (!character.TransformUnchanged())
-            {
-                Vector3 position = controller.Transform.WorldPosition;
-                jolt.Position = position;
-                // Jump the body too, rather than sweeping it across the world and knocking everything in between.
-                _system.BodyInterface.SetPositionAndRotation(character.Id, position, Quaternion.Identity, Activation.Activate);
-                character.Teleported(position);
-            }
+            if (!character.TransformUnchanged()) Teleport(character);
 
             Vector3 velocity = controller.Velocity;
             jolt.LinearVelocity = velocity;
@@ -587,6 +584,16 @@ namespace Vertex.Physics
             character.PreviousPosition = character.Position;
             character.Position = jolt.Position;
             character.WriteTransform(character.Position);
+        }
+
+        /// <summary>Puts a character where its Transform now is, without sweeping it across the world in between.</summary>
+        private void Teleport(Character character)
+        {
+            Vector3 position = character.Controller.Transform.WorldPosition;
+            character.Jolt.Position = position;
+            // Jump the body too, rather than sweeping it across the world and knocking everything in between.
+            _system.BodyInterface.SetPositionAndRotation(character.Id, position, Quaternion.Identity, Activation.Activate);
+            character.Teleported(position);
         }
 
         private Character CreateCharacter(CharacterController controller)

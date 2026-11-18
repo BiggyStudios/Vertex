@@ -76,5 +76,27 @@ namespace Vertex.Tests
 
             Assert.False(Scene.Active.Physics.Raycast(new Vector3(0f, 5f, 0f), -Vector3.UnitY, 100f, out _));
         }
+
+        [Fact]
+        public void A_character_moved_only_by_its_transform_can_still_be_hit()
+        {
+            // Another machine's player: its Transform is set from the network, and it never moves itself.
+            var remote = new GameObject("Remote");
+            remote.AddComponent<CharacterController>();
+            var loop = new GameLoop(new EmptyGame());
+            loop.Load();
+            RunFrames(loop, 2);
+
+            Assert.True(Scene.Active.Physics.Raycast(new Vector3(0f, 1f, 5f), -Vector3.UnitZ, 20f, out RaycastHit hit));
+            Assert.Same(remote, hit.GameObject);
+
+            // It's moved somewhere else: rays find it there, and not where it was.
+            remote.Transform.Position = new Vector3(10f, 0f, 0f);
+            RunFrames(loop, 2);
+            Assert.False(Scene.Active.Physics.Raycast(new Vector3(0f, 1f, 5f), -Vector3.UnitZ, 20f, out _));
+            Assert.True(Scene.Active.Physics.Raycast(new Vector3(10f, 1f, 5f), -Vector3.UnitZ, 20f, out hit));
+            Assert.Same(remote, hit.GameObject);
+            Assert.Equal(new Vector3(10f, 0f, 0f), remote.Transform.Position);
+        }
     }
 }
