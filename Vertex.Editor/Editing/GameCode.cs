@@ -138,6 +138,16 @@ namespace Vertex.Editor.Editing
                     <ItemGroup Condition="'@(_VertexEngineMissing)' == '' and '@(_VertexEngineProject)' != ''">
                 {engineOnly}    </ItemGroup>
                   </Target>
+                  <!-- A game that uses the engine's package (one made from the download): just the engine itself is swapped,
+                       as the package brings what the engine uses. -->
+                  <Target Name="VertexUseEditorEngineForPackage" AfterTargets="ResolveLockFileReferences">
+                    <ItemGroup>
+                      <_VertexEnginePackage Include="@(Reference)" Condition="'%(Reference.NuGetPackageId)' == 'Vertex.Engine'" />
+                      <Reference Remove="@(_VertexEnginePackage)" />
+                    </ItemGroup>
+                    <ItemGroup Condition="'@(_VertexEnginePackage)' != ''">
+                {engineOnly}    </ItemGroup>
+                  </Target>
                 </Project>
                 """;
 

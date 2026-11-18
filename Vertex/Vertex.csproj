@@ -14,6 +14,18 @@
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- The engine as a NuGet package, for games made in code without the engine's source (Tools/Release makes it,
+         with the release's version). -->
+    <PackageId>Vertex.Engine</PackageId>
+    <Authors>BiggyStudios</Authors>
+    <Description>A 3D game engine in C#, with its own editor: make games in code, in the editor with C# scripts, or with visual scripting.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://biggystudios.github.io/Vertex/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/BiggyStudios/Vertex</RepositoryUrl>
+    <PackageTags>game engine;3d;games;vulkan;opengl</PackageTags>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- The tests drive the engine without a window, through its internal frame and input methods. -->
     <InternalsVisibleTo Include="Vertex.Tests" />
