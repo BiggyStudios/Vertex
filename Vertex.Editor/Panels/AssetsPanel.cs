@@ -226,6 +226,7 @@ namespace Vertex.Editor.Panels
                 case AssetKind.Font: Ui.Text(rect, "Aa", Theme.Text, align: 0.5f, size: size * 0.7f, bold: true); break;
                 case AssetKind.Script: Ui.Text(rect, "C#", Theme.Hex(0x9B7BE0), align: 0.5f, size: size * 0.62f, bold: true); break;
                 case AssetKind.VisualScript: Icons.Graph(centre, size, Theme.Hex(0x5FC9B5)); break;
+                case AssetKind.VisualEffect: Icons.Graph(centre, size, Theme.Hex(0xF2994A)); break;
                 default: Icons.File(centre, size, Theme.TextFaint); break;
             }
         }
@@ -277,7 +278,7 @@ namespace Vertex.Editor.Panels
                 case AssetKind.Sound:
                     SoundPreview.Toggle(entry.Path);
                     break;
-                case AssetKind.VisualScript:
+                case AssetKind.VisualScript or AssetKind.VisualEffect:
                     _context.OpenGraph(entry.Path);
                     break;
                 case AssetKind.Material:
@@ -353,7 +354,7 @@ namespace Vertex.Editor.Panels
             var items = new List<MenuItem>();
             string? open = entry.Kind switch
             {
-                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.Prefab => "Open",
+                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.Prefab => "Open",
                 AssetKind.Model => "Add to Scene",
                 AssetKind.Sound => SoundPreview.IsPlaying(entry.Path) ? "Stop" : "Play",
                 AssetKind.Script => "Open in Code Editor",
@@ -391,7 +392,8 @@ namespace Vertex.Editor.Panels
                 new("New Folder", () => Made(Directory.CreateDirectory(Unique(Path.Combine(folder, "New Folder"), "")).FullName)) { Icon = Icons.Folder },
                 new("New Material", () => Made(_context.CreateMaterial(folder))) { Icon = (c, s, col) => Icons.Ring(c, s * 0.3f, col) },
                 new("New Scene", () => Made(NewScene(folder))) { Icon = Icons.Scene },
-                new("New Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph }
+                new("New Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph },
+                new("New VFX Graph", () => Made(_context.CreateVfxGraph(folder))) { Icon = Icons.Graph }
             };
 
             if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });

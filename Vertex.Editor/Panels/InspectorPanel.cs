@@ -182,7 +182,7 @@ namespace Vertex.Editor.Panels
                     break;
                 }
 
-                case AssetKind.VisualScript:
+                case AssetKind.VisualScript or AssetKind.VisualEffect:
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
@@ -676,41 +676,49 @@ namespace Vertex.Editor.Panels
             return at;
         }
 
-        /// <summary>A component's values; a visual script's with ways to open its graph or make one.</summary>
+        /// <summary>A component's values; a visual script's or effect's with ways to open its graph or make one.</summary>
         private float ComponentBody(Component component, float x, float y, float width)
         {
             y = _grid.Draw(component, x, y, width);
-            if (component is not Vertex.Scripting.VisualScript script) return y;
-
-            var button = new Rect(x + PropertyGrid.LabelWidth(width), y, width - PropertyGrid.LabelWidth(width), 26f);
-            if (script.Script is { Source: { } source })
+            return component switch
             {
-                if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(script), "openGraph"), button, "Edit Script", ButtonStyle.Primary, "Open the graph in a tab", Icons.Graph))
-                {
-                    _context.OpenGraph(source);
-                }
+                Vertex.Scripting.VisualScript script => GraphButtons(component, script.Script, nameof(Vertex.Scripting.VisualScript.Script), "Edit Script",
+                    "New Visual Script", "Scripts", (folder, name) => _context.CreateVisualScript(folder, name), "visual scripts", x, y, width),
+                Vertex.Effects.VisualEffect effect => GraphButtons(component, effect.Effect, nameof(Vertex.Effects.VisualEffect.Effect), "Edit Effect",
+                    "New VFX Graph", "Effects", (folder, name) => _context.CreateVfxGraph(folder, name), "VFX graphs", x, y, width),
+                _ => y
+            };
+        }
+
+        /// <summary>Under a component that plays a graph: open it in a tab, or make a new one for it (in Assets/<paramref name="folderName"/>).</summary>
+        private float GraphButtons(Component component, Vertex.Graphs.Graph? graph, string property, string edit, string make, string folderName,
+            Func<string, string, string> create, string what, float x, float y, float width)
+        {
+            var button = new Rect(x + PropertyGrid.LabelWidth(width), y, width - PropertyGrid.LabelWidth(width), 26f);
+            int id = RuntimeHelpers.GetHashCode(component);
+            if (graph is { Source: { } source })
+            {
+                if (Widgets.Button(Ui.Id(id, "openGraph"), button, edit, ButtonStyle.Primary, "Open the graph in a tab", Icons.Graph)) _context.OpenGraph(source);
             }
             else if (_context.Assets is { } assets)
             {
-                if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(script), "newGraph"), button, "New Visual Script", ButtonStyle.Primary,
-                        "Make a .vscript file for this object in Assets/Scripts, and open it", Icons.Plus))
+                if (Widgets.Button(Ui.Id(id, "newGraph"), button, make, ButtonStyle.Primary, $"Make a file for this object in Assets/{folderName}, and open it", Icons.Plus))
                 {
                     try
                     {
-                        string path = _context.CreateVisualScript(Path.Combine(assets.Root, "Scripts"), PrefabSafeName(component.GameObject.Name));
-                        SetValue.Apply(_context.History, "Set Script", script, typeof(Vertex.Scripting.VisualScript).GetProperty(nameof(Vertex.Scripting.VisualScript.Script))!,
-                            Assets.LoadGraph(path));
+                        string path = create(Path.Combine(assets.Root, folderName), PrefabSafeName(component.GameObject.Name));
+                        SetValue.Apply(_context.History, make, component, component.GetType().GetProperty(property)!, Assets.LoadGraph(path));
                         _context.OpenGraph(path);
                     }
                     catch (Exception exception)
                     {
-                        _context.Notify($"Couldn't make the script: {exception.Message}");
+                        _context.Notify($"Couldn't make the graph: {exception.Message}");
                     }
                 }
             }
             else
             {
-                return Note("Open a project to make visual scripts for it.", x, y, width);
+                return Note($"Open a project to make {what} for it.", x, y, width);
             }
 
             return y + 26f + PropertyGrid.RowGap;
@@ -740,7 +748,9 @@ namespace Vertex.Editor.Panels
                 y += 26f;
             }
 
-            return Note("Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit.", x, y, width);
+            return Note(asset.Kind == AssetKind.VisualEffect
+                ? "Add a Visual Effect component to an object and choose this file to play it there. Double-click to edit."
+                : "Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit.", x, y, width);
         }
 
         private static int SlideKey(Component component) => Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "slide");

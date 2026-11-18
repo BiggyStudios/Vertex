@@ -57,7 +57,7 @@ namespace Vertex.Editor.Inspection
         /// <summary>The engine's components by the part of the engine they're from; anything else is a script.</summary>
         public static string Category(Type type) => type.Namespace switch
         {
-            "Vertex.Rendering" => "Rendering",
+            "Vertex.Rendering" or "Vertex.Effects" => "Rendering",
             "Vertex.Physics" => "Physics",
             "Vertex.Audio" => "Audio",
             "Vertex.Networking" => "Networking",

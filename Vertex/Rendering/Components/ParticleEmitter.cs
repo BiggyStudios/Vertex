@@ -62,7 +62,7 @@ namespace Vertex.Rendering
     /// in the world, so moving the emitter doesn't drag the ones already out. Emit a steady stream with
     /// <see cref="Rate"/>, or a burst at once with <see cref="Emit(int)"/>. Particles always face the camera.
     /// </summary>
-    public abstract class ParticleEmitter : Component
+    public abstract class ParticleEmitter : Component, IParticleEffect
     {
         private float _toEmit;
 
@@ -155,6 +155,14 @@ namespace Vertex.Rendering
         public bool Playing => Emitting && (Rate > 0f || Burst > 0 && Duration > 0f && Loop || !_started && Burst > 0) &&
                                (Duration <= 0f || Loop || _playTime < Duration);
 
+        /// <summary>How many particles are alive, if it can tell.</summary>
+        public virtual int? Alive => null;
+
+        /// <summary>Whether it won't make any more particles by itself, and those it made are gone.</summary>
+        public virtual bool Finished => !Playing;
+
+        bool IParticleEffect.PlaysByItself => Emitting;
+
         /// <summary>Starts playing from the beginning (with its <see cref="Burst"/>), keeping particles already out.</summary>
         public void Play()
         {
@@ -167,8 +175,8 @@ namespace Vertex.Rendering
         /// <summary>Stops making particles. Those already out live out their lives.</summary>
         public void Stop() => Emitting = false;
 
-        /// <summary>Back to the start of playing, without changing whether it's <see cref="Emitting"/>: for previewing it.</summary>
-        internal void Rewind()
+        /// <summary>Takes its particles away and goes back to the start, without changing whether it's <see cref="Emitting"/>: for previewing it.</summary>
+        public void Rewind()
         {
             Clear();
             _started = false;

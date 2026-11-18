@@ -966,6 +966,16 @@ namespace Vertex.Editor
             return path;
         }
 
+        /// <summary>Makes a new VFX graph in <paramref name="folder"/>, to start from (rising embers), and returns where.</summary>
+        public string CreateVfxGraph(string folder, string name = "New VFX Graph")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), ".vfx");
+            Vertex.Effects.VfxNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
         private int _graphsCheckedAt = -1;
 
         /// <summary>

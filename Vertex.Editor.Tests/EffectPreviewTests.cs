@@ -58,5 +58,22 @@ namespace Vertex.Editor.Tests
             Assert.Equal(0f, particles.Rate);
             Assert.False(particles.Loop);
         }
+
+        [Fact]
+        public void A_selected_visual_effect_plays_its_graph_in_the_scene_view()
+        {
+            var app = new EditorApp();
+            var effect = app.Context.Create("Embers").AddComponent<Vertex.Effects.VisualEffect>();
+            effect.Effect = Vertex.Effects.VfxNodes.Starter();
+            app.Context.Selection.Select(effect.GameObject);
+            Frame(app, 40);
+
+            Assert.True(effect.Count > 5);
+            Assert.Same(effect, Assert.Single(app.SceneView.PreviewedEffects));
+
+            app.Context.Selection.Clear();
+            Frame(app, 2);
+            Assert.Equal(0, effect.Count);
+        }
     }
 }

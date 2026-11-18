@@ -117,6 +117,8 @@ namespace Vertex.Editor.Graphs
             if (!doc.Framed && rect.Width > 50f)
             {
                 doc.Framed = true;
+                // The variables panel starts out of the way of a graph that has none yet.
+                _showVariables = graph.Variables.Count > 0;
                 Frame(doc, rect, selectedOnly: false);
             }
 
@@ -227,6 +229,7 @@ namespace Vertex.Editor.Graphs
             if (type == PortType.Vector) return 150f;
             if (type == PortType.Number) return 56f;
             if (type == PortType.Boolean) return 18f;
+            if (type == PortType.Color) return 46f;
             if (type == PortType.Text || type == PortType.Any) return 110f;
             if (type.ValueType is { IsEnum: true }) return 100f;
             if (type == PortType.Object) return 30f;
@@ -280,7 +283,7 @@ namespace Vertex.Editor.Graphs
             foreach (GraphLink link in graph.Links)
             {
                 if (Ends(link) is not var (a, b, type) || _pickedUp == link) continue;
-                Color color = type.Color;
+                Color color = type.WireColor;
 
                 // Flow that's just gone along it shows.
                 if (type.IsFlow && graph.LastRan(link.ToNode) is double ran && now - ran < 0.5)
@@ -468,7 +471,7 @@ namespace Vertex.Editor.Graphs
 
             bool usable = _wire is not { } wire || CanJoin(doc.Graph, wire, layout.Node.Id, port.Name, output);
             PortType type = doc.Graph.TypeOf(layout.Node, port);
-            Color color = type.Color.WithAlpha(usable ? 1f : 0.2f);
+            Color color = type.WireColor.WithAlpha(usable ? 1f : 0.2f);
             float size = interaction.Hovered && _wire == null || _wire != null && usable && Vector2.Distance(Ui.Mouse, at) < 12f ? 6.5f : 5f;
 
             if (type.IsFlow)
@@ -535,7 +538,7 @@ namespace Vertex.Editor.Graphs
                 List<string> names = doc.Graph.Variables.Select(v => v.Name).ToList();
                 if (names.Count == 0)
                 {
-                    Ui.Text(field, "No variables", Theme.TextFaint, size: Theme.SmallTextSize);
+                    Ui.Text(field, $"No {(doc.Graph.Library?.VariableWords.Several ?? "variables").ToLowerInvariant()}", Theme.TextFaint, size: Theme.SmallTextSize);
                     return;
                 }
 
@@ -563,6 +566,14 @@ namespace Vertex.Editor.Graphs
             {
                 var vector = (Vector3)PortType.Vector.Convert(raw)!;
                 if (NumberField.Vector3(id, field, ref vector)) Set(vector);
+            }
+            else if (type == PortType.Color)
+            {
+                ColorField.Draw(id, field, (Color)PortType.Color.Convert(raw)!, (color, finished) =>
+                {
+                    Set(color);
+                    if (finished) _context.History.EndMerge();
+                });
             }
             else if (type == PortType.Text || type == PortType.Any)
             {
@@ -696,8 +707,8 @@ namespace Vertex.Editor.Graphs
             }
 
             Vector2 end = target?.At ?? Ui.Mouse;
-            if (wire.FromOutput) Wire(from, end, type.Color, 2.4f);
-            else Wire(end, from, type.Color, 2.4f);
+            if (wire.FromOutput) Wire(from, end, type.WireColor, 2.4f);
+            else Wire(end, from, type.WireColor, 2.4f);
 
             if (Ui.MouseHeld()) return;
 
@@ -779,7 +790,7 @@ namespace Vertex.Editor.Graphs
 
             float left = rects.Min(r => r.X), top = rects.Min(r => r.Y), right = rects.Max(r => r.Right), bottom = rects.Max(r => r.Bottom);
             var size = new Vector2(right - left, bottom - top);
-            doc.Zoom = Math.Clamp(MathF.Min((rect.Width - 120f) / MathF.Max(size.X, 1f), (rect.Height - 160f) / MathF.Max(size.Y, 1f)), 0.75f, 1f);
+            doc.Zoom = Math.Clamp(MathF.Min((rect.Width - 120f) / MathF.Max(size.X, 1f), (rect.Height - 160f) / MathF.Max(size.Y, 1f)), 0.5f, 1f);
             doc.Offset = new Vector2(left + size.X * 0.5f, top + size.Y * 0.5f) - rect.Size * 0.5f / doc.Zoom;
         }
 
@@ -1078,7 +1089,8 @@ namespace Vertex.Editor.Graphs
             Ui.Text(new Rect(x, bar.Y, 200f, bar.Height), $"{library.DisplayName}  ·  {doc.Graph.Nodes.Count} nodes", Theme.TextFaint, size: Theme.SmallTextSize);
 
             var variables = new Rect(bar.Right - 98f - 34f, bar.Y + 4f, 94f, 28f);
-            if (Widgets.Button(Ui.Id("graph.variables"), variables, "Variables", _showVariables ? ButtonStyle.Primary : ButtonStyle.Subtle, "Show or hide the graph's variables"))
+            (string one, string several, _) = library.VariableWords;
+            if (Widgets.Button(Ui.Id("graph.variables"), variables, several, _showVariables ? ButtonStyle.Primary : ButtonStyle.Subtle, $"Show or hide the graph's {several.ToLowerInvariant()}"))
             {
                 _showVariables = !_showVariables;
             }
@@ -1105,8 +1117,9 @@ namespace Vertex.Editor.Graphs
             Ui.Shadow(panel, 8f, 14f, 0.5f);
             Ui.Rect(panel, Theme.Panel.WithAlpha(0.96f), 8f);
             Ui.Outline(panel, Theme.Border, 8f);
-            Ui.Text(new Rect(panel.X + 12f, panel.Y + 6f, panel.Width, 24f), "Variables", Theme.Text, bold: true);
-            Ui.Text(new Rect(panel.X, panel.Y + 6f, panel.Width - 12f, 24f), "kept per object while it runs", Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+            (string one, string several, string note) = graph.Library?.VariableWords ?? ("Variable", "Variables", "");
+            Ui.Text(new Rect(panel.X + 12f, panel.Y + 6f, panel.Width, 24f), several, Theme.Text, bold: true);
+            Ui.Text(new Rect(panel.X, panel.Y + 6f, panel.Width - 12f, 24f), note, Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
 
             float y = panel.Y + 36f;
             string[] typeNames = PortType.VariableTypes.Select(t => t.Name).ToArray();
@@ -1118,7 +1131,7 @@ namespace Vertex.Editor.Graphs
 
                 string name = variable.Name;
                 // A dot in its type's colour, as its ports are.
-                Ui.Circle(new Vector2(row.X + 5f, row.Centre.Y), 4.5f, variable.Type.Color);
+                Ui.Circle(new Vector2(row.X + 5f, row.Centre.Y), 4.5f, variable.Type.WireColor);
                 if (TextInput.Draw(Ui.Id(id, "name"), row.CutLeft(14f).TakeLeft(88f), ref name) && name.Trim().Length > 0 && graph.Variable(name.Trim()) == null)
                 {
                     string old = variable.Name, renamed = name.Trim();
@@ -1163,11 +1176,11 @@ namespace Vertex.Editor.Graphs
             }
 
             var add = new Rect(panel.X + 8f, y + 2f, panel.Width - 16f, 26f);
-            if (Widgets.Button(Ui.Id("graph.addVariable"), add, "Add Variable", ButtonStyle.Subtle, icon: Icons.Plus))
+            if (Widgets.Button(Ui.Id("graph.addVariable"), add, $"Add {one}", ButtonStyle.Subtle, icon: Icons.Plus))
             {
-                string name = "Variable";
-                for (int n = 2; graph.Variable(name) != null; n++) name = $"Variable {n}";
-                doc.Edit(_context.History, "Add Variable", () => graph.Variables.Add(new GraphVariable(name, PortType.Number)));
+                string name = one;
+                for (int n = 2; graph.Variable(name) != null; n++) name = $"{one} {n}";
+                doc.Edit(_context.History, $"Add {one}", () => graph.Variables.Add(new GraphVariable(name, PortType.Number)));
             }
         }
 
@@ -1194,6 +1207,14 @@ namespace Vertex.Editor.Graphs
             {
                 var vector = (Vector3)PortType.Vector.Convert(variable.Value)!;
                 if (NumberField.Vector3(id, field, ref vector)) Set(vector);
+            }
+            else if (variable.Type == PortType.Color)
+            {
+                ColorField.Draw(id, field, (Color)PortType.Color.Convert(variable.Value)!, (color, finished) =>
+                {
+                    Set(color);
+                    if (finished) _context.History.EndMerge();
+                });
             }
             else
             {

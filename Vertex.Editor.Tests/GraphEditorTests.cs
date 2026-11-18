@@ -303,5 +303,44 @@ namespace Vertex.Editor.Tests
                 if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
             }
         }
+
+        [Fact]
+        public void A_vfx_graph_is_edited_in_the_same_editor_with_its_own_nodes()
+        {
+            var context = new EditorContext();
+            Graph graph = Vertex.Effects.VfxNodes.Starter();
+            var doc = new GraphDocument(graph, "Embers.vfx");
+            var view = new GraphView(context);
+            void Frames(int count)
+            {
+                for (int i = 0; i < count; i++) UiFrame(() => view.Draw(_area, doc));
+            }
+
+            Frames(3);
+            GraphNode output = graph.Nodes.First(n => n.Type == "Systems/Output");
+            GraphNode particle = graph.Nodes.First(n => n.Type == "Particle/Particle");
+            Assert.Empty(graph.LinksTo(output.Id, "Glow"));
+
+            // Its age, dragged onto how much it glows.
+            Vector2 from = view.PortOnScreen(doc, particle.Id, "Age", output: true)!.Value;
+            Vector2 to = view.PortOnScreen(doc, output.Id, "Glow", output: false)!.Value;
+            InputSystem.MoveMouse(from);
+            Frames(1);
+            InputSystem.PressButton(MouseButton.Left);
+            Frames(1);
+            for (int i = 1; i <= 4; i++)
+            {
+                InputSystem.MoveMouse(Vector2.Lerp(from, to, i / 4f));
+                Frames(1);
+            }
+
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frames(1);
+            Assert.Single(graph.LinksTo(output.Id, "Glow"));
+
+            // A colour can't go where a number does.
+            GraphNode gradient = graph.Nodes.First(n => n.Type == "Colors/Gradient");
+            Assert.False(graph.CanLink(gradient.Id, "Color", output.Id, "Size Scale"));
+        }
     }
 }

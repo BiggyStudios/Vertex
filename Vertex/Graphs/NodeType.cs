@@ -116,6 +116,9 @@ namespace Vertex.Graphs
         /// <summary>The colour of a category's node headers.</summary>
         public virtual Color CategoryColor(string category) => new(0.4f, 0.42f, 0.48f);
 
+        /// <summary>What a graph of this kind calls its variables, one and several ("Variable", "Variables"), and what they're for.</summary>
+        public virtual (string One, string Several, string Note) VariableWords => ("Variable", "Variables", "kept per object while it runs");
+
         private static readonly Dictionary<string, NodeLibrary> _libraries = new();
 
         /// <summary>Makes a library known by its kind, so graphs of that kind can find it.</summary>
@@ -128,6 +131,7 @@ namespace Vertex.Graphs
         {
             // The engine's own libraries register themselves when first used.
             if (kind == Scripting.ScriptNodes.Kind) _ = Scripting.ScriptNodes.Library;
+            if (kind == Effects.VfxNodes.Kind) _ = Effects.VfxNodes.Library;
             lock (_libraries) return _libraries.GetValueOrDefault(kind);
         }
     }

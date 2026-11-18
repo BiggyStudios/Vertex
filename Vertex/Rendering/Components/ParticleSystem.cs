@@ -30,6 +30,10 @@ namespace Vertex.Rendering
         /// <summary>How many are alive right now.</summary>
         public int Count => _count;
 
+        public override int? Alive => _count;
+
+        public override bool Finished => !Playing && _count == 0;
+
         /// <summary>Where particles start: in a box (<see cref="ParticleEmitter.Area"/>), a ball or a flat circle.</summary>
         [Header("Shape")]
         public EmitterShape Shape { get; set; } = EmitterShape.Box;

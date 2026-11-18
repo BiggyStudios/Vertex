@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 
 using Vertex.Editor.Editing;
@@ -306,6 +307,9 @@ namespace Vertex.Editor.Inspection
         private void AssetMember(int id, Rect field, object target, InspectedMember member, object? value, IReadOnlyList<object>? others, bool mixed)
         {
             if (AssetKindOf(member.Type) is not { } kind) return;
+
+            // A graph of another kind than a visual script (an effect's VFX graph) offers only files of that kind.
+            if (member.Member.GetCustomAttribute<Vertex.Graphs.GraphKindAttribute>() is { Kind: Vertex.Effects.VfxNodes.Kind }) kind = (AssetKind.VisualEffect, kind.Load);
             AssetField(id, field, kind.Kind, value, member.CanWrite, path =>
             {
                 try
@@ -387,6 +391,7 @@ namespace Vertex.Editor.Inspection
                 AssetKind.Font => "fonts",
                 AssetKind.Sound => "sounds",
                 AssetKind.VisualScript => "visual scripts",
+                AssetKind.VisualEffect => "VFX graphs",
                 _ => "files"
             };
             TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);

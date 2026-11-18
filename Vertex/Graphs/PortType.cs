@@ -14,18 +14,19 @@ namespace Vertex.Graphs
         public Type? ValueType { get; }
 
         public string Name { get; }
-        public Color Color { get; }
+        /// <summary>The colour its ports and links are drawn in.</summary>
+        public Vertex.Color WireColor { get; }
 
         /// <summary>What an input of this type is when nothing's linked to it and no value's been typed.</summary>
         public object? Default { get; }
 
         public bool IsFlow => this == Flow;
 
-        public PortType(string name, Type? valueType, Color color, object? defaultValue = null)
+        public PortType(string name, Type? valueType, Vertex.Color color, object? defaultValue = null)
         {
             Name = name;
             ValueType = valueType;
-            Color = color;
+            WireColor = color;
             Default = defaultValue;
             _byName[name] = this;
         }
@@ -35,18 +36,21 @@ namespace Vertex.Graphs
         private static readonly Dictionary<string, PortType> _byName = new();
 
         /// <summary>The order things happen in: a link from one node's flow out to another's flow in runs that one next.</summary>
-        public static readonly PortType Flow = new("Flow", null, new Color(0.92f, 0.92f, 0.94f));
+        public static readonly PortType Flow = new("Flow", null, new Vertex.Color(0.92f, 0.92f, 0.94f));
 
         /// <summary>Takes any value: for printing, and variables of any type.</summary>
-        public static readonly PortType Any = new("Any", null, new Color(0.62f, 0.64f, 0.7f));
+        public static readonly PortType Any = new("Any", null, new Vertex.Color(0.62f, 0.64f, 0.7f));
 
-        public static readonly PortType Number = new("Number", typeof(float), new Color(0.45f, 0.83f, 0.52f), 0f);
-        public static readonly PortType Boolean = new("Boolean", typeof(bool), new Color(0.9f, 0.36f, 0.36f), false);
-        public static readonly PortType Text = new("Text", typeof(string), new Color(0.93f, 0.48f, 0.82f), "");
-        public static readonly PortType Vector = new("Vector", typeof(Vector3), new Color(0.98f, 0.78f, 0.3f), Vector3.Zero);
+        public static readonly PortType Number = new("Number", typeof(float), new Vertex.Color(0.45f, 0.83f, 0.52f), 0f);
+        public static readonly PortType Boolean = new("Boolean", typeof(bool), new Vertex.Color(0.9f, 0.36f, 0.36f), false);
+        public static readonly PortType Text = new("Text", typeof(string), new Vertex.Color(0.93f, 0.48f, 0.82f), "");
+        public static readonly PortType Vector = new("Vector", typeof(Vector3), new Vertex.Color(0.98f, 0.78f, 0.3f), Vector3.Zero);
+
+        /// <summary>A colour, and how see-through it is (its alpha). Made from a vector, it's solid.</summary>
+        public static readonly PortType Color = new("Color", typeof(Vertex.Color), new Vertex.Color(0.8f, 0.5f, 0.98f), Vertex.Color.White);
 
         /// <summary>An object in the scene. Unlinked, an input of this type means the object the graph belongs to.</summary>
-        public static readonly PortType Object = new("Object", typeof(GameObject), new Color(0.38f, 0.66f, 0.98f));
+        public static readonly PortType Object = new("Object", typeof(GameObject), new Vertex.Color(0.38f, 0.66f, 0.98f));
 
         private static readonly Dictionary<Type, PortType> _enums = new();
 
@@ -56,7 +60,7 @@ namespace Vertex.Graphs
             if (!type.IsEnum) throw new ArgumentException($"{type.Name} isn't an enum.", nameof(type));
             lock (_enums)
             {
-                if (!_enums.TryGetValue(type, out PortType? port)) _enums[type] = port = new PortType(type.Name, type, new Color(0.55f, 0.6f, 0.7f), System.Enum.GetValues(type).GetValue(0));
+                if (!_enums.TryGetValue(type, out PortType? port)) _enums[type] = port = new PortType(type.Name, type, new Vertex.Color(0.55f, 0.6f, 0.7f), System.Enum.GetValues(type).GetValue(0));
                 return port;
             }
         }
@@ -67,18 +71,19 @@ namespace Vertex.Graphs
         public static PortType Named(string name) => _byName.GetValueOrDefault(name, Any);
 
         /// <summary>The types a graph variable can be.</summary>
-        public static IReadOnlyList<PortType> VariableTypes { get; } = [Number, Boolean, Text, Vector, Object];
+        public static IReadOnlyList<PortType> VariableTypes { get; } = [Number, Boolean, Text, Vector, Color, Object];
 
         /// <summary>
         /// Whether an output of this type can be linked to an input of <paramref name="input"/>'s: the same type, flow to
         /// flow only, anything to <see cref="Any"/> or <see cref="Text"/> (written out), <see cref="Any"/> to anything
-        /// (converted when it runs), and a number to a vector (all three parts) or a true/false.
+        /// (converted when it runs), a number to a vector (all three parts) or a true/false, and a vector to a colour and back.
         /// </summary>
         public bool CanLinkTo(PortType input)
         {
             if (IsFlow || input.IsFlow) return IsFlow && input.IsFlow;
             if (this == input || input == Any || this == Any || input == Text) return true;
-            return (this == Number && (input == Vector || input == Boolean)) || (this == Boolean && input == Number);
+            return (this == Number && (input == Vector || input == Boolean)) || (this == Boolean && input == Number) ||
+                   (this == Vector && input == Color) || (this == Color && input == Vector);
         }
 
         /// <summary>
@@ -95,8 +100,9 @@ namespace Vertex.Graphs
                 if (this == Number) return ToNumber(value);
                 if (this == Boolean) return value switch { float f => f != 0f, double d => d != 0d, int i => i != 0, string s => s.Trim().Equals("true", StringComparison.OrdinalIgnoreCase), null => false, _ => true };
                 if (this == Text) return Describe(value);
-                if (this == Vector) return value switch { float f => new Vector3(f), double d => new Vector3((float)d), int i => new Vector3(i), Vector2 v => new Vector3(v, 0f), _ => Vector3.Zero };
+                if (this == Vector) return value switch { float f => new Vector3(f), double d => new Vector3((float)d), int i => new Vector3(i), Vector2 v => new Vector3(v, 0f), Vertex.Color c => new Vector3(c.R, c.G, c.B), Vector4 v => new Vector3(v.X, v.Y, v.Z), _ => Vector3.Zero };
                 if (this == Object) return value switch { GameObject gameObject => gameObject, Component component => component.GameObject, _ => null };
+                if (this == Color) return value switch { Vector4 v => new Vertex.Color(v.X, v.Y, v.Z, v.W), Vector3 v => new Vertex.Color(v.X, v.Y, v.Z), float f => new Vertex.Color(f, f, f), _ => Default };
                 if (ValueType is { IsEnum: true } enumType && value is string name && System.Enum.TryParse(enumType, name, out object? parsed)) return parsed;
             }
             catch (Exception)
@@ -128,6 +134,7 @@ namespace Vertex.Graphs
             bool b => b ? "true" : "false",
             Vector3 v => string.Create(CultureInfo.InvariantCulture, $"({v.X:0.###}, {v.Y:0.###}, {v.Z:0.###})"),
             Vector2 v => string.Create(CultureInfo.InvariantCulture, $"({v.X:0.###}, {v.Y:0.###})"),
+            Vertex.Color c => string.Create(CultureInfo.InvariantCulture, $"({c.R:0.##}, {c.G:0.##}, {c.B:0.##}, {c.A:0.##})"),
             GameObject gameObject => gameObject.Name,
             Component component => $"{component.GameObject.Name} ({component.GetType().Name})",
             _ => System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""

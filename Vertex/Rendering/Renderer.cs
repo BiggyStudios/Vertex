@@ -250,6 +250,7 @@ namespace Vertex.Rendering
             }
 
             foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
+            foreach (Effects.VisualEffect effect in scene.FindComponents<Effects.VisualEffect>()) effect.Collect(_frame.ParticleList);
             _cpuParticles?.Collect(_frame.ParticleList);
 
             // Furthest first, so nearer dust and smoke covers what's behind it. Additive ones don't mind the order.

@@ -67,6 +67,8 @@ namespace Vertex.Rendering
 
         public override void Simulate(float deltaTime) => Tick(deltaTime);
 
+        public override bool Finished => !Playing && !IsAlive && _pending.Count == 0;
+
         protected internal override void OnDestroy()
         {
             Released = true;

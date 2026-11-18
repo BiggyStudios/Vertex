@@ -522,16 +522,16 @@ namespace Vertex.Editor.Panels
 
         // Particle effects on what's selected play in the scene view while they're edited, so they can be seen as
         // they're tuned. One that finishes (a burst) starts again a moment later.
-        private readonly List<ParticleEmitter> _previewing = new();
-        private readonly Dictionary<ParticleEmitter, float> _finishedFor = new();
+        private readonly List<IParticleEffect> _previewing = new();
+        private readonly Dictionary<IParticleEffect, float> _finishedFor = new();
         private bool _previewPaused;
 
         /// <summary>The particle effects playing in the scene view now: those on the selected objects and under them.</summary>
-        public IReadOnlyList<ParticleEmitter> PreviewedEffects => _previewing;
+        public IReadOnlyList<IParticleEffect> PreviewedEffects => _previewing;
 
         private void PreviewEffects(Rect viewport)
         {
-            var now = new List<ParticleEmitter>();
+            var now = new List<IParticleEffect>();
             if (!_context.Play.Playing)
             {
                 foreach (GameObject selected in _context.Selection.Objects)
@@ -540,14 +540,14 @@ namespace Vertex.Editor.Panels
                 }
             }
 
-            foreach (ParticleEmitter gone in _previewing.Where(e => !now.Contains(e)).ToList())
+            foreach (IParticleEffect gone in _previewing.Where(e => !now.Contains(e)).ToList())
             {
                 if (!_context.Play.Playing) gone.Rewind();
                 _previewing.Remove(gone);
                 _finishedFor.Remove(gone);
             }
 
-            foreach (ParticleEmitter emitter in now)
+            foreach (IParticleEffect emitter in now)
             {
                 if (_previewing.Contains(emitter)) continue;
                 _previewing.Add(emitter);
@@ -559,14 +559,14 @@ namespace Vertex.Editor.Panels
             if (!_previewPaused)
             {
                 float deltaTime = MathF.Min(Ui.DeltaTime, 0.1f);
-                foreach (ParticleEmitter emitter in _previewing)
+                foreach (IParticleEffect emitter in _previewing)
                 {
                     emitter.Simulate(deltaTime);
 
-                    bool finished = !emitter.Playing && (emitter is ParticleSystem cpu ? cpu.Count == 0 : emitter is not GpuParticleSystem { IsAlive: true });
+                    bool finished = emitter.Finished;
                     float waited = finished ? _finishedFor.GetValueOrDefault(emitter) + deltaTime : 0f;
                     _finishedFor[emitter] = waited;
-                    if (waited > 0.8f && emitter.Emitting)
+                    if (waited > 0.8f && emitter.PlaysByItself)
                     {
                         emitter.Rewind();
                         _finishedFor[emitter] = 0f;
@@ -577,12 +577,12 @@ namespace Vertex.Editor.Panels
             DrawEffectBar(viewport);
         }
 
-        private static void EffectsUnder(GameObject gameObject, List<ParticleEmitter> into)
+        private static void EffectsUnder(GameObject gameObject, List<IParticleEffect> into)
         {
             if (!gameObject.ActiveInHierarchy) return;
-            foreach (ParticleEmitter emitter in gameObject.GetComponents<ParticleEmitter>())
+            foreach (Component component in gameObject.Components)
             {
-                if (emitter.Enabled && !into.Contains(emitter)) into.Add(emitter);
+                if (component is IParticleEffect effect && component.Enabled && !into.Contains(effect)) into.Add(effect);
             }
 
             foreach (Transform child in gameObject.Transform.Children) EffectsUnder(child.GameObject, into);
@@ -591,9 +591,9 @@ namespace Vertex.Editor.Panels
         /// <summary>In the corner while effects play: how many particles there are, how far through it is, and the controls.</summary>
         private void DrawEffectBar(Rect viewport)
         {
-            int alive = _previewing.OfType<ParticleSystem>().Sum(p => p.Count);
-            bool counted = _previewing.All(p => p is ParticleSystem);
-            ParticleEmitter first = _previewing[0];
+            int alive = _previewing.Sum(p => p.Alive ?? 0);
+            bool counted = _previewing.All(p => p.Alive != null);
+            IParticleEffect first = _previewing[0];
             string label = _previewing.Count == 1 ? "Particle effect" : $"{_previewing.Count} particle effects";
             string stats = (counted ? $"{alive} alive  ·  " : "") + $"{first.PlayTime:0.0} s";
 
@@ -614,7 +614,7 @@ namespace Vertex.Editor.Panels
             var pause = new Rect(bar.Right - 34f, bar.Y + 4f, 28f, 28f);
             if (Widgets.IconButton(Ui.Id("sceneView.effectRestart"), restart, Icons.Rotate, "Play from the start"))
             {
-                foreach (ParticleEmitter emitter in _previewing) emitter.Rewind();
+                foreach (IParticleEffect emitter in _previewing) emitter.Rewind();
                 _previewPaused = false;
             }
 
