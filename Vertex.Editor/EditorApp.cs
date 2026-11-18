@@ -73,10 +73,11 @@ namespace Vertex.Editor
         public CursorShape? CursorOverride { get; set; }
         public SceneViewPanel SceneView => _sceneView;
 
-        /// <summary>Whether the outliner, inspector and assets show (View menu).</summary>
-        public bool ShowOutliner { get; set; } = true;
-        public bool ShowInspector { get; set; } = true;
-        public bool ShowAssets { get; set; } = true;
+        /// <summary>Where the panels are docked, as tabs round the scene view.</summary>
+        public DockLayout Dock => _dock;
+
+        private readonly DockLayout _dock;
+        private readonly ConsolePanel _console;
 
         /// <param name="renderer">For the title bar to say what's drawing; may be null in tests.</param>
         /// <param name="window">The window's controls, for the title bar's buttons; may be null in tests.</param>
@@ -89,6 +90,13 @@ namespace Vertex.Editor
             _inspector = new InspectorPanel(Context);
             _sceneView = new SceneViewPanel(Context);
             _assets = new AssetsPanel(Context);
+            _console = new ConsolePanel(Context);
+            _dock = new DockLayout(Context.Preferences);
+            _dock.Add(_outliner, DockArea.Left);
+            _dock.Add(_inspector, DockArea.Right);
+            _dock.Add(_assets, DockArea.Bottom);
+            _dock.Add(_console, DockArea.Bottom);
+            Context.ConsoleRequested += () => _dock.Show(_console.Title);
             Context.Notified += text =>
             {
                 // The same note again (a value that keeps failing to set) refreshes the one showing.
@@ -176,33 +184,35 @@ namespace Vertex.Editor
 
         private void DrawBody(Rect body, Preferences preferences)
         {
-            // Sides take at most two fifths each; on a small window they shrink rather than overlap.
+            // The docks: left and right of everything, the bottom one under the scene view. Each takes at most two fifths;
+            // on a small window they shrink rather than overlap. A dock with no tabs gives its room to the scene view.
             float maxSide = MathF.Max(body.Width * 0.4f, 120f);
-            float left = ShowOutliner ? Math.Clamp(preferences.OutlinerWidth, MathF.Min(180f, maxSide), maxSide) : 0f;
-            float right = ShowInspector ? Math.Clamp(preferences.InspectorWidth, MathF.Min(240f, maxSide), maxSide) : 0f;
+            bool hasLeft = _dock.Has(DockArea.Left), hasRight = _dock.Has(DockArea.Right), hasBottom = _dock.Has(DockArea.Bottom);
+            float left = hasLeft ? Math.Clamp(preferences.OutlinerWidth, MathF.Min(180f, maxSide), maxSide) : 0f;
+            float right = hasRight ? Math.Clamp(preferences.InspectorWidth, MathF.Min(240f, maxSide), maxSide) : 0f;
 
             Rect leftRect = body.TakeLeft(left);
             Rect rightRect = body.TakeRight(right);
             Rect middle = body.CutLeft(left, left > 0f ? Theme.Gap : 0f).CutRight(right, right > 0f ? Theme.Gap : 0f);
 
-            float maxAssets = MathF.Max(middle.Height - 200f, 100f);
-            float assets = ShowAssets ? Math.Clamp(preferences.AssetsHeight, MathF.Min(120f, maxAssets), maxAssets) : 0f;
-            Rect sceneRect = middle.CutBottom(assets, assets > 0f ? Theme.Gap : 0f);
-            Rect assetsRect = middle.TakeBottom(assets);
+            float maxBottom = MathF.Max(middle.Height - 200f, 100f);
+            float bottom = hasBottom ? Math.Clamp(preferences.AssetsHeight, MathF.Min(120f, maxBottom), maxBottom) : 0f;
+            Rect sceneRect = middle.CutBottom(bottom, bottom > 0f ? Theme.Gap : 0f);
+            Rect bottomRect = middle.TakeBottom(bottom);
 
             _sceneView.Draw(sceneRect);
-            if (ShowAssets) _assets.Draw(assetsRect);
-            if (ShowOutliner) _outliner.Draw(leftRect);
-            if (ShowInspector) _inspector.Draw(rightRect);
+            if (hasBottom) _dock.Draw(DockArea.Bottom, bottomRect);
+            if (hasLeft) _dock.Draw(DockArea.Left, leftRect);
+            if (hasRight) _dock.Draw(DockArea.Right, rightRect);
 
             float value;
-            if (ShowOutliner)
+            if (hasLeft)
             {
                 value = left;
                 if (Widgets.Splitter(Ui.Id("split.left"), new Rect(leftRect.Right - 2f, body.Y, Theme.Gap + 4f, body.Height), ref value, 180f, maxSide)) preferences.OutlinerWidth = value;
             }
 
-            if (ShowInspector)
+            if (hasRight)
             {
                 value = right;
                 if (Widgets.Splitter(Ui.Id("split.right"), new Rect(rightRect.X - Theme.Gap - 2f, body.Y, Theme.Gap + 4f, body.Height), ref value, 240f, maxSide, inverted: true))
@@ -211,14 +221,16 @@ namespace Vertex.Editor
                 }
             }
 
-            if (ShowAssets)
+            if (hasBottom)
             {
-                value = assets;
-                if (Widgets.Splitter(Ui.Id("split.assets"), new Rect(middle.X, assetsRect.Y - Theme.Gap - 2f, middle.Width, Theme.Gap + 4f), ref value, 120f, maxAssets, vertical: true, inverted: true))
+                value = bottom;
+                if (Widgets.Splitter(Ui.Id("split.assets"), new Rect(middle.X, bottomRect.Y - Theme.Gap - 2f, middle.Width, Theme.Gap + 4f), ref value, 120f, maxBottom, vertical: true, inverted: true))
                 {
                     preferences.AssetsHeight = value;
                 }
             }
+
+            _dock.UpdateDrag(body, middle);
         }
 
         // ---------------------------------------------------------------- The title bar
@@ -383,9 +395,10 @@ namespace Vertex.Editor
                 case "View":
                     return
                     [
-                        new MenuItem("Outliner", () => ShowOutliner = !ShowOutliner) { Checked = ShowOutliner },
-                        new MenuItem("Inspector", () => ShowInspector = !ShowInspector) { Checked = ShowInspector },
-                        new MenuItem("Assets", () => ShowAssets = !ShowAssets) { Checked = ShowAssets },
+                        new MenuItem("Outliner", () => _dock.Toggle("Outliner")) { Checked = _dock.IsOpen("Outliner") },
+                        new MenuItem("Inspector", () => _dock.Toggle("Inspector")) { Checked = _dock.IsOpen("Inspector") },
+                        new MenuItem("Assets", () => _dock.Toggle("Assets")) { Checked = _dock.IsOpen("Assets") },
+                        new MenuItem("Console", () => _dock.Toggle("Console")) { Checked = _dock.IsOpen("Console"), Shortcut = "Ctrl+Shift+C" },
                         MenuItem.Separator,
                         new MenuItem("Grid", () => Context.Preferences.ShowGrid = !Context.Preferences.ShowGrid) { Checked = Context.Preferences.ShowGrid },
                         MenuItem.Separator,
@@ -420,7 +433,7 @@ namespace Vertex.Editor
             Context.Preferences.OutlinerWidth = defaults.OutlinerWidth;
             Context.Preferences.InspectorWidth = defaults.InspectorWidth;
             Context.Preferences.AssetsHeight = defaults.AssetsHeight;
-            ShowOutliner = ShowInspector = ShowAssets = true;
+            _dock.Reset();
         }
 
         public static void OpenProjectDialog(EditorContext context)
@@ -562,6 +575,7 @@ namespace Vertex.Editor
                 if (InputSystem.GetKeyDown(Key.Equal) || InputSystem.GetKeyDown(Key.KeypadAdd)) ChangeSize(+0.1f);
                 if (InputSystem.GetKeyDown(Key.Minus) || InputSystem.GetKeyDown(Key.KeypadSubtract)) ChangeSize(-0.1f);
                 if (InputSystem.GetKeyDown(Key.Number0) || InputSystem.GetKeyDown(Key.Keypad0)) ChangeSize(0f);
+                if (shift && InputSystem.GetKeyDown(Key.C)) _dock.Toggle("Console");
                 if (InputSystem.GetKeyDown(Key.P))
                 {
                     if (shift && Context.Play.Playing) Context.Play.Paused = !Context.Play.Paused;

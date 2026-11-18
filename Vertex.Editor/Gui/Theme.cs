@@ -51,6 +51,7 @@ namespace Vertex.Editor.Gui
         public static readonly Color AxisZ = Hex(0x4C8DF6);
 
         public static readonly Color Danger = Hex(0xE5534B);
+        public static readonly Color Warning = Hex(0xE8B339);
 
         public static Color WithAlpha(this Color color, float alpha) => new(color.R, color.G, color.B, color.A * alpha);
 

@@ -13,7 +13,7 @@ namespace Vertex.Editor.Panels
     /// double-click or F2 to rename, drag one onto another to put it under it, right-click for more. The search box
     /// narrows it to objects whose names match. The arrow keys move through it once it's been clicked in.
     /// </summary>
-    public sealed class OutlinerPanel
+    public sealed class OutlinerPanel : IDockPanel
     {
         private readonly EditorContext _context;
 
@@ -51,6 +51,9 @@ namespace Vertex.Editor.Panels
         private float _scrollTop;
         private float _selectedY = -1f;
         private int _scrollId;
+
+        public string Title => "Outliner";
+        public Icon Icon => Icons.Tree;
 
         public OutlinerPanel(EditorContext context)
         {

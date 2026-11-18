@@ -115,6 +115,36 @@ namespace Vertex.Editor.Gui
             Ui.Line(new Vector2(frame.X, frame.Y + size * 0.18f), new Vector2(frame.Right, frame.Y + size * 0.18f), color, 1.2f);
         }
 
+        /// <summary>A prompt and a line of text: the Console.</summary>
+        public static void Console(Vector2 centre, float size, Color color)
+        {
+            var frame = new Rect(centre.X - size * 0.4f, centre.Y - size * 0.32f, size * 0.8f, size * 0.64f);
+            Ui.Outline(frame, color, 2f, 1.2f);
+            Vector2 at = new(frame.X + size * 0.16f, centre.Y);
+            Ui.Line(at + new Vector2(0f, -size * 0.1f), at + new Vector2(size * 0.1f, 0f), color, 1.2f);
+            Ui.Line(at + new Vector2(size * 0.1f, 0f), at + new Vector2(0f, size * 0.1f), color, 1.2f);
+            Ui.Line(at + new Vector2(size * 0.18f, size * 0.11f), at + new Vector2(size * 0.4f, size * 0.11f), color, 1.2f);
+        }
+
+        /// <summary>Lines under one another, indented like a tree: the outliner.</summary>
+        public static void Tree(Vector2 centre, float size, Color color)
+        {
+            float left = centre.X - size * 0.34f, right = centre.X + size * 0.34f, step = size * 0.24f;
+            Ui.Line(new Vector2(left, centre.Y - step), new Vector2(right, centre.Y - step), color, 1.3f);
+            Ui.Line(new Vector2(left + size * 0.18f, centre.Y), new Vector2(right, centre.Y), color, 1.3f);
+            Ui.Line(new Vector2(left + size * 0.18f, centre.Y + step), new Vector2(right, centre.Y + step), color, 1.3f);
+        }
+
+        /// <summary>Two sliders: the inspector, where values are changed.</summary>
+        public static void Sliders(Vector2 centre, float size, Color color)
+        {
+            float left = centre.X - size * 0.34f, right = centre.X + size * 0.34f, step = size * 0.17f;
+            Ui.Line(new Vector2(left, centre.Y - step), new Vector2(right, centre.Y - step), color, 1.2f);
+            Ui.Line(new Vector2(left, centre.Y + step), new Vector2(right, centre.Y + step), color, 1.2f);
+            Ui.Circle(new Vector2(centre.X - size * 0.1f, centre.Y - step), size * 0.09f, color);
+            Ui.Circle(new Vector2(centre.X + size * 0.16f, centre.Y + step), size * 0.09f, color);
+        }
+
         /// <summary>A sun: a light.</summary>
         public static void Light(Vector2 centre, float size, Color color)
         {

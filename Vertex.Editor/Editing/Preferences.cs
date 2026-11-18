@@ -53,6 +53,15 @@ namespace Vertex.Editor.Editing
         [HideInInspector] public float AssetTileSize { get; set; } = 88f;
         [HideInInspector] public List<string> RecentProjects { get; set; } = new();
 
+        // Which panels are docked where, as tabs, and which tab each place shows. A panel in none of them is closed.
+        [HideInInspector] public List<string> LeftTabs { get; set; } = ["Outliner"];
+        [HideInInspector] public List<string> RightTabs { get; set; } = ["Inspector"];
+        [HideInInspector] public List<string> BottomTabs { get; set; } = ["Assets", "Console"];
+        [HideInInspector] public Dictionary<string, string> ActiveTabs { get; set; } = new();
+
+        [Tooltip("Empties the Console each time play starts, so it only has what this run of the game wrote")]
+        public bool ClearConsoleOnPlay { get; set; } = true;
+
         private static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vertex", "editor.json");
 
         private static readonly JsonSerializerOptions _options = new() { WriteIndented = true };

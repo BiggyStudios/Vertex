@@ -15,7 +15,7 @@ namespace Vertex.Editor.Panels
     /// The panel on the right: what the selected object is made of. Its name, then its transform, then each of its
     /// components as a card that folds open and shut, then Add Component. With the scene selected, its lighting and sky.
     /// </summary>
-    public sealed class InspectorPanel
+    public sealed class InspectorPanel : IDockPanel
     {
         private readonly EditorContext _context;
         private readonly PropertyGrid _grid;
@@ -31,6 +31,9 @@ namespace Vertex.Editor.Panels
 
         private const float _cardHeader = 32f;
         private const float _cardGap = 8f;
+
+        public string Title => "Inspector";
+        public Icon Icon => Icons.Sliders;
 
         public InspectorPanel(EditorContext context)
         {

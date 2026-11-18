@@ -68,9 +68,12 @@ namespace Vertex.Editor.Editing
         /// The build errors in <paramref name="output"/>, each once and short ("Player.cs(12): The name 'x' does not
         /// exist"), for showing; the full output has every one with its whole path, often several times over.
         /// </summary>
-        public static List<string> Errors(string output)
+        public static List<string> Errors(string output) => ErrorsWithPlaces(output).Select(e => e.Shown).ToList();
+
+        /// <summary>The build errors, each once: short, and the file and line it's in (for opening it there).</summary>
+        public static List<(string Shown, string? File, int Line)> ErrorsWithPlaces(string output)
         {
-            var errors = new List<string>();
+            var errors = new List<(string Shown, string? File, int Line)>();
             foreach (string line in output.Split('\n'))
             {
                 int at = line.IndexOf(": error ", StringComparison.Ordinal);
@@ -85,10 +88,12 @@ namespace Vertex.Editor.Editing
                 if (code > 0 && code < 12) message = message[(code + 2)..];
 
                 int bracket = where.IndexOf('(');
-                string file = Path.GetFileName(bracket > 0 ? where[..bracket] : where);
+                string path = bracket > 0 ? where[..bracket] : where;
+                string file = Path.GetFileName(path);
                 string lineNumber = bracket > 0 ? where[(bracket + 1)..].Split(',', ')')[0] : "";
                 string shown = lineNumber.Length > 0 ? $"{file}({lineNumber}): {message}" : $"{file}: {message}";
-                if (!errors.Contains(shown)) errors.Add(shown);
+                if (errors.Any(e => e.Shown == shown)) continue;
+                errors.Add((shown, path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ? path : null, int.TryParse(lineNumber, out int number) ? number : 0));
             }
 
             return errors;

@@ -15,7 +15,7 @@ namespace Vertex.Editor.Panels
     /// and materials onto slots or objects, and models and prefabs into the scene. Drag an object here from the outliner
     /// to make a prefab of it. Right-click for new folders, materials, scenes and scripts.
     /// </summary>
-    public sealed class AssetsPanel
+    public sealed class AssetsPanel : IDockPanel
     {
         private readonly EditorContext _context;
         private string? _folder;
@@ -27,6 +27,9 @@ namespace Vertex.Editor.Panels
 
         // Clicked in last, so F2, Delete and Ctrl+D are its.
         private bool _focused;
+
+        public string Title => "Assets";
+        public Icon Icon => Icons.Folder;
 
         public AssetsPanel(EditorContext context)
         {
@@ -52,7 +55,15 @@ namespace Vertex.Editor.Panels
             if (_folder == null || !_folder.StartsWith(assets.Root, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(_folder)) _folder = assets.Root;
             if (Ui.MousePressed() || Ui.MousePressed(MouseButton.Right)) _focused = rect.Contains(Ui.Mouse) && !Menu.IsAnyOpen && !Dialog.IsOpen;
 
-            DrawHeader(rect, assets);
+            // Its controls go along the header, right of the title or tabs, or on a row of their own when that's too narrow.
+            Rect bar = new(PanelFrame.TitleRight, rect.Y, rect.Right - PanelFrame.TitleRight, PanelFrame.HeaderHeight);
+            if (bar.Width < 520f)
+            {
+                bar = content.TakeTop(34f).Shrink(4f, 0f);
+                content = content.CutTop(32f);
+            }
+
+            DrawHeader(bar, assets);
 
             // The tiles.
             float tile = _context.Preferences.AssetTileSize;
@@ -93,15 +104,15 @@ namespace Vertex.Editor.Panels
             if (_focused && !Ui.KeyboardTaken && !Menu.IsAnyOpen && !Dialog.IsOpen) HandleKeys();
         }
 
-        private void DrawHeader(Rect rect, AssetDatabase assets)
+        private void DrawHeader(Rect bar, AssetDatabase assets)
         {
-            // Where we are: each folder on the way down from Assets, clickable to go back up.
-            float x = rect.X + 80f;
-            float y = rect.Y + (PanelFrame.HeaderHeight - 22f) * 0.5f;
+            // Where we are, inside a folder: each folder on the way down from Assets, clickable to go back up.
+            float x = bar.X;
+            float y = bar.Centre.Y - 11f;
             string relative = Path.GetRelativePath(assets.Root, _folder!);
             string[] parts = relative == "." ? [] : relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string path = assets.Root;
-            for (int i = -1; i < parts.Length; i++)
+            for (int i = parts.Length == 0 ? 0 : -1; i < parts.Length; i++)
             {
                 if (i >= 0)
                 {
@@ -120,15 +131,16 @@ namespace Vertex.Editor.Panels
             }
 
             // Search, tile size and a new-thing button on the right.
-            Rect searchRect = new(rect.Right - Theme.Padding - 200f, rect.Y + 5f, 200f, 26f);
+            float searchWidth = Math.Clamp(bar.Width - 300f, 100f, 200f);
+            Rect searchRect = new(bar.Right - Theme.Padding - searchWidth, bar.Centre.Y - 13f, searchWidth, 26f);
             TextInput.Draw(Ui.Id("assets.search"), searchRect, ref _search, "Search assets", live: true, icon: Icons.Search);
 
             int addId = Ui.Id("assets.add");
-            var add = new Rect(searchRect.X - 32f, rect.Y + 6f, 24f, 24f);
+            var add = new Rect(searchRect.X - 32f, bar.Centre.Y - 12f, 24f, 24f);
             if (Widgets.IconButton(addId, add, Icons.Plus, "Make something new here")) Menu.Open(addId, new Vector2(add.X, add.Bottom + 4f), NewItems(_folder!), flipBy: add.Height + 8f);
 
             float size = _context.Preferences.AssetTileSize;
-            var slider = new Rect(add.X - 106f, rect.Y + 8f, 90f, 20f);
+            var slider = new Rect(add.X - 106f, bar.Centre.Y - 10f, 90f, 20f);
             if (Widgets.ThinSlider(Ui.Id("assets.size"), slider, ref size, 56f, 140f, "Tile size")) _context.Preferences.AssetTileSize = MathF.Round(size);
         }
 

@@ -7,9 +7,17 @@ namespace Vertex.Editor.Gui
     {
         public const float HeaderHeight = 36f;
 
+        /// <summary>Set while a dock draws a panel as one of its tabs: the dock has drawn the card and the tabs, so the panel doesn't.</summary>
+        public static bool Docked { get; set; }
+
+        /// <summary>Where the title (or a dock's tabs) ends along the header: where a panel's own header controls can start.</summary>
+        public static float TitleRight { get; set; }
+
         /// <summary>Draws the panel and its title, and returns the rectangle under the title for its contents.</summary>
         public static Rect Draw(Rect rect, string title, Icon? icon = null)
         {
+            if (Docked) return rect.CutTop(HeaderHeight);
+
             Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);
             Ui.Outline(rect, Theme.Border, Theme.PanelRadius);
 
@@ -22,6 +30,7 @@ namespace Vertex.Editor.Gui
             }
 
             Ui.Text(new Rect(textLeft, header.Y, header.Right - textLeft, header.Height), title, Theme.Text, bold: true, size: Theme.TitleSize);
+            TitleRight = textLeft + Ui.TextWidth(title, Theme.TitleSize, bold: true) + 16f;
             Ui.Rect(new Rect(rect.X, rect.Y + HeaderHeight - 1f, rect.Width, 1f), Theme.Border);
 
             return rect.CutTop(HeaderHeight);

@@ -132,7 +132,22 @@ namespace Vertex.Editor
         /// <summary>Raised when an object should be renamed in place (F2, or the Edit menu), for the outliner to do.</summary>
         public event Action<GameObject>? RenameRequested;
 
-        public void Notify(string message) => Notified?.Invoke(message);
+        /// <summary>Shows a short note. Ones about something that went wrong ("Couldn't ...") go in the Console too, to look at later.</summary>
+        public void Notify(string message)
+        {
+            if (message.StartsWith("Couldn't", StringComparison.Ordinal)) Log.Warning(message);
+            Notified?.Invoke(message);
+        }
+
+        /// <summary>Everything logged while the editor runs, for the Console.</summary>
+        public EditorLog ConsoleLog => EditorLog.Shared;
+
+        /// <summary>Raised when the Console should be shown (an error the user needs to see).</summary>
+        public event Action? ConsoleRequested;
+
+        public void ShowConsole() => ConsoleRequested?.Invoke();
+
+        private readonly System.Diagnostics.Stopwatch _buildTimer = new();
 
         public void Rename(GameObject gameObject) => RenameRequested?.Invoke(gameObject);
 
@@ -377,6 +392,7 @@ namespace Vertex.Editor
 
             _buildingProject = gameProject;
             Busy = $"Building {Path.GetFileNameWithoutExtension(gameProject)}…";
+            _buildTimer.Restart();
             _build = Task.Run(() => GameCode.Build(gameProject));
         }
 
@@ -390,6 +406,7 @@ namespace Vertex.Editor
         /// <summary>Picks up background work that's finished, and saves materials that have been changed. Called once a frame.</summary>
         public void Update()
         {
+            ConsoleLog.Update();
             SaveChangedMaterials();
             if (_build is not { IsCompleted: true } build) return;
 
@@ -398,18 +415,20 @@ namespace Vertex.Editor
             (bool built, string output, string? assemblyPath) = build.Result;
             if (!built || assemblyPath == null)
             {
-                // The project is still open (its scenes and assets work), just without the game's scripts.
+                // The project is still open (its scenes and assets work), just without the game's scripts; the errors go
+                // to the Console, where double-clicking one opens the code at it.
                 OpenStartupScene();
-                List<string> errors = GameCode.Errors(output);
+                var errors = GameCode.ErrorsWithPlaces(output);
                 string name = Path.GetFileNameWithoutExtension(_buildingProject) ?? "The game";
-                string summary = errors.Count == 0
-                    ? $"dotnet build failed:\n\n{(output.Trim().Length > 0 ? output.Trim() : "(no output)")}"
-                    : $"{errors.Count} error{(errors.Count == 1 ? "" : "s")} in {name}'s code. The project is open, but its scripts aren't " +
-                      $"until it builds: fix the code, then Rebuild Game Code in the File menu (Ctrl+R).\n\n{string.Join("\n", errors.Take(60))}" +
-                      (errors.Count > 60 ? $"\n…and {errors.Count - 60} more (Copy has them all)" : "");
-                Dialog.Message($"{name} didn't build", summary, copyText: output.Trim(), width: 720f);
+                if (errors.Count == 0) Log.Write(LogLevel.Error, $"{name} didn't build", output.Trim().Length > 0 ? output.Trim() : "dotnet build failed with no output.");
+                foreach ((string shown, string? file, int line) in errors) Log.Write(LogLevel.Error, shown, file != null ? $"{file}({line})" : null);
+                Log.Warning($"{name} didn't build ({errors.Count} error{(errors.Count == 1 ? "" : "s")}): its scripts aren't loaded until it does. Fix the code, then Rebuild Game Code (Ctrl+R).");
+                ShowConsole();
+                Notify($"{name} didn't build: the errors are in the Console");
                 return;
             }
+
+            Log.Info($"Built {Path.GetFileNameWithoutExtension(_buildingProject)} in {_buildTimer.Elapsed.TotalSeconds:0.0} s");
 
             try
             {
@@ -424,6 +443,7 @@ namespace Vertex.Editor
             }
             catch (Exception exception)
             {
+                Log.Error($"Couldn't load the game's code: {exception.Message}", exception);
                 Dialog.Message("Couldn't load the game's code", exception.ToString());
                 return;
             }
@@ -449,6 +469,7 @@ namespace Vertex.Editor
             }
             catch (Exception exception)
             {
+                Log.Error($"The game's Load failed: {exception.Message}", exception);
                 Dialog.Message("The game's Load failed", exception.ToString());
             }
 

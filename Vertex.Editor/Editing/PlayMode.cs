@@ -66,6 +66,7 @@ namespace Vertex.Editor.Editing
 
             if (_context.Project is { } project) Time.FixedDeltaTime = 1f / Math.Clamp(project.Settings.PhysicsRate, 10, 240);
 
+            if (_context.Preferences.ClearConsoleOnPlay) _context.ConsoleLog.Clear();
             GameLoop.Start();
             _loop = new GameLoop(game);
             Application.QuitRequested += Stop;
@@ -85,8 +86,10 @@ namespace Vertex.Editor.Editing
             }
             catch (Exception exception)
             {
+                Log.Error($"The game stopped: {exception.GetType().Name}: {exception.Message}", exception);
                 Stop();
-                Gui.Dialog.Message("The game stopped with an error", exception.ToString());
+                _context.ShowConsole();
+                _context.Notify("The game stopped with an error: it's in the Console");
             }
         }
 
