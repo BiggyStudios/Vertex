@@ -17,7 +17,7 @@ namespace Vertex.Scripting
     }
 
     /// <summary>The nodes a visual script can have.</summary>
-    public static class ScriptNodes
+    public static partial class ScriptNodes
     {
         public const string Kind = "script";
 
@@ -32,6 +32,9 @@ namespace Vertex.Scripting
                 "Objects" => new Color(0.25f, 0.62f, 0.75f),
                 "Input" => new Color(0.85f, 0.55f, 0.25f),
                 "Math" or "Logic" or "Vectors" or "Values" => new Color(0.33f, 0.62f, 0.4f),
+                "Physics" => new Color(0.28f, 0.66f, 0.6f),
+                "Networking" => new Color(0.86f, 0.42f, 0.2f),
+                "Effects" or "Sound" or "UI" => new Color(0.75f, 0.42f, 0.82f),
                 _ => base.CategoryColor(category)
             };
         }
@@ -272,6 +275,7 @@ namespace Vertex.Scripting
             Node("Vectors", "Distance", [In("A", PortType.Vector), In("B", PortType.Vector)], [Out("Distance", PortType.Number)],
                 run => run.Out("Distance", Vector3.Distance(run.In<Vector3>("A"), run.In<Vector3>("B"))), "How far apart two points are.", "length between");
 
+            AddGameNodes(library);
             return library;
         }
 

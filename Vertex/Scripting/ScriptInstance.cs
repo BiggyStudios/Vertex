@@ -40,6 +40,19 @@ namespace Vertex.Scripting
         /// <summary>Runs what's linked to flow output <paramref name="port"/>, and comes back once it's done.</summary>
         public void Continue(string port) => _instance.Continue(Node, port);
 
+        /// <summary>Runs what's linked to flow output <paramref name="port"/> <paramref name="seconds"/> from now, carrying on at once meanwhile.</summary>
+        public void ContinueAfter(string port, float seconds) => _instance.Later(Node, port, seconds);
+
+        /// <summary>Something the node keeps between runs, on this object: when it last let the flow through, say.</summary>
+        public object? State
+        {
+            get => Node.State;
+            set => Node.State = value;
+        }
+
+        /// <summary>A value the event that started the flow came with (its name, what was hit), whether or not the node shows it.</summary>
+        public object? Given(string port) => Node.Outputs.GetValueOrDefault(port);
+
         public object? GetVariable(string name) => _instance.Variables.GetValueOrDefault(name);
 
         /// <summary>Sets a variable, as the type it was made as (a number stays a number).</summary>
@@ -63,6 +76,7 @@ namespace Vertex.Scripting
             public required ScriptNode Type;
             public ScriptRun Run = null!;
             public bool Pure;
+            public object? State;
 
             // Where each linked input comes from, and where each flow output goes.
             public readonly Dictionary<string, (Compiled Node, string Port)> Inputs = new();
@@ -80,6 +94,9 @@ namespace Vertex.Scripting
 
         private List<Compiled> _nodes = new();
         private int _compiledVersion = -1;
+
+        // Flow waiting to carry on (Wait): when, from which node, and which output.
+        private readonly List<(float At, Compiled Node, string Port)> _waiting = new();
 
         // Steps run since an event started: too many, and it's stuck in a loop.
         private int _steps;
@@ -126,6 +143,7 @@ namespace Vertex.Scripting
             }
 
             _nodes = nodes;
+            _waiting.Clear();
         }
 
         /// <summary>
@@ -144,6 +162,26 @@ namespace Vertex.Scripting
                 foreach ((string port, object? value) in outputs) node.Outputs[port] = value;
                 if (node.Type.When is { } when && !Guarded(node, () => when(node.Run))) continue;
                 Step(node, null);
+            }
+        }
+
+        internal void Later(Compiled from, string port, float seconds) => _waiting.Add((Time.TotalTime + MathF.Max(seconds, 0f), from, port));
+
+        /// <summary>Carries on the flow that's waited long enough (Wait nodes). Called each frame, before Update.</summary>
+        public void RunWaiting()
+        {
+            Compile();
+            if (_waiting.Count == 0) return;
+
+            float now = Time.TotalTime;
+            List<(float At, Compiled Node, string Port)> due = _waiting.Where(w => w.At <= now).ToList();
+            if (due.Count == 0) return;
+            _waiting.RemoveAll(w => w.At <= now);
+            foreach ((_, Compiled node, string port) in due)
+            {
+                _steps = 0;
+                _depth = 0;
+                Continue(node, port);
             }
         }
 

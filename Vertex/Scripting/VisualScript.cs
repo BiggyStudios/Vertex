@@ -36,7 +36,21 @@ namespace Vertex.Scripting
             Fire("Start");
         }
 
-        protected internal override void Update() => Fire("Update");
+        protected internal override void Update()
+        {
+            if (_instance == null || !Enabled) return;
+            try
+            {
+                _instance.RunWaiting();
+            }
+            catch (ScriptException exception)
+            {
+                Stopped(exception);
+                return;
+            }
+
+            Fire("Update");
+        }
 
         protected internal override void OnCollisionEnter(Collision collision) => Fire("Collision", ("Other", collision.GameObject));
 
@@ -53,10 +67,16 @@ namespace Vertex.Scripting
             }
             catch (ScriptException exception)
             {
-                _instance.Graph.Failed(exception.Node.Id, exception.InnerException?.Message ?? exception.Message);
-                Log.Error($"Visual script {_instance.Graph.Name} on {GameObject.Name} stopped: {exception.Message}");
-                Enabled = false;
+                Stopped(exception);
             }
+        }
+
+        /// <summary>Reports a node going wrong, and switches the script off rather than going wrong again every frame.</summary>
+        private void Stopped(ScriptException exception)
+        {
+            _instance!.Graph.Failed(exception.Node.Id, exception.InnerException?.Message ?? exception.Message);
+            Log.Error($"Visual script {_instance.Graph.Name} on {GameObject.Name} stopped: {exception.Message}");
+            Enabled = false;
         }
     }
 }

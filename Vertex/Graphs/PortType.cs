@@ -52,6 +52,12 @@ namespace Vertex.Graphs
         /// <summary>An object in the scene. Unlinked, an input of this type means the object the graph belongs to.</summary>
         public static readonly PortType Object = new("Object", typeof(GameObject), new Vertex.Color(0.38f, 0.66f, 0.98f));
 
+        /// <summary>A prefab of the project's, to make copies of. Kept in a graph as where its file is.</summary>
+        public static readonly PortType Prefab = new("Prefab", typeof(Vertex.Prefab), new Vertex.Color(0.44f, 0.66f, 1f));
+
+        /// <summary>A sound of the project's. Kept in a graph as where its file is.</summary>
+        public static readonly PortType Sound = new("Sound", typeof(Audio.AudioClip), new Vertex.Color(0.79f, 0.55f, 0.96f));
+
         private static readonly Dictionary<Type, PortType> _enums = new();
 
         /// <summary>A choice from an enum (a key on the keyboard): set on the node, not linked.</summary>
@@ -102,6 +108,8 @@ namespace Vertex.Graphs
                 if (this == Text) return Describe(value);
                 if (this == Vector) return value switch { float f => new Vector3(f), double d => new Vector3((float)d), int i => new Vector3(i), Vector2 v => new Vector3(v, 0f), Vertex.Color c => new Vector3(c.R, c.G, c.B), Vector4 v => new Vector3(v.X, v.Y, v.Z), _ => Vector3.Zero };
                 if (this == Object) return value switch { GameObject gameObject => gameObject, Component component => component.GameObject, _ => null };
+                if (this == Prefab) return value is string prefab && Assets.FindFile(prefab) is { } prefabFile ? Assets.LoadPrefab(prefabFile) : null;
+                if (this == Sound) return value is string sound && Assets.FindFile(sound) is { } soundFile ? Assets.LoadSound(soundFile) : null;
                 if (this == Color) return value switch { Vector4 v => new Vertex.Color(v.X, v.Y, v.Z, v.W), Vector3 v => new Vertex.Color(v.X, v.Y, v.Z), float f => new Vertex.Color(f, f, f), _ => Default };
                 if (ValueType is { IsEnum: true } enumType && value is string name && System.Enum.TryParse(enumType, name, out object? parsed)) return parsed;
             }
@@ -136,6 +144,8 @@ namespace Vertex.Graphs
             Vector2 v => string.Create(CultureInfo.InvariantCulture, $"({v.X:0.###}, {v.Y:0.###})"),
             Vertex.Color c => string.Create(CultureInfo.InvariantCulture, $"({c.R:0.##}, {c.G:0.##}, {c.B:0.##}, {c.A:0.##})"),
             GameObject gameObject => gameObject.Name,
+            Vertex.Prefab prefab => prefab.Name,
+            Audio.AudioClip => "Sound",
             Component component => $"{component.GameObject.Name} ({component.GetType().Name})",
             _ => System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
         };

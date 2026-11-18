@@ -48,6 +48,43 @@ namespace Vertex
         /// </summary>
         public static Graphs.Graph LoadGraph(string path) => Load(_graphs, path, Graphs.Graph.Load);
 
+        /// <summary>
+        /// A project file's path as it's kept in graphs and sent over the network: from the first of
+        /// <see cref="Application.AssetFolders"/> it's in ("Prefabs/Rocket.prefab"), so it's found wherever the game's
+        /// installed. A file outside them keeps its full path.
+        /// </summary>
+        public static string RelativePath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            foreach (string folder in Application.AssetFolders)
+            {
+                string relative = Path.GetRelativePath(Path.GetFullPath(folder), full);
+                if (!relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative)) return relative.Replace('\\', '/');
+            }
+
+            return full;
+        }
+
+        private static readonly Dictionary<string, string?> _found = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Where a file kept by <see cref="RelativePath"/> is: looked for in <see cref="Application.AssetFolders"/>; null if it isn't there.</summary>
+        public static string? FindFile(string saved)
+        {
+            if (saved.Length == 0) return null;
+            if (_found.TryGetValue(saved, out string? known) && known != null && File.Exists(known)) return known;
+
+            string? found = Path.IsPathRooted(saved) ? (File.Exists(saved) ? saved : null) : null;
+            foreach (string folder in Application.AssetFolders)
+            {
+                if (found != null) break;
+                string candidate = Path.GetFullPath(Path.Combine(folder, saved));
+                if (File.Exists(candidate)) found = candidate;
+            }
+
+            _found[saved] = found;
+            return found;
+        }
+
         private static T Load<T>(Dictionary<string, T> loaded, string path, Func<string, T> load)
         {
             string full = Path.GetFullPath(path);

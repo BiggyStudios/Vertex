@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
+using Vertex.Editor.Editing;
 using Vertex.Editor.Gui;
 using Vertex.Graphs;
 using Vertex.Input;
@@ -74,9 +75,13 @@ namespace Vertex.Editor.Graphs
 
         private bool _showVariables = true;
 
+        // For picking a prefab or sound for a node.
+        private readonly Inspection.PropertyGrid _files;
+
         public GraphView(EditorContext context)
         {
             _context = context;
+            _files = new Inspection.PropertyGrid(context);
         }
 
         private static bool Ctrl => InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
@@ -233,6 +238,7 @@ namespace Vertex.Editor.Graphs
             if (type == PortType.Text || type == PortType.Any) return 110f;
             if (type.ValueType is { IsEnum: true }) return 100f;
             if (type == PortType.Object) return 30f;
+            if (type == PortType.Prefab || type == PortType.Sound) return 130f;
             return 0f;
         }
 
@@ -590,6 +596,12 @@ namespace Vertex.Editor.Graphs
                 object current = type.Convert(raw)!;
                 string[] names = values.Cast<object>().Select(v => Inspection.ComponentCatalog.SplitWords(v.ToString()!)).ToArray();
                 if (Widgets.Dropdown(id, field, names, Array.IndexOf(values, current)) is int picked) Set(values.GetValue(picked));
+            }
+            else if (type == PortType.Prefab || type == PortType.Sound)
+            {
+                // Kept as where the file is in the project, so it's found wherever the game's installed.
+                AssetKind kind = type == PortType.Prefab ? AssetKind.Prefab : AssetKind.Sound;
+                _files.AssetField(id, field, kind, type.Convert(raw), canWrite: true, path => Set(path != null ? Vertex.Assets.RelativePath(path) : null));
             }
             else if (type == PortType.Object)
             {
