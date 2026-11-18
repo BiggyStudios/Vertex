@@ -252,7 +252,7 @@ __pycache__/
 *.pyc
 
 # Cake #
-/tools/**
+# (Not /tools/**: this repository's Tools folder is its own, not Cake's.)
 /build/tools/**
 /build/temp/**
 
@@ -354,3 +354,8 @@ osu.Framework.NativeLibs/scripts/ffmpeg/*.tar.gz
 # Notes for AI coding assistants: kept local for now.
 /CLAUDE.md
 /AGENTS.md
+
+# Release downloads made by Tools/Release/Build.ps1.
+/dist/
+# Not build output: the scripts that make the release downloads.
+!/Tools/Release/
