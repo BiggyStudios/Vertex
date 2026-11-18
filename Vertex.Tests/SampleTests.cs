@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 
 using Vertex.Input;
 using Vertex.Networking;
@@ -106,6 +107,49 @@ namespace Vertex.Tests
             Assert.True(MathF.Abs(other.Transform.Position.Z) > 14f, $"Not respawned: at {other.Transform.Position}");
             Assert.Equal(100f, HealthOf(other), 0.01f);
             Assert.Empty(_logged.Where(e => e.Level >= LogLevel.Warning).Select(e => e.Message));
+        }
+
+        [Fact]
+        public void In_a_network_game_the_duels_shots_at_the_other_player_go_to_their_machine()
+        {
+            Application.AssetFolders = [Path.Combine(RepoFolder(), "Samples", "Duel", "Assets")];
+            var transport = new FakeTransport();
+            Network.Start(transport);
+            var loop = new GameLoop(new Game { StartScene = "Scenes/Duel (CSharp).scene" });
+            loop.Load();
+            RunFrames(loop, 2);
+            transport.Start();
+            transport.Join(new PeerId(2));
+            RunFrames(loop, 2);
+            GameObject mine = NetworkManager.Instance!.LocalPlayer!;
+
+            // The other player arrives (their copy of the spawn message), and moves to just in front of ours.
+            byte[] theirs = Assert.Single(transport.Sent, s => s.Data[0] == 0xE0).Data.ToArray();
+            BitConverter.TryWriteBytes(theirs.AsSpan(1), 4321u);
+            BitConverter.TryWriteBytes(theirs.AsSpan(5), 2ul);
+            transport.Receive(new PeerId(2), theirs);
+            var moved = new byte[33];
+            moved[0] = 0xE2;
+            BitConverter.TryWriteBytes(moved.AsSpan(1), 4321u);
+            float[] place = [mine.Transform.Position.X, 0f, mine.Transform.Position.Z - 5f, 0f, 0f, 0f, 1f];
+            for (int i = 0; i < place.Length; i++) BitConverter.TryWriteBytes(moved.AsSpan(5 + i * 4), place[i]);
+            for (int i = 0; i < 30; i++)
+            {
+                transport.Receive(new PeerId(2), moved);
+                RunFrames(loop, 1);
+            }
+
+            GameObject other = NetworkScene.Find(4321)!.GameObject;
+            Assert.Equal(place[2], other.Transform.Position.Z, 0.2f);
+
+            // Shooting them: each hit is sent to their machine, which is in charge of their health; here it's untouched.
+            transport.Sent.Clear();
+            InputSystem.PressButton(MouseButton.Left);
+            RunFrames(loop, 30);
+            InputSystem.ReleaseAll();
+            List<byte[]> hits = transport.Sent.Where(s => s.To == new PeerId(2) && s.Data[0] == 0xE3 && Encoding.UTF8.GetString(s.Data).Contains("Hit")).Select(s => s.Data).ToList();
+            Assert.NotEmpty(hits);
+            Assert.Equal(100f, HealthOf(other));
         }
 
         private static float HealthOf(GameObject player)

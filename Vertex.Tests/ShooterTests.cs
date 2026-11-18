@@ -18,7 +18,7 @@ namespace Vertex.Tests
         public PeerId LocalPeer { get; } = new(1);
         public bool InSession { get; set; }
         public IReadOnlyCollection<PeerId> Peers => _peers;
-        public PeerId HostPeer => LocalPeer;
+        public PeerId HostPeer { get; set; } = new(1);
         public string RoomName => "Test room";
         public bool RoomIsPrivate => false;
 
@@ -324,6 +324,30 @@ namespace Vertex.Tests
             transport.Leave(new PeerId(2));
             RunFrames(loop, 1);
             Assert.True(other.GameObject.IsDestroyed);
+        }
+
+        [Fact]
+        public void Someone_joining_starts_at_the_next_spawn_point_not_the_hosts()
+        {
+            Directory.CreateDirectory(_folder);
+            foreach ((string name, float x) in new[] { ("Spawn A", 3f), ("Spawn B", -3f) })
+            {
+                var spawn = new GameObject(name);
+                spawn.Transform.Position = new Vector3(x, 0f, 0f);
+                spawn.AddComponent<SpawnPoint>();
+            }
+
+            var manager = new GameObject("Network").AddComponent<NetworkManager>();
+            manager.PlayerPrefab = PlayerPrefab();
+            // Joining someone else's game: as it starts, the host isn't among the peers yet.
+            var transport = new FakeTransport { HostPeer = new PeerId(9) };
+            Network.Start(transport);
+            GameLoop loop = Loop();
+            RunFrames(loop, 2);
+            transport.Start();
+            RunFrames(loop, 2);
+
+            Assert.Equal(new Vector3(-3f, 0f, 0f), manager.LocalPlayer!.Transform.Position);
         }
 
         [Fact]

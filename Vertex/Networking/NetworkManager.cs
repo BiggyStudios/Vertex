@@ -77,6 +77,9 @@ namespace Vertex.Networking
         protected internal override void Start()
         {
             Instance = this;
+
+            // Started with -lan: the local network instead of Steam, to try a game with two copies on one PC.
+            if (Environment.GetCommandLineArgs().Any(a => a.Equals("-lan", StringComparison.OrdinalIgnoreCase))) Service = NetworkService.LocalNetwork;
             NetworkScene.Listen();
             Network.SessionStarted += OnSessionStarted;
             Network.SessionEnded += OnSessionEnded;
@@ -231,12 +234,12 @@ namespace Vertex.Networking
 
         private void OnSessionEnded() => Status = "Offline";
 
-        /// <summary>This machine's place among the players: the order of their IDs, so each starts at a different spawn point.</summary>
-        private static int LocalIndex()
-        {
-            if (!Network.InSession) return 0;
-            return Network.Peers.Append(Network.LocalPeer).OrderBy(p => p.Value).ToList().IndexOf(Network.LocalPeer);
-        }
+        /// <summary>
+        /// This machine's place among the players, in the order they came, so each starts at a different spawn point: the
+        /// host first, and someone joining after everyone already there (who may not be known yet as it starts: the host at
+        /// least is there). Peer IDs don't say who came first.
+        /// </summary>
+        private static int LocalIndex() => !Network.InSession || Network.IsHost ? 0 : Math.Max(Network.Peers.Count, 1);
 
         private void SpawnLocalPlayer()
         {
