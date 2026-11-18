@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Duel: a multiplayer 1v1 shooter · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Tutorial · the editor</span>
+    <h1>Duel: a multiplayer 1v1 shooter</h1>
+    <p class="lead">Build a first-person duel you can play with a friend over Steam: an arena, a player who walks, jumps and shoots, health and respawning, a score, and matchmaking. You'll use most of the editor on the way.</p>
+
+    <div class="figure reveal"><img src="images/duel.jpg" alt="The finished Duel: an arena with cover, a gun in view, health and score"><figcaption>The finished game. Both versions are in <a href="https://github.com/BiggyStudios/Vertex/tree/master/Samples/Duel">Samples/Duel</a>, to compare against.</figcaption></div>
+
+    <h2>Pick how you'll script it</h2>
+    <p>The steps for the arena, the player, the UI and the network are the same either way. The scripts can be written in <strong>C#</strong> or made with <strong>visual scripting</strong>. Pick one here; you can switch at any point (the switch stays at the top as you scroll) and the page changes to match.</p>
+    <p><span class="track-switch"><button data-show="cs">C# scripts</button><button data-show="vs">Visual scripting</button></span></p>
+    <div data-track="cs"><p><span class="badge cs">C#</span> You'll write four short components. You'll want a code editor for C# (Visual Studio, Rider or VS Code); the editor builds your code whenever you switch back to it.</p></div>
+    <div data-track="vs"><p><span class="badge vs">Visual scripting</span> You'll make four graphs of nodes, no code. Each graph below is the real one from the sample: drag to pan, scroll to zoom, hover a node to see what it does, and press <strong>Run</strong> to watch the flow.</p></div>
+
+    <div class="progress"><span class="track-switch" style="transform:scale(0.85);transform-origin:left"><button data-show="cs">C#</button><button data-show="vs">Visual</button></span><span class="count"></span><div class="bar"><span></span></div></div>
+
+    <div class="steps">
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="project">
+        <h2>Make the project</h2>
+        <ol>
+            <li>Open the editor (<code>dotnet run --project Vertex.Editor</code>) and choose <strong>File › New Project</strong>. Call it <em>Duel</em>. It gets a folder of its own, with an <code>Assets</code> folder in it.</li>
+            <li>The new scene has a <strong>Sun</strong> and a <strong>Main Camera</strong>. Select the camera in the outliner and press <kbd>Del</kbd>: each player will bring their own camera, and the first camera in the scene is the one that draws the screen.</li>
+            <li>Save the scene with <kbd>Ctrl</kbd>+<kbd>S</kbd> as <code>Assets/Scenes/Arena.scene</code>.</li>
+            <li>Open <strong>File › Project Settings</strong> and set <strong>Startup Scene</strong> to <code>Scenes/Arena.scene</code>, so the project opens on it.</li>
+        </ol>
+        <div class="note"><p>Getting around: hold the <strong>right mouse button</strong> and use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (and <kbd>Q</kbd>/<kbd>E</kbd>) to fly, the middle button to pan, <kbd>Alt</kbd>+left to orbit, and <kbd>F</kbd> to frame what's selected. <a href="editor.html">The editor guide</a> has everything.</p></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="arena">
+        <h2>Build the arena</h2>
+        <p>The arena is boxes: a floor, four walls and some cover. Each needs a <strong>Box Collider</strong> so players stand on it and shots stop at it.</p>
+        <ol>
+            <li><strong>The floor.</strong> <strong>Create › Cube</strong>, rename it <em>Floor</em> (<kbd>F2</kbd>). In the inspector set its <strong>Position</strong> to 0, −0.5, 0 and <strong>Scale</strong> to 40, 1, 40, so its top is at ground level. Press <strong>Add Component</strong>, type <em>box</em> and pick <strong>Box Collider</strong>. Under the <strong>Mesh Renderer</strong>, set the material's <strong>Color</strong> to a dark grey.</li>
+            <li><strong>Walls.</strong> Another cube with a Box Collider, scaled 40, 4, 1 at 0, 2, −20. Duplicate it (<kbd>Ctrl</kbd>+<kbd>D</kbd>) for the other three sides: 0, 2, 20, then two scaled 1, 4, 40 at ±20, 2, 0.</li>
+            <li><strong>Cover.</strong> A few more cubes to hide behind: one 4 × 2 × 1 in the middle, smaller ones at the sides, and a couple of tall pillars. Make them a warmer colour so they stand out.</li>
+            <li>Tidy up: <strong>Create › Empty</strong>, call it <em>Level</em>, and drag the floor, walls and cover onto it in the outliner.</li>
+        </ol>
+        <p>Use <kbd>W</kbd>, <kbd>E</kbd> and <kbd>R</kbd> to move, rotate and scale in the scene, and hold <kbd>Ctrl</kbd> while dragging to snap.</p>
+        <h3>Spawn points</h3>
+        <p>Where the players start: make two empties, <em>Spawn A</em> at 0, 0, 15 and <em>Spawn B</em> at 0, 0, −15 with <strong>Rotation</strong> 0, 180, 0. Give each a <strong>Spawn Point</strong> component. The first player starts at the first one, the second at the next, and after dying each comes back at the one furthest from the other player.</p>
+        <div class="note tip"><p>Forwards is −Z. A spawn point with no rotation faces −Z, which is towards the middle from Spawn A. That's why Spawn B is turned round.</p></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="player">
+        <h2>Make the player</h2>
+        <p>The player is an empty object with a few things under it. Its position is at its feet.</p>
+        <ol>
+            <li><strong>Create › Empty</strong>, named <em>Player</em>. Add three components:
+                <ul>
+                    <li><strong>Character Controller</strong>, with Radius 0.4 and Height 1.8: it walks, climbs steps, slides along walls, and can be shot;</li>
+                    <li><strong>Network Object</strong>: it's shared with the other player in a network game, and has an owner;</li>
+                    <li><strong>Network Transform</strong>: its owner's moves are sent to everyone else.</li>
+                </ul></li>
+            <li>A body to see: a cube under Player named <em>Body</em>, at 0, 0.9, 0, scaled 0.8, 1.8, 0.8, in a bright colour. No collider: the Character Controller is the player's shape.</li>
+            <li>Eyes: an empty under Player named <em>Head</em>, at 0, 1.6, 0, with a <strong>Camera</strong> (Field Of View 75). Other players' cameras are switched off by themselves, so you only ever see through your own.</li>
+            <li>A gun in view: a small dark cube under Head named <em>Gun</em>, at 0.2, −0.17, −0.4, scaled 0.05, 0.065, 0.32.</li>
+            <li>A muzzle flash: an empty under Head named <em>Muzzle Flash</em>, at 0.2, −0.15, −0.58, with a <strong>Particle System</strong>. Turn <strong>Emitting</strong> and <strong>Loop</strong> off, set <strong>Rate</strong> to 0, <strong>Burst</strong> to 10 and <strong>Duration</strong> to 0.1; <strong>Direction</strong> 0, 0, −1; short <strong>Lifetime</strong> (0.04 to 0.09), <strong>Look</strong> Spark, some <strong>Glow</strong>, and <strong>Local Space</strong> on. Selected, it plays in the scene view as you change it. It's set up so each shot plays it once.</li>
+        </ol>
+        <h3>Make it a prefab</h3>
+        <p>Make an <code>Assets/Prefabs</code> folder (right-click in Assets › New Folder), then drag <em>Player</em> from the outliner into it. That makes <code>Player.prefab</code>, a reusable copy. Then delete the Player from the scene: the network manager makes one for each player when the game starts.</p>
+        <p>From now on, double-click <code>Player.prefab</code> to edit it. It opens in a tab of its own, and changes are saved to the file as you make them.</p>
+        <div class="figure reveal"><img src="images/prefab-inspector.jpg" alt="The player prefab open in a tab, with its components in the inspector"><figcaption>The player prefab in its tab. The script slots at the bottom are filled from objects inside the prefab.</figcaption></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="movement">
+        <h2>Walking and looking</h2>
+        <p>Every machine in a network game has every player, so each player's scripts run everywhere. But only the machine that owns a player should move it and read the keyboard for it; the others just see where it goes through its Network Transform. That check is <strong>Is Mine</strong>, and it's true for everything when playing alone.</p>
+
+        <div data-track="cs">
+            <p>Open the player prefab, select <em>Player</em>, press <strong>Add Component</strong>, type <em>PlayerMovement</em> and choose <strong>New Script</strong>. The editor makes <code>Assets/Scripts/PlayerMovement.cs</code> (and the project's <code>.csproj</code>, the first time), builds it and adds it. Open the file and replace it with:</p>
+            <pre class="cs" data-sample="Duel/Assets/Scripts/PlayerMovement.cs" data-open></pre>
+            <ul>
+                <li><strong>Public properties</strong> (<code>Speed</code>, <code>JumpSpeed</code>…) show in the inspector, where they can be tuned per object, and are saved with the prefab. <code>[Header]</code> puts them in titled sections.</li>
+                <li><code>Head</code> is a <strong>slot for another object</strong>. In the inspector, drag <em>Head</em> from the outliner onto it, or click it and pick from the list.</li>
+                <li><code>IsMine</code> skips everything on other players' machines.</li>
+                <li>The mouse turns the whole player left and right, but only tips the head up and down. Walking goes the way the player faces, and the Character Controller does the sliding along walls.</li>
+            </ul>
+            <p>Save the file and switch back to Vertex: it rebuilds by itself. Then fill in the <strong>Head</strong> slot.</p>
+        </div>
+
+        <div data-track="vs">
+            <p>Open the player prefab, select <em>Player</em>, add a <strong>Visual Script</strong> component and press <strong>New Visual Script</strong>. It makes <code>Player.vscript</code> in <code>Assets/Scripts</code> and opens it in a tab; rename it <em>Player Movement</em> (select it in Assets and press <kbd>F2</kbd>). Make this graph: right-click (or <kbd>Space</kbd>) to add a node by name, drag from a port to wire it up.</p>
+            <div data-graph="Player Movement"></div>
+            <p>Make these <strong>Variables</strong> first (the Variables button at the top of the graph): <em>Speed</em> 6, <em>Jump Speed</em> 5, <em>Mouse Sensitivity</em> 0.15, <em>Pitch</em> 0 (numbers), and <em>Head</em> (an object).</p>
+            <ul>
+                <li><strong>On Mouse Pressed › Lock Cursor</strong> takes the mouse when you click; <strong>On Key Pressed</strong> (Escape) lets it go.</li>
+                <li><strong>On Update</strong> runs every frame. The <strong>Branch</strong> on <strong>Is Mine</strong> stops here on other players' machines.</li>
+                <li><strong>Sequence</strong> runs its outputs in order: first looking (only while the mouse is locked), then walking.</li>
+                <li>Looking: <strong>Rotate By</strong> turns the player by the mouse's X. <em>Pitch</em> remembers how far the head is tipped, kept between −85° and 85° by <strong>Clamp</strong>, and <strong>Set Rotation</strong> tips the <em>Head</em>.</li>
+                <li>Walking: two <strong>Axis</strong> nodes turn A/D and W/S into −1, 0 or 1, times <em>Speed</em>. <strong>Move Character</strong> does the rest: it walks along the way the player faces, falls, and jumps while Space is held on the ground.</li>
+            </ul>
+            <p>The <em>Head</em> variable is empty in the graph: the graph is shared by every object that runs it, so which object is <em>this player's</em> head is set on the object. Select <em>Player</em>, and under the Visual Script component's <strong>Variables</strong>, click <strong>Head</strong> and pick <em>Head</em> (or drag it in from the outliner). Values set there are this object's own; the ↶ button puts one back to the graph's.</p>
+        </div>
+
+        <p>Try it: drag the prefab into the scene for a moment, press Play, click in the game view, and walk round. <kbd>Shift</kbd>+<kbd>F1</kbd> gives you the mouse back, and Stop puts the scene back as it was.</p>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="shooting">
+        <h2>Shooting</h2>
+        <p>Shots are instant: a ray from the eyes, the way you're looking. Two <strong>network events</strong> carry them between machines:</p>
+        <ul>
+            <li><strong>Shot</strong>, sent to <em>everyone</em> about the shooter, so every machine plays the sound and the flash;</li>
+            <li><strong>Hit</strong>, sent to the <em>owner</em> of whoever was hit, with the damage and who shot. Each player's own machine is in charge of their health.</li>
+        </ul>
+        <p>For the sound, copy a short <code>.wav</code> into the project's <code>Assets/Sounds</code> folder (the sample's is <code>Samples/Duel/Assets/Sounds/Shot.wav</code>). The Assets panel notices new files by itself.</p>
+
+        <div data-track="cs">
+            <p>Add a new script to Player called <em>PlayerGun</em>:</p>
+            <pre class="cs" data-sample="Duel/Assets/Scripts/PlayerGun.cs" data-open></pre>
+            <ul>
+                <li><code>Raycast</code> finds the first collider along the ray, leaving out the shooter's own (the last argument).</li>
+                <li><code>NetworkScene.SendEvent(name, about, to, values...)</code> sends a network event. Playing alone, it comes straight back.</li>
+                <li><code>OnNetworkEvent</code> is called on the components of the object an event is about: here, each machine's copy of the shooter hears "Shot".</li>
+                <li>Fill the slots: <strong>Head</strong> with Head, <strong>Shot Sound</strong> with your sound, and <strong>Muzzle Flash</strong> with the Muzzle Flash object (the slot takes its Particle System).</li>
+            </ul>
+        </div>
+
+        <div data-track="vs">
+            <p>Add a second Visual Script to Player, with a new script called <code>Player Gun.vscript</code>:</p>
+            <div data-graph="Player Gun"></div>
+            <ul>
+                <li>Every frame, if it's this machine's player, the mouse is locked and the left button is held, the <strong>Cooldown</strong> lets one shot through every 0.2 seconds.</li>
+                <li><strong>Send Network Event</strong> "Shot" goes to everyone, about this object (its Target is left empty, which means itself).</li>
+                <li><strong>Camera Ray</strong> gives where the camera is and the way it looks; <strong>Raycast</strong> sends a ray along it, skipping the shooter, and goes on to <em>Hit</em> or <em>Missed</em>.</li>
+                <li>On a hit: "Hit" to the <strong>Owner</strong> of the object hit, with <em>A</em> the damage (variable <em>Damage</em>, 25) and <em>B</em> the shooter (<strong>Self</strong>).</li>
+                <li><strong>On Network Event</strong> "Shot" runs on every machine's copy of the shooter: <strong>Play Sound</strong> (choose your sound on the node) and <strong>Play Effect</strong> on the child called "Muzzle Flash".</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="health">
+        <h2>Health and coming back</h2>
+        <p>When a "Hit" arrives, the player's own machine takes the damage off. At none left it tells everyone who scored and starts again at the spawn point furthest from the other player.</p>
+
+        <div data-track="cs">
+            <p>A third script on Player, <em>Health</em>:</p>
+            <pre class="cs" data-sample="Duel/Assets/Scripts/Health.cs" data-open></pre>
+            <ul>
+                <li>The hit's values come in the order they were sent: the damage, then the shooter.</li>
+                <li>"Scored" is about no object (<code>null</code>), so every component in the scene hears it: the HUD counts it.</li>
+                <li>Setting <code>Transform.Position</code> teleports a Character Controller. The Network Transform sends the new place to everyone.</li>
+            </ul>
+        </div>
+
+        <div data-track="vs">
+            <p>A third Visual Script on Player: <code>Health.vscript</code>, with number variables <em>Health</em> and <em>Max Health</em> (both 100).</p>
+            <div data-graph="Health"></div>
+            <ul>
+                <li><strong>On Start</strong> fills Health up.</li>
+                <li><strong>On Network Event</strong> "Hit": on the owner's machine, Health goes down by <em>A</em> (the damage).</li>
+                <li>At 0 or less (<strong>Compare</strong>, Less Or Equal), "Scored" goes to <em>every script</em> with the shooter (<em>B</em> of the hit) as its value. Then <strong>Respawn Point</strong> gives the furthest spawn point, <strong>Set Position</strong> and <strong>Set Rotation</strong> put the player there, and Health is filled again.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="hud">
+        <h2>The HUD</h2>
+        <p>The writing on screen is UI made of objects. Choose <strong>Create › UI › Text</strong>: it makes a <strong>Canvas</strong> to hold it, and switches the view to the <strong>Game</strong> tab, where UI is arranged. Rename the canvas <em>HUD</em>, and make four texts under it:</p>
+        <table>
+            <tr><th>Name</th><th>Text</th><th>Where (its UI Rect)</th></tr>
+            <tr><td>Status</td><td>Press Enter to find a match</td><td>Top middle: anchors 0.5, 0</td></tr>
+            <tr><td>Health</td><td>Health 100</td><td>Bottom left: anchors 0, 1</td></tr>
+            <tr><td>Score</td><td>0 - 0</td><td>Top right: anchors 1, 0</td></tr>
+            <tr><td>Crosshair</td><td>+</td><td>The middle</td></tr>
+        </table>
+        <p>Drag them into place in the Game tab, and give them a bigger <strong>Font Size</strong> and a <strong>Shadow</strong> to read over the arena.</p>
+
+        <div data-track="cs">
+            <p>Add a script to <em>HUD</em> called <em>DuelHud</em>, and drag the Status, Health and Score texts into its three slots (each takes the object's UI Text):</p>
+            <pre class="cs" data-sample="Duel/Assets/Scripts/DuelHud.cs" data-open></pre>
+            <p><code>NetworkManager.Instance</code> is the scene's network manager (next step): <code>QuickMatch()</code> finds or hosts a game, <code>Status</code> says how it's going, and <code>LocalPlayer</code> is this machine's player.</p>
+        </div>
+
+        <div data-track="vs">
+            <p>Add a Visual Script to <em>HUD</em>: <code>Duel Hud.vscript</code>, with number variables <em>Mine</em> and <em>Theirs</em>, and object variables <em>Status Text</em>, <em>Health Text</em> and <em>Score Text</em>.</p>
+            <div data-graph="Duel Hud"></div>
+            <ul>
+                <li><kbd>Enter</kbd>, when not already online, runs <strong>Quick Match</strong>: join a game with room, or host one.</li>
+                <li>Every frame a <strong>Sequence</strong> writes the three texts with <strong>Set Text</strong>: the network status (or the hint, while offline), the local player's health read with <strong>Get Variable On</strong>, and the score joined into "2 - 1".</li>
+                <li>"Scored" arrives with who scored: <strong>Same Object</strong> as the <strong>Local Player</strong> adds to <em>Mine</em>, otherwise to <em>Theirs</em>.</li>
+            </ul>
+            <p>Then, on the HUD's Visual Script, set the three text variables to the three text objects:</p>
+            <div class="figure"><img src="images/visual-script-inspector.jpg" alt="The HUD's visual script in the inspector, with its text variables set to the HUD's texts"><figcaption>Variables set for this object: Status Text, Health Text and Score Text point at the HUD's texts.</figcaption></div>
+        </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="network">
+        <h2>The network manager</h2>
+        <p>One object runs the network game. <strong>Create › Empty</strong>, call it <em>Network</em>, and add a <strong>Network Manager</strong>:</p>
+        <table>
+            <tr><th>Setting</th><th>Set to</th><th>Why</th></tr>
+            <tr><td>Service</td><td>Steam</td><td>Or Local Network, to play on one PC or a LAN without Steam.</td></tr>
+            <tr><td>Steam App Id</td><td>480</td><td>Valve's Spacewar test app, which anyone can use while developing.</td></tr>
+            <tr><td>Game Tag</td><td>something of your own, like <em>my-duel</em></td><td>Every game testing with 480 shares Spacewar's lobbies. The tag makes sure you only find your own.</td></tr>
+            <tr><td>Max Players</td><td>2</td><td>It's a duel.</td></tr>
+            <tr><td>Player Prefab</td><td>Player</td><td>Each player gets their own copy, owned by them, at a spawn point.</td></tr>
+            <tr><td>Spawn When Offline</td><td>on</td><td>You get a player to walk round with before connecting.</td></tr>
+        </table>
+        <div class="figure"><img src="images/editor.jpg" alt="The Network Manager in the inspector"><figcaption>The Network Manager in the sample's scene.</figcaption></div>
+        <p>Save the scene.</p>
+    </section>
+
+    <!-- ------------------------------------------------------------ -->
+    <section class="step" data-step="play">
+        <h2>Play it</h2>
+        <h3>On your own</h3>
+        <p>Press Play. You start at Spawn A with your own player; click to take the mouse, walk, jump and shoot. The status says <em>Press Enter to find a match</em>.</p>
+
+        <h3>Two players on one PC</h3>
+        <p>Set the Network Manager's <strong>Service</strong> to <strong>Local Network</strong> and save. Then start a second editor with the same project (another <code>dotnet run --project Vertex.Editor</code>, and open the project), and press Play in both. Press <kbd>Enter</kbd> in the first: it looks for a game, finds none, and hosts. Press <kbd>Enter</kbd> in the second: it finds the first and joins, and its player starts at Spawn B. Shoot each other!</p>
+        <div class="note tip"><p>Starting anything made with Vertex with <code>-lan</code> on its command line uses the local network instead of Steam, whatever the Network Manager says. The finished sample, for example: <code>dotnet run --project Samples/Duel -- -lan</code>.</p></div>
+
+        <h3>Over Steam</h3>
+        <p>Set <strong>Service</strong> back to <strong>Steam</strong>. Each player needs Steam running and signed in, with their own account, on their own PC. Press <kbd>Enter</kbd>: the first to look hosts a Steam lobby tagged with your Game Tag, and the other joins it. The game runs as Spacewar (app 480) as far as Steam is concerned, which is fine while testing; a released game needs an app ID of its own.</p>
+
+        <div class="note warn"><p>The editor doesn't make a standalone build of a game yet. To run a project outside the editor, give it a <code>Program.cs</code> and a reference to the engine's project as the sample does (<code>Samples/Duel/Program.cs</code> and <code>Duel.csproj</code>): <code>new Game { StartScene = "Scenes/Arena.scene" }.Run("Duel");</code></p></div>
+    </section>
+    </div>
+
+    <h2>Where next</h2>
+    <p>Some things to add, each using something new:</p>
+    <ul>
+        <li><strong>Sparks where shots land:</strong> a particle system you move to the hit point and <strong>Emit Particles</strong> from (C#: <code>ParticleSystem.Emit</code>).</li>
+        <li><strong>A health pickup:</strong> a trigger collider with <strong>On Trigger</strong> (C#: <code>OnTriggerEnter</code>) that refills health.</li>
+        <li><strong>A rocket launcher:</strong> <strong>Network Spawn</strong> a rocket prefab with a Rigidbody, and explode it <strong>On Collision</strong>.</li>
+        <li><strong>A round timer:</strong> the host counts down and sends a network event when it's over.</li>
+        <li><strong>A fancier muzzle flash:</strong> design one with a <a href="effects.html">VFX graph</a>.</li>
+    </ul>
+    <p>Keep <a href="nodes.html">the node reference</a> or <a href="api.html">the C# API</a> open while you work. Press <kbd>Ctrl</kbd>+<kbd>K</kbd> anywhere in these docs to search both.</p>
+</main>
+</div>
+<script src="data/samples.js"></script>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vertex: a C# game engine with an editor, C# scripts and visual scripting</title>
+    <meta name="description" content="Make games with Vertex: entirely in C#, in the editor with C# scripts, or in the editor with visual scripting. Multiplayer through Steam built in.">
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body class="home">
+
+<section class="hero">
+    <canvas class="backdrop" aria-hidden="true"></canvas>
+    <div class="hero-inner">
+        <div class="reveal">
+            <span class="eyebrow">A game engine in C#</span>
+            <h1>Make games <span class="shine">your way</span>: in code, or in the editor.</h1>
+            <p class="lead">Vertex is a 3D engine with its own editor. Write the whole game in C#, build it in the editor with C# scripts, or wire it up with visual scripting. It's the same engine underneath, so you can mix all three.</p>
+            <div class="hero-actions">
+                <a class="button primary" href="getting-started.html">Get started →</a>
+                <a class="button" href="tutorial-duel.html">Make a 1v1 shooter</a>
+            </div>
+        </div>
+
+        <div class="showcase reveal" data-delay="150">
+            <div class="showcase-tabs">
+                <button data-pane="0" class="on">C# script<span class="timer"></span></button>
+                <button data-pane="1">Visual script<span class="timer"></span></button>
+                <button data-pane="2">Editor<span class="timer"></span></button>
+            </div>
+            <div class="showcase-panes">
+                <div class="showcase-pane on"><pre><code class="typing"></code><span class="caret"></span></pre></div>
+                <div class="showcase-pane"><div class="hero-graph"></div></div>
+                <div class="showcase-pane"><img src="images/editor.jpg" alt="The Vertex editor with the Duel sample open"></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <h2 class="reveal">Three ways to make a game</h2>
+    <p class="lead reveal">Pick the one that suits you, or the job in front of you. None of them locks you in.</p>
+    <div class="paths">
+        <a class="card reveal" href="tutorial-code-only.html">
+            <div class="card-icon">{ }</div>
+            <h3>Code only</h3>
+            <p>A whole game in C#, no editor needed. Build the world in a few lines and run it with <code>new MyGame().Run()</code>.</p>
+            <ul><li>Great for programmers and prototypes</li><li>Everything in source control as code</li><li>Open it in the editor any time</li></ul>
+            <span class="more">Coin Grab tutorial →</span>
+        </a>
+        <a class="card reveal" data-delay="100" href="tutorial-duel.html?track=cs">
+            <div class="card-icon">▣</div>
+            <h3>Editor + C#</h3>
+            <p>Lay out levels and prefabs in the editor, and write components in C#. Their settings show up in the inspector.</p>
+            <ul><li>Unity-style workflow</li><li>Drag objects into a script's slots</li><li>Rebuilds when you switch back to the editor</li></ul>
+            <span class="more">Duel tutorial, C# →</span>
+        </a>
+        <a class="card reveal" data-delay="200" href="tutorial-duel.html?track=vs">
+            <div class="card-icon">⌁</div>
+            <h3>Editor + visual scripting</h3>
+            <p>Connect nodes instead of writing code: events, flow, maths, physics, sound, UI and multiplayer.</p>
+            <ul><li>No code at all</li><li>Watch the flow light up as it runs</li><li>Over 100 nodes, networking included</li></ul>
+            <span class="more">Duel tutorial, visual →</span>
+        </a>
+    </div>
+</section>
+
+<section class="section">
+    <h2 class="reveal">They work together</h2>
+    <p class="lead reveal">A code-only game opens in the editor. A game made in the editor can still do things in code. Use whichever is quicker for each part.</p>
+    <div class="mix reveal">
+        <div>
+            <span class="badge cs">Code</span>
+            <h3>From code, use what's made in the editor</h3>
+            <p style="color:var(--text-dim)">Open a level with <code>Scene.Load("Scenes/Arena.scene")</code>, make copies of prefabs, and find objects by name. Your C# components work in the editor too.</p>
+        </div>
+        <div class="arrows"><span>Scenes, prefabs, materials →</span><span>← Components, Game class</span><span>Visual scripts ⇄ C#</span></div>
+        <div>
+            <span class="badge ed">Editor</span>
+            <h3>In the editor, add code where it helps</h3>
+            <p style="color:var(--text-dim)">Write a component in C#, or give the game a <code>Game</code> class that runs around your scenes. C# can read and set a visual script's variables, and both get the same network events.</p>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <h2 class="reveal">What's in it</h2>
+    <p class="lead reveal">Everything a small multiplayer 3D game needs, with an editor that's quick to learn.</p>
+    <div class="features">
+        <div class="feature reveal"><div class="card-icon">◆</div><b>Vulkan and OpenGL</b><p>Physically based lighting, shadows, sky and clouds, fog, bloom and soft shadowing. Vulkan first, OpenGL when it isn't there.</p></div>
+        <div class="feature reveal" data-delay="80"><div class="card-icon">⬢</div><b>Jolt physics</b><p>Rigidbodies, colliders, triggers, raycasts, and a character controller that climbs steps and slides along walls.</p></div>
+        <div class="feature reveal" data-delay="160"><div class="card-icon">⇆</div><b>Multiplayer</b><p>Steam lobbies (Spacewar's app ID for testing) or the local network. Networked objects, synced movement and network events.</p></div>
+        <div class="feature reveal" data-delay="240"><div class="card-icon">✺</div><b>Particles and VFX graphs</b><p>Particle systems with bursts, shapes and turbulence, or design effects with nodes. They play in the editor as you change them.</p></div>
+        <div class="feature reveal"><div class="card-icon">▤</div><b>Prefabs</b><p>Reusable objects that open in a tab of their own. Changes reach every copy, and undo puts them back.</p></div>
+        <div class="feature reveal" data-delay="80"><div class="card-icon">♪</div><b>Sound and UI</b><p>3D sound through OpenAL. A UI of canvases, text, images and buttons, laid out in the Game tab.</p></div>
+        <div class="feature reveal" data-delay="160"><div class="card-icon">↶</div><b>Undo for everything</b><p>Every edit in the editor can be undone, a drag of a number included, and Play puts the scene back when you stop.</p></div>
+        <div class="feature reveal" data-delay="240"><div class="card-icon">⌕</div><b>Docs from the engine</b><p>The <a href="nodes.html">node reference</a> and <a href="api.html">C# API</a> here are made from the engine itself, so they match the version you have.</p></div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="mix reveal" style="grid-template-columns: 1.1fr 1fr">
+        <div>
+            <span class="eyebrow">Tutorial</span>
+            <h2 style="margin:0 0 12px;font-size:32px">Build a multiplayer 1v1 shooter</h2>
+            <p style="color:var(--text-dim)">Follow along in the editor and end up with a duel you can play with a friend over Steam. Each step can be done in C# or in visual scripting, and you can switch between them at any point to compare. Along the way you'll learn the editor, prefabs, physics, UI and networking.</p>
+            <div class="hero-actions"><a class="button primary" href="tutorial-duel.html">Start the tutorial →</a><a class="button" href="https://github.com/BiggyStudios/Vertex/tree/master/Samples/Duel">The finished sample</a></div>
+        </div>
+        <div class="figure" style="margin:0"><img src="images/duel.jpg" alt="The Duel sample: an arena with cover, a gun in view, health and score"></div>
+    </div>
+</section>
+
+<footer class="footer">Vertex is MIT licensed. These docs live in the engine's repository, in <code>docs/</code>.</footer>
+
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    // The showcase: C# typing itself, a visual script running, the editor; turning over every few seconds.
+    (() => {
+        const code = `public class PlayerGun : Component
+{
+    public float Damage { get; set; } = 25f;
+    public GameObject? Head { get; set; }
+
+    protected override void Update()
+    {
+        if (!IsMine || !InputSystem.GetMouseButton(MouseButton.Left)) return;
+
+        Transform aim = Head!.Transform;
+        if (GameObject.Scene.Physics.Raycast(aim.WorldPosition, aim.Forward,
+                100f, out RaycastHit hit, GetComponent<Collider>()))
+        {
+            // Tell whoever plays the one we hit.
+            NetworkScene.SendEvent("Hit", hit.GameObject,
+                NetworkTarget.Owner, Damage, GameObject);
+        }
+    }
+}`;
+        const target = document.querySelector(".typing");
+        let typed = 0, typer = null;
+        const type = () => {
+            clearInterval(typer);
+            typed = 0;
+            typer = setInterval(() => {
+                typed = Math.min(code.length, typed + 3);
+                target.innerHTML = Site.highlight(code.slice(0, typed));
+                if (typed >= code.length) clearInterval(typer);
+            }, 16);
+        };
+
+        const tabs = [...document.querySelectorAll(".showcase-tabs button")];
+        const panes = [...document.querySelectorAll(".showcase-pane")];
+        let current = 0, timer = null, graphMounted = false;
+        const show = i => {
+            current = i;
+            tabs.forEach((t, j) => { t.classList.toggle("on", j === i); const bar = t.querySelector(".timer"); bar.style.animation = "none"; bar.offsetWidth; bar.style.animation = ""; });
+            panes.forEach((p, j) => p.classList.toggle("on", j === i));
+            if (i === 0) type();
+            if (i === 1 && !graphMounted) { graphMounted = true; GraphView.mount(document.querySelector(".hero-graph"), "Player Gun", { bare: true, autoplay: true, whole: true }); }
+            clearTimeout(timer);
+            timer = setTimeout(() => show((current + 1) % tabs.length), 6000);
+        };
+        tabs.forEach((t, i) => t.addEventListener("click", () => show(i)));
+        show(0);
+
+        // The backdrop: nodes drifting slowly, wired together, with pulses running along the wires.
+        const canvas = document.querySelector(".backdrop");
+        const g = canvas.getContext("2d");
+        const colours = ["#4d8dff", "#7c5cff", "#4fd1b5", "#f0b545", "#e55b5b", "#c98cf4"];
+        let w, h, items = [], wires = [];
+        const resize = () => {
+            w = canvas.width = canvas.offsetWidth * devicePixelRatio;
+            h = canvas.height = canvas.offsetHeight * devicePixelRatio;
+            const count = Math.round(w * h / (190000 * devicePixelRatio * devicePixelRatio)) + 6;
+            items = Array.from({ length: count }, () => ({
+                x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.5) * 0.15,
+                c: colours[Math.floor(Math.random() * colours.length)], s: (0.7 + Math.random() * 0.6) * devicePixelRatio
+            }));
+            wires = [];
+            items.forEach((a, i) => { const b = items[(i * 7 + 3) % items.length]; if (a !== b) wires.push({ a, b, t: Math.random() }); });
+        };
+        resize();
+        addEventListener("resize", resize);
+
+        const light = () => document.documentElement.dataset.theme === "light";
+        const frame = () => {
+            g.clearRect(0, 0, w, h);
+            const alpha = light() ? 0.12 : 0.15;
+            for (const n of items) {
+                n.x += n.vx; n.y += n.vy;
+                if (n.x < -60 || n.x > w + 60) n.vx *= -1;
+                if (n.y < -60 || n.y > h + 60) n.vy *= -1;
+            }
+
+            for (const wire of wires) {
+                const { a, b } = wire;
+                const x1 = a.x + 46 * a.s, y1 = a.y + 14 * a.s, x2 = b.x, y2 = b.y + 14 * b.s;
+                const dx = Math.max(60, Math.abs(x2 - x1) * 0.5);
+                g.strokeStyle = `rgba(150,170,220,${alpha * 0.8})`;
+                g.lineWidth = 1.2 * devicePixelRatio;
+                g.beginPath(); g.moveTo(x1, y1); g.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2); g.stroke();
+                wire.t = (wire.t + 0.004) % 1;
+                const t = wire.t, u = 1 - t;
+                const px = u*u*u*x1 + 3*u*u*t*(x1+dx) + 3*u*t*t*(x2-dx) + t*t*t*x2, py = u*u*u*y1 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y2;
+                g.fillStyle = a.c; g.globalAlpha = 0.7;
+                g.beginPath(); g.arc(px, py, 2.4 * devicePixelRatio, 0, 7); g.fill(); g.globalAlpha = 1;
+            }
+
+            for (const n of items) {
+                g.globalAlpha = alpha * 1.6;
+                g.fillStyle = light() ? "#ffffff" : "#1d2028";
+                g.strokeStyle = n.c;
+                g.lineWidth = 1 * devicePixelRatio;
+                const nw = 46 * n.s, nh = 28 * n.s;
+                g.beginPath(); g.roundRect(n.x, n.y, nw, nh, 5 * n.s); g.fill(); g.stroke();
+                g.fillStyle = n.c;
+                g.beginPath(); g.roundRect(n.x, n.y, nw, 7 * n.s, [5 * n.s, 5 * n.s, 0, 0]); g.fill();
+                g.globalAlpha = 1;
+            }
+
+            requestAnimationFrame(frame);
+        };
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) frame();
+    })();
+</script>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Coin Grab: a game in code only · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Tutorial · code only</span>
+    <h1>Coin Grab: a game in code only</h1>
+    <p class="lead">Roll a ball around a walled field and pick up every coin before time runs out. The whole game is one C# file of about 140 lines, and you won't open the editor once (though you can at the end).</p>
+
+    <div class="figure reveal"><img src="images/coin-grab.jpg" alt="Coin Grab: a blue ball on a green field with gold coins"><figcaption>What you'll make. The finished game is <a href="https://github.com/BiggyStudios/Vertex/tree/master/Samples/CodeOnly">Samples/CodeOnly</a>.</figcaption></div>
+
+    <div class="progress"><span class="count"></span><div class="bar"><span></span></div></div>
+
+    <div class="steps">
+    <section class="step" data-step="project">
+        <h2>Make the project</h2>
+        <p>Put your game's folder next to the engine's (see <a href="getting-started.html">Getting started</a> to get the engine):</p>
+        <pre class="plain" data-file="Folders">Games/
+  Vertex/        the engine, cloned from GitHub
+  CoinGrab/      your game: CoinGrab.csproj and Program.cs</pre>
+        <p>The project file makes a windowed program that uses the engine:</p>
+        <pre class="plain" data-file="CoinGrab.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+  &lt;PropertyGroup&gt;
+    &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
+    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;ItemGroup&gt;
+    &lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;
+  &lt;/ItemGroup&gt;
+&lt;/Project&gt;</pre>
+        <p>And the smallest game there is: a <code>Game</code> with nothing in it, run in a window.</p>
+        <pre class="cs" data-file="Program.cs">using System.Numerics;
+
+using Vertex;
+using Vertex.Input;
+using Vertex.Physics;
+using Vertex.Rendering;
+using Vertex.UI;
+
+new CoinGame().Run("Coin Grab");
+
+public class CoinGame : Game
+{
+    public override void Load()
+    {
+    }
+}</pre>
+        <p>Run it with <code>dotnet run</code> in the <code>CoinGrab</code> folder. A window opens on an empty sky. <code>Load</code> runs once when the game starts; everything you add to the world goes there.</p>
+    </section>
+
+    <section class="step" data-step="world">
+        <h2>Light, ground and walls</h2>
+        <p>A world needs light to be seen. A <code>Light</code> component on an object is a sun by default, shining the way the object faces. <code>GameObject.CreatePlane</code> and <code>CreateCube</code> make shapes you can see and bump into (they come with colliders).</p>
+        <pre class="cs" data-file="Program.cs: in Load()">// Light and ground.
+var sun = new GameObject("Sun");
+sun.AddComponent&lt;Light&gt;();
+sun.Transform.EulerAngles = new Vector3(-50f, 30f, 0f);
+GameObject.CreatePlane(Vector3.Zero, size: 30f, color: new Color(0.35f, 0.55f, 0.35f), name: "Ground");
+
+// Low walls round the edge, so the ball stays in.
+for (int side = 0; side &lt; 4; side++)
+{
+    float angle = side * MathF.PI / 2f;
+    var along = new Vector3(MathF.Cos(angle), 0f, MathF.Sin(angle));
+    GameObject wall = GameObject.CreateCube(along * 15f + new Vector3(0f, 0.5f, 0f), new Color(0.5f, 0.45f, 0.4f), "Wall");
+    wall.Transform.Scale = side % 2 == 0 ? new Vector3(0.5f, 1f, 30f) : new Vector3(30f, 1f, 0.5f);
+}</pre>
+        <p>Every object has a <code>Transform</code>: its <code>Position</code>, its rotation (<code>EulerAngles</code>, in degrees) and its <code>Scale</code>. Up is +Y, and forwards is −Z.</p>
+    </section>
+
+    <section class="step" data-step="ball">
+        <h2>A ball that rolls</h2>
+        <p>A <code>Rigidbody</code> hands an object over to physics: it falls, bounces and rolls. Behaviour of your own goes in a <strong>component</strong>: a class deriving from <code>Component</code>, added to an object with <code>AddComponent</code>.</p>
+        <pre class="cs" data-file="Program.cs: in Load()">// The player: a ball that physics rolls about.
+GameObject ball = GameObject.CreateSphere(new Vector3(0f, 1f, 0f), new Color(0.25f, 0.5f, 1f), "Ball");
+ball.AddComponent&lt;Rigidbody&gt;(body =&gt; body.Mass = 1f);
+ball.AddComponent&lt;Roller&gt;();</pre>
+        <pre class="cs" data-file="Program.cs: a new class">/// &lt;summary&gt;Pushes the ball the way WASD points, as seen from the camera.&lt;/summary&gt;
+public class Roller : Component
+{
+    public float Push { get; set; } = 12f;
+
+    protected override void FixedUpdate()
+    {
+        float forward = (InputSystem.GetKey(Key.W) ? 1f : 0f) - (InputSystem.GetKey(Key.S) ? 1f : 0f);
+        float right = (InputSystem.GetKey(Key.D) ? 1f : 0f) - (InputSystem.GetKey(Key.A) ? 1f : 0f);
+        GetComponent&lt;Rigidbody&gt;()?.AddForce(new Vector3(right, 0f, -forward) * Push);
+    }
+}</pre>
+        <div class="note"><p><code>Update</code> runs every frame, and <code>FixedUpdate</code> runs before every physics step (60 times a second). Push physics objects in <code>FixedUpdate</code> so they move the same however fast the screen draws.</p></div>
+    </section>
+
+    <section class="step" data-step="camera">
+        <h2>A camera that follows</h2>
+        <p>The first <code>Camera</code> in the scene draws the screen. This one keeps behind and above the ball, gliding after it:</p>
+        <pre class="cs" data-file="Program.cs: in Load()">// A camera that follows it.
+var camera = new GameObject("Camera");
+camera.AddComponent&lt;Camera&gt;();
+camera.AddComponent&lt;Follow&gt;(follow =&gt; follow.Target = ball);</pre>
+        <pre class="cs" data-file="Program.cs: a new class">/// &lt;summary&gt;Keeps the camera behind and above its target, looking at it.&lt;/summary&gt;
+public class Follow : Component
+{
+    public GameObject? Target { get; set; }
+    public Vector3 Offset { get; set; } = new(0f, 8f, 10f);
+
+    protected override void Update()
+    {
+        if (Target == null) return;
+        Transform.Position = Vector3.Lerp(Transform.Position, Target.Transform.Position + Offset, MathF.Min(Time.DeltaTime * 5f, 1f));
+        Transform.LookAt(Target.Transform.Position);
+    }
+}</pre>
+        <p>Run it: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> roll the ball, and the walls stop it.</p>
+    </section>
+
+    <section class="step" data-step="coins">
+        <h2>Coins to pick up</h2>
+        <p>A collider marked <code>IsTrigger</code> doesn't stop things: it notices them going through, and calls <code>OnTriggerEnter</code> on its components.</p>
+        <pre class="cs" data-file="Program.cs: a new class">/// &lt;summary&gt;A spinning coin. Touching it scores, and it's gone.&lt;/summary&gt;
+public class Coin : Component
+{
+    public static GameObject Make(Vector3 position)
+    {
+        GameObject coin = GameObject.CreateSphere(position, new Color(1f, 0.8f, 0.2f), "Coin");
+        coin.Transform.Scale = new Vector3(0.6f, 0.6f, 0.15f);
+        coin.GetComponent&lt;SphereCollider&gt;()!.IsTrigger = true;
+        coin.AddComponent&lt;Coin&gt;();
+        return coin;
+    }
+
+    protected override void Update() =&gt; Transform.EulerAngles += new Vector3(0f, 120f * Time.DeltaTime, 0f);
+
+    protected override void OnTriggerEnter(Collider other)
+    {
+        if (other.GameObject.Name != "Ball") return;
+        CoinGame.Score++;
+        GameObject.Destroy();
+    }
+}</pre>
+        <p>Scatter ten of them in <code>Load</code>, and give the game a score:</p>
+        <pre class="cs" data-file="Program.cs: in CoinGame">public const int CoinCount = 10;
+public static int Score { get; set; }
+
+// At the end of Load():
+for (int i = 0; i &lt; CoinCount; i++) Coin.Make(RandomSpot());
+
+public static Vector3 RandomSpot() =&gt; new(Random.Shared.NextSingle() * 24f - 12f, 0.6f, Random.Shared.NextSingle() * 24f - 12f);</pre>
+    </section>
+
+    <section class="step" data-step="hud">
+        <h2>Score and time on the screen</h2>
+        <p>The game's own <code>Update</code> runs every frame too. <code>Canvas.DrawText</code> draws text over the game for that frame: simple, immediate UI with no objects to set up.</p>
+        <pre class="cs" data-file="Program.cs: in CoinGame">public const float TimeLimit = 60f;
+public float TimeLeft { get; private set; } = TimeLimit;
+
+public override void Update()
+{
+    if (Score &lt; CoinCount) TimeLeft = MathF.Max(TimeLeft - Time.DeltaTime, 0f);
+
+    string text = Score == CoinCount ? $"All {CoinCount} coins with {TimeLeft:0} seconds to spare!"
+        : TimeLeft &lt;= 0f ? $"Out of time: {Score} of {CoinCount} coins. Press R to play again."
+        : $"Coins {Score}/{CoinCount}   Time {TimeLeft:0}";
+    Canvas.DrawText(Font.Default, text, new Vector2(24f, 20f), Color.White, 30f);
+}</pre>
+        <div class="note"><p>For menus and buttons you'd rather lay out by eye, there's also UI made of objects (<code>UICanvas</code>, <code>UIText</code>, <code>UIButton</code>…), which you arrange in the editor's Game tab. The Duel tutorial uses it.</p></div>
+    </section>
+
+    <section class="step" data-step="again">
+        <h2>Play again</h2>
+        <p>To start over, swap in a fresh scene and build it again. At the end of <code>Update</code>:</p>
+        <pre class="cs" data-file="Program.cs: in Update()">if (InputSystem.GetKeyDown(Key.R))
+{
+    // Again from the start: a fresh scene, built again.
+    Scene old = Scene.Active;
+    Scene.Active = new Scene();
+    old.Unload();
+    TimeLeft = TimeLimit;
+    Load();
+}</pre>
+        <p>Remember to set <code>Score = 0;</code> at the top of <code>Load</code>. That's the whole game. Run it and grab some coins.</p>
+    </section>
+
+    <section class="step" data-step="editor">
+        <h2>Optional: open it in the editor</h2>
+        <p>Even a game written only in code opens in the editor. Choose <strong>File › Open Project</strong> and pick <code>CoinGrab.csproj</code>. The editor builds it and shows the world <code>Load</code> builds: you can fly round it, select things and see their components, and press Play.</p>
+        <p>From there you can make things in the editor and use them from code. For example, make a fancier coin, save it as a prefab with a material and a particle sparkle, and spawn copies of it from <code>Coin.Make</code> with <code>Prefab.Load(...).Instantiate(position)</code>. See <a href="workflows.html#mixing-them">mixing workflows</a>.</p>
+    </section>
+    </div>
+
+    <h2>The whole file</h2>
+    <p>Here it is in full: the same as <code>Samples/CodeOnly/Program.cs</code>, which the engine's tests play to check it still works.</p>
+    <pre class="cs" data-sample="CodeOnly/Program.cs"></pre>
+
+    <h2>Where next</h2>
+    <ul>
+        <li><a href="csharp.html">C# scripting</a>: components, input, physics, prefabs, sound and more.</li>
+        <li><a href="api.html">The C# API</a>: everything in the engine, searchable.</li>
+        <li><a href="tutorial-duel.html?track=cs">The Duel tutorial</a>: a multiplayer shooter made in the editor with C# scripts.</li>
+    </ul>
+</main>
+</div>
+<script src="data/samples.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

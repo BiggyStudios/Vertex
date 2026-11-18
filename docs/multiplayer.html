@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multiplayer · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Multiplayer</h1>
+    <p class="lead">Players find each other through Steam, or on the local network, and play together. A few components and a handful of ideas cover it, the same in C# and visual scripting.</p>
+
+    <h2>How it works</h2>
+    <ul>
+        <li><strong>One machine hosts</strong> a game (a room), and the others join it.</li>
+        <li><strong>Every machine has every shared object.</strong> An object with a <strong>Network Object</strong> component that one machine makes is made on all the others too, and destroying it destroys it everywhere.</li>
+        <li><strong>Each shared object has an owner</strong>: the machine that made it. A player's own machine owns their player. The owner moves it and decides about it; a <strong>Network Transform</strong> sends its moves to everyone else, who see it glide there.</li>
+        <li><strong>Is Mine</strong> says whether this machine owns an object. Scripts run on every machine's copy, so anything that reads the keyboard or moves the object checks it first. Playing alone, everything is yours.</li>
+        <li><strong>Network events</strong> carry everything else: a name and up to three values, sent to everyone, to everyone else, to an object's owner, or to the host.</li>
+    </ul>
+
+    <h2>The Network Manager</h2>
+    <p>Put one <strong>Network Manager</strong> in the scene. It connects, and gives each player their own copy of the <strong>Player Prefab</strong> at a <strong>Spawn Point</strong>: the host at the first, people joining at the next ones.</p>
+    <table>
+        <tr><th>Setting</th><th></th></tr>
+        <tr><td>Service</td><td><strong>Steam</strong> (anywhere in the world; Steam must be running) or <strong>Local Network</strong> (this network, or two copies on one PC; no Steam needed).</td></tr>
+        <tr><td>Steam App Id</td><td>480 is Valve's Spacewar app, free for anyone to test with. A released game needs its own.</td></tr>
+        <tr><td>Game Tag</td><td>Marks your game's rooms, so you only find your own among everyone else testing with 480.</td></tr>
+        <tr><td>Room Name, Max Players</td><td>What a hosted room is called, and how many fit.</td></tr>
+        <tr><td>Port</td><td>The UDP port a local network game is hosted on (27015).</td></tr>
+        <tr><td>Connect On Start</td><td>Nothing (a script connects), Quick Match, or Host, as soon as the scene starts.</td></tr>
+        <tr><td>Player Prefab</td><td>Each player's object. Give it a Network Transform so others see it move.</td></tr>
+        <tr><td>Spawn When Offline</td><td>Gives you a player to play with before connecting; it's swapped for a networked one when you do.</td></tr>
+    </table>
+    <div class="note tip"><p>Starting a game (or the editor) with <code>-lan</code> on its command line uses the local network whatever Service says: handy for trying two copies on one PC.</p></div>
+
+    <h2>Connecting</h2>
+    <table>
+        <tr><th>Visual script node</th><th>C#</th><th>Does</th></tr>
+        <tr><td>Quick Match</td><td><code>NetworkManager.Instance.QuickMatch()</code></td><td>Joins a room with space, or hosts one if there's none.</td></tr>
+        <tr><td>Host Game</td><td><code>.Host()</code></td><td>Hosts a room.</td></tr>
+        <tr><td>Join Game</td><td><code>.Join("192.168.1.20")</code></td><td>Joins a local network game by address ("localhost" on this PC).</td></tr>
+        <tr><td>Leave Game</td><td><code>.Leave()</code></td><td>Leaves. Other players' objects go; yours stays.</td></tr>
+        <tr><td>Network Info</td><td><code>Network.InSession</code>, <code>Network.IsHost</code>, <code>NetworkManager.Instance.Status</code></td><td>Online? Host? How many players, your name, how connecting is going.</td></tr>
+        <tr><td>Local Player</td><td><code>NetworkManager.Instance.LocalPlayer</code></td><td>This machine's player object.</td></tr>
+    </table>
+    <p>Events for scripts: <strong>On Connected</strong>, <strong>On Disconnected</strong>, <strong>On Player Joined</strong> and <strong>On Player Left</strong> (with the player's name).</p>
+    <p>Set <code>Network.GameVersion</code> when your game starts and bump it when you release a version that plays differently: players only join rooms of the same version.</p>
+
+    <h2>Shared objects</h2>
+    <p>Players are made for you. For anything else everyone should see (a rocket, a grenade, a pickup that appears), use <strong>Network Spawn</strong> (C#: <code>NetworkScene.Spawn(prefab, position, rotation)</code>). The prefab should have a Network Object, and a Network Transform if it moves. This machine owns what it spawns.</p>
+    <p>An object that's only for show on one machine (a muzzle flash, sparks, a sound) doesn't need to be shared: make it locally when a network event says so.</p>
+
+    <h2>Network events</h2>
+    <p>A network event has a <strong>name</strong>, the <strong>object</strong> it's about (or none), who it goes <strong>to</strong>, and up to three <strong>values</strong>: numbers, true/false, text, vectors, colours, or shared objects.</p>
+    <table>
+        <tr><th>To</th><th>Goes to</th><th>For</th></tr>
+        <tr><td>Everyone</td><td>Every machine, this one included</td><td>Things everyone sees: a shot, an explosion, a score.</td></tr>
+        <tr><td>Others</td><td>Every machine but this one</td><td>Telling others about something this machine already did.</td></tr>
+        <tr><td>Owner</td><td>The machine that owns the object</td><td>Telling a player they were hit: their machine looks after their health.</td></tr>
+        <tr><td>Host</td><td>The host only</td><td>Asking the host to decide something shared: who picked up the flag first.</td></tr>
+    </table>
+    <p>An event about an object arrives at the scripts on that object (each machine's copy of it). An event about no object arrives at every script.</p>
+    <h3>In C#</h3>
+    <pre class="cs">// Send: "Hit", about the player we hit, to its owner, with the damage and who shot.
+NetworkScene.SendEvent("Hit", target, NetworkTarget.Owner, 25f, GameObject);
+
+// Receive, in a component on the object it's about.
+protected override void OnNetworkEvent(NetworkEvent e)
+{
+    if (e.Name != "Hit" || !IsMine) return;
+    float damage = e.Values[0] as float? ?? 0f;
+    GameObject? shooter = e.Values[1] as GameObject;
+    Log.Info($"{e.From} hit me for {damage}");
+}
+
+// Or every event, anywhere.
+NetworkScene.EventReceived += e =&gt; Log.Info($"{e.Name} from {e.From}");</pre>
+    <h3>In visual scripts</h3>
+    <p><strong>Send Network Event</strong> has the name, the <em>Target</em> it's about (empty means this object), <em>To</em>, and values <em>A</em>, <em>B</em> and <em>C</em>; tick <em>Every Script</em> to send it about no object. <strong>On Network Event</strong> starts when one with its name arrives, with <em>From</em> (who sent it) and <em>A</em> to <em>C</em>.</p>
+    <p>C# components and visual scripts get the same events, so they can be mixed.</p>
+
+    <h2>Who decides what</h2>
+    <p>Vertex trusts each machine about what it owns: the shooter's machine decides it hit, and the hit player's machine takes the damage. That keeps things simple and responsive, and suits games among friends. Things that belong to nobody (a round timer, a shared pickup) are best decided by the host: send a request to the <em>Host</em>, and let the host tell <em>Everyone</em> the result.</p>
+    <div class="note warn"><p>There's no lag compensation or server-side checking: a player with a modified game could cheat. Fine for playing with friends; worth knowing before a public release.</p></div>
+
+    <h2>Useful nodes and members</h2>
+    <ul>
+        <li><strong>Respawn Point</strong> / <code>SpawnPoint.FurthestFromOthers(player)</code>: the spawn point furthest from the other players.</li>
+        <li><strong>Owner Name</strong> / <code>networkObject.OwnerName</code>: whose an object is, to credit a kill.</li>
+        <li><code>NetworkScene.Players</code>: every player's object; <code>NetworkScene.Objects</code>: every shared object.</li>
+    </ul>
+
+    <h2>Testing</h2>
+    <ul>
+        <li><strong>Alone:</strong> just press Play. Everything is yours, and events sent to Everyone or the Owner come straight back.</li>
+        <li><strong>Two on one PC:</strong> set Service to Local Network (or start with <code>-lan</code>), open the project in two editors (or run two copies of a built game), Play both, and connect: the first hosts, the second joins.</li>
+        <li><strong>Over Steam:</strong> two PCs, each signed in to its own Steam account. Quick Match on both.</li>
+    </ul>
+    <p>The <a href="tutorial-duel.html">Duel tutorial</a> puts all of this together.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>

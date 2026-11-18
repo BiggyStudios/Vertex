@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Visual scripting · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Visual scripting</h1>
+    <p class="lead">Make behaviour by wiring nodes together instead of writing code. A visual script is a graph saved in a <code>.vscript</code> file; a <strong>Visual Script</strong> component runs it on an object. It's as capable as the C# route for most games, multiplayer included.</p>
+
+    <h2>Try one</h2>
+    <p>This is the Duel's shooting script. Drag to pan, scroll to zoom, hover a node to see what it does, and press <strong>Run</strong> to watch the flow travel along the white wires in the order it runs. Switch between the sample's scripts with the buttons.</p>
+    <p class="chips" id="graph-picks"></p>
+    <div id="graph-demo"></div>
+
+    <h2>Events start things</h2>
+    <p>Nothing happens until an <strong>event</strong> node starts it. They have red headers and no flow coming in:</p>
+    <table>
+        <tr><th>Event</th><th>When</th></tr>
+        <tr><td>On Start</td><td>Once, when the object starts.</td></tr>
+        <tr><td>On Update</td><td>Every frame. <em>Delta Time</em> is how long the frame took.</td></tr>
+        <tr><td>On Key Pressed / Released, On Mouse Pressed / Released</td><td>The frame a key or button goes down or up.</td></tr>
+        <tr><td>On Interval</td><td>Every so many seconds.</td></tr>
+        <tr><td>On Collision, On Trigger</td><td>When the object bumps into something, or something enters its trigger. <em>Other</em> is what.</td></tr>
+        <tr><td>On Event</td><td>When a <strong>Send Event</strong> with the same name is sent (from another script, or C#).</td></tr>
+        <tr><td>On Connected, On Disconnected, On Player Joined / Left, On Network Event</td><td>Network games: see <a href="multiplayer.html">Multiplayer</a>.</td></tr>
+    </table>
+
+    <h2>Flow: what happens, in order</h2>
+    <p>The <strong>white wires</strong> between the triangles are the flow: when a node is done, it carries on along its output. Nodes that only work something out have no flow; they're worked out when something needs them.</p>
+    <ul>
+        <li><strong>Branch</strong> goes one way if a condition's true, the other if not.</li>
+        <li><strong>Sequence</strong> runs <em>Then 1</em>, then <em>Then 2</em>, then <em>Then 3</em>: for several things in a row from one event.</li>
+        <li><strong>For Loop</strong> runs its body a number of times, with the <em>Index</em>.</li>
+        <li><strong>Wait</strong> carries on after some seconds, without holding anything else up.</li>
+        <li><strong>Cooldown</strong> lets the flow through at most once every so many seconds: fire rates, jump spam.</li>
+        <li><strong>Do Once</strong> lets it through the first time only.</li>
+    </ul>
+
+    <h2>Values: what things are</h2>
+    <p>Coloured wires carry values from an output to an input. The colour is the type, and the editor only lets wires join ports that fit (a number fits a vector's three parts; anything fits text).</p>
+    <div class="chips" id="type-legend"></div>
+    <p>An input with no wire uses the value typed on the node. An <strong>Object</strong> input with no wire means the object the script is on (<em>Self</em>). Grey settings with no port (a key, a name) are chosen on the node itself.</p>
+
+    <h2>Variables</h2>
+    <p>Each graph has <strong>Variables</strong> (the button at the top of the graph): numbers, true/false, text, vectors, colours and objects, with starting values. <strong>Get</strong> and <strong>Set Variable</strong> nodes read and change them.</p>
+    <ul>
+        <li><strong>Each object has its own.</strong> Two enemies running the same script each have their own Health.</li>
+        <li><strong>Starting values per object.</strong> Under the Visual Script component in the inspector, the graph's variables are listed: set one there and it's this object's own (shown bright, with a ↶ to put it back). It's how a script points at things in the scene, like a door's lever or a player's head.</li>
+        <li><strong>Other objects' variables:</strong> <strong>Get Variable On</strong> and <strong>Set Variable On</strong>.</li>
+        <li><strong>From C#:</strong> <code>script.GetVariable("Health")</code> and <code>script.SetVariable("Speed", 8f)</code> on the <code>VisualScript</code> component.</li>
+    </ul>
+    <div class="figure reveal"><img src="images/visual-script-inspector.jpg" alt="A visual script's variables in the inspector, three of them set for this object"><figcaption>The HUD's script: <em>Mine</em> and <em>Theirs</em> start as the graph says (faint); the three text slots are this object's own.</figcaption></div>
+
+    <h2>Scripts talking to each other</h2>
+    <ul>
+        <li><strong>Send Event</strong> starts <strong>On Event</strong> nodes with the same name in every script in the scene, with a value. <strong>Send Event To</strong> sends it to one object's scripts only.</li>
+        <li>C# can send them too: <code>VisualScript.SendEvent("Door Opened", door)</code>.</li>
+        <li>Across the network, <strong>Send Network Event</strong> and <strong>On Network Event</strong> do the same between machines.</li>
+    </ul>
+
+    <h2>Making graphs in the editor</h2>
+    <table>
+        <tr><th>Do this</th><th>To</th></tr>
+        <tr><td>Right-click, or <kbd>Space</kbd></td><td>Add a node: type part of its name or what it's for</td></tr>
+        <tr><td>Drag from a port</td><td>Wire it to another (let go on empty space to add a node already wired)</td></tr>
+        <tr><td>Drag a wire off an input, or <kbd>Alt</kbd>-click it</td><td>Disconnect it</td></tr>
+        <tr><td>Middle mouse drag, wheel</td><td>Pan, zoom</td></tr>
+        <tr><td><kbd>Del</kbd>, <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Delete what's selected, undo</td></tr>
+    </table>
+    <p>Graphs save themselves as you edit, and a graph changed while the game is playing changes the running scripts straight away.</p>
+
+    <h2>Finding out what's wrong</h2>
+    <ul>
+        <li>While playing, the flow lights up as it runs, so you can see which way a Branch went.</li>
+        <li><strong>Print</strong> writes a value to the Console.</li>
+        <li>A node that goes wrong (Set Text on an object with no text, say) is marked red with what happened, the error goes to the Console, and that object's script stops rather than repeating the error every frame.</li>
+    </ul>
+
+    <h2>Every node</h2>
+    <p>The <a href="nodes.html">node reference</a> lists all of them, with their inputs, outputs and what they do, searchable and by category.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (async () => {
+        await Site.load("data/nodes.js");
+        await Site.load("data/graphs.js");
+        const legend = document.getElementById("type-legend");
+        const shown = ["Flow", "Number", "Boolean", "Text", "Vector", "Color", "Object", "Prefab", "Sound", "Any"];
+        legend.innerHTML = shown.map(t => `<span class="chip"><i style="background:${GraphView.color(t)}"></i>${t}</span>`).join("");
+
+        const names = Object.keys(window.VertexGraphs).filter(n => !n.includes("VFX"));
+        const picks = document.getElementById("graph-picks");
+        const demo = document.getElementById("graph-demo");
+        const pick = name => {
+            picks.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.name === name));
+            GraphView.mount(demo, name);
+        };
+        picks.innerHTML = names.map(n => `<button class="chip" data-name="${n}">${n}</button>`).join("");
+        picks.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => pick(c.dataset.name)));
+        pick("Player Gun");
+    })();
+</script>
+</body>
+</html>

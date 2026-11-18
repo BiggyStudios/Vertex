@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Three ways to make a game · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Start here</span>
+    <h1>Three ways to make a game</h1>
+    <p class="lead">Vertex has one engine and three ways of using it. Here's the same small thing (a cube that bobs up and down and spins) done each way, then how to mix them.</p>
+
+    <table>
+        <tr><th></th><th>Code only</th><th>Editor + C#</th><th>Editor + visual scripting</th></tr>
+        <tr><td><strong>You write</strong></td><td>A <code>Game</code> class and components</td><td>Components</td><td>Graphs of nodes</td></tr>
+        <tr><td><strong>Levels are</strong></td><td>Built in <code>Load()</code></td><td>Scenes made in the editor</td><td>Scenes made in the editor</td></tr>
+        <tr><td><strong>Settings</strong></td><td>Set in code</td><td>Public properties, shown in the inspector</td><td>Variables, set per object in the inspector</td></tr>
+        <tr><td><strong>Runs with</strong></td><td><code>new MyGame().Run()</code>, or Play in the editor</td><td>Play in the editor</td><td>Play in the editor</td></tr>
+        <tr><td><strong>Good for</strong></td><td>Programmers, generated worlds, prototypes, tools</td><td>Most games: hand-made levels plus code</td><td>Non-programmers, quick behaviour, learning</td></tr>
+    </table>
+
+    <h2>1. Code only</h2>
+    <p>A game is a class with a <code>Load</code> method that builds the world. Start it from <code>Main</code> (here, a top-level statement) and it opens its own window.</p>
+    <pre class="cs" data-file="Program.cs" data-open>using System.Numerics;
+
+using Vertex;
+using Vertex.Rendering;
+
+new BobbingGame().Run("Bobbing cube");
+
+public class BobbingGame : Game
+{
+    public override void Load()
+    {
+        var sun = new GameObject("Sun");
+        sun.AddComponent&lt;Light&gt;();
+        sun.Transform.EulerAngles = new Vector3(-50f, 30f, 0f);
+
+        var camera = new GameObject("Camera");
+        camera.AddComponent&lt;Camera&gt;();
+        camera.Transform.Position = new Vector3(0f, 1f, 6f);
+
+        GameObject.CreatePlane(Vector3.Zero, size: 20f);
+        GameObject cube = GameObject.CreateCube(new Vector3(0f, 1f, 0f), Color.Orange);
+        cube.AddComponent&lt;Bobber&gt;();
+    }
+}
+
+/// &lt;summary&gt;Bobs up and down and spins.&lt;/summary&gt;
+public class Bobber : Component
+{
+    public float Height { get; set; } = 0.5f;
+    public float Speed { get; set; } = 2f;
+
+    private Vector3 _start;
+
+    protected override void Start() =&gt; _start = Transform.Position;
+
+    protected override void Update()
+    {
+        Transform.Position = _start + new Vector3(0f, MathF.Sin(Time.TotalTime * Speed) * Height, 0f);
+        Transform.EulerAngles += new Vector3(0f, 90f * Time.DeltaTime, 0f);
+    }
+}</pre>
+    <p>The project file is an ordinary .NET program that refers to the engine. Copying the <code>Assets</code> folder next to the program lets the game load files from it:</p>
+    <pre class="plain" data-file="BobbingGame.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+  &lt;PropertyGroup&gt;
+    &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
+    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;ItemGroup&gt;
+    &lt;ProjectReference Include="..\Vertex\Vertex\Vertex.csproj" /&gt;
+    &lt;None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" /&gt;
+  &lt;/ItemGroup&gt;
+&lt;/Project&gt;</pre>
+    <p>Run it with <code>dotnet run</code>. The <a href="tutorial-code-only.html">Coin Grab tutorial</a> builds a whole game this way.</p>
+
+    <h2>2. Editor + C#</h2>
+    <p>The same <code>Bobber</code> component, but the cube and camera are made in the editor:</p>
+    <ol>
+        <li>Make the cube with <strong>Create › Cube</strong>.</li>
+        <li>With it selected, choose <strong>Add Component</strong> in the inspector, type <em>Bobber</em> and pick <strong>New Script</strong>. The editor writes <code>Assets/Scripts/Bobber.cs</code>, builds it, and adds it to the cube.</li>
+        <li>Open the file in your code editor and paste in the <code>Bobber</code> class above. Switch back to Vertex: it rebuilds, and keeps your scene as it was.</li>
+        <li><strong>Height</strong> and <strong>Speed</strong> now show in the inspector. Change them per cube, and press Play.</li>
+    </ol>
+    <p>Public properties with a getter and setter are shown in the inspector and saved with the scene. Slots for other objects, components, prefabs, sounds and materials can be filled by dragging them in. <a href="csharp.html">C# scripting</a> covers the rest.</p>
+
+    <h2>3. Editor + visual scripting</h2>
+    <p>No code: add a <strong>Visual Script</strong> component to the cube and press <strong>New Visual Script</strong>. The graph opens in a tab. This one moves the cube up and down a little each frame, following a sine wave, and turns it 90° a second:</p>
+    <div id="bobber-graph"></div>
+    <p>Drag across the graph to pan and scroll to zoom. Hover a node to see what it does, and press <strong>Run</strong> to watch the flow go along the white wires. In the editor the wires light up like this while the game plays. <a href="visual-scripting.html">Visual scripting</a> explains events, flow, values and variables.</p>
+
+    <h2>Mixing them</h2>
+    <p>All three are the same engine, so they combine freely. Some common mixes:</p>
+
+    <h3>Open a code-only game in the editor</h3>
+    <p>Choose <strong>File › Open Project</strong> and pick the game's <code>.csproj</code>. The editor makes a <code>.vertexproject</code> beside it, builds the code, and shows the world your <code>Load()</code> builds. Play runs the game as it would run on its own. From there you can make prefabs, materials, scenes and VFX graphs in the editor and use them from code:</p>
+    <pre class="cs">public override void Load()
+{
+    // A level made in the editor, as the whole world...
+    Scene.Load("Scenes/Arena.scene");
+
+    // ...or added to one built in code.
+    Scene.Active.Add("Scenes/Bonus Room.scene");
+
+    // Copies of a prefab made in the editor.
+    Prefab crate = Prefab.Load(Application.AssetPath("Prefabs", "Crate.prefab"));
+    for (int i = 0; i &lt; 5; i++) crate.Instantiate(new Vector3(i * 2f, 0f, 0f));
+
+    // Something placed in the editor, found by name.
+    GameObject door = GameObject.Find("Door")!;
+}</pre>
+
+    <h3>Give an editor game code that runs around its scenes</h3>
+    <p>A game made in the editor doesn't need a <code>Game</code> class. Components on objects do the work. But if you want code that runs for the whole game (setting things up, a timer, cheats), write one that starts in your scene:</p>
+    <pre class="cs">public class MyGame : Game
+{
+    public MyGame() =&gt; StartScene = "Scenes/Main.scene";
+
+    public override void Load()
+    {
+        base.Load();                        // opens the start scene
+        Network.GameVersion = "1.0";        // anything else to set up
+    }
+
+    public override void Update()
+    {
+        if (InputSystem.GetKeyDown(Key.F5)) Scene.Load(StartScene!);   // start again
+    }
+}</pre>
+    <p>The editor still opens the start scene for editing, and Play runs your <code>Load</code> and <code>Update</code> around whichever scene is open, unsaved changes included. A game whose <code>Load</code> builds everything in code (no <code>StartScene</code>) opens with the world it builds instead.</p>
+
+    <h3>C# and visual scripts together</h3>
+    <p>Objects can have C# components and visual scripts side by side. They can talk to each other:</p>
+    <pre class="cs">VisualScript script = door.GetComponent&lt;VisualScript&gt;()!;
+
+// Read and change a visual script's variables.
+float health = (float)script.GetVariable("Health")!;
+script.SetVariable("Speed", 8f);
+
+// Start "On Event" nodes called "Door Opened" (with a value: here, the door), in every
+// visual script in the scene, or just in the ones on one object.
+VisualScript.SendEvent("Door Opened", door);
+VisualScript.SendEvent("Door Opened", door, to: lever);</pre>
+    <p>Going the other way, visual scripts don't reach into C# components: they read and set other <em>visual scripts'</em> variables (Get Variable On, Set Variable On) and send events. Network events reach both: a C# component's <code>OnNetworkEvent</code> and a graph's <strong>On Network Event</strong> get the same events. The <a href="tutorial-duel.html">Duel tutorial</a> uses that so its C# and visual versions can play each other.</p>
+
+    <div class="note tip"><p><strong>Rule of thumb:</strong> make places in the editor, and behaviour in whichever you're quickest with. Generated or repetitive things (a grid of tiles, a hundred enemies) are usually shorter in code.</p></div>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    GraphView.mount(document.getElementById("bobber-graph"), {
+        kind: "script",
+        variables: [],
+        nodes: [
+            { id: 1, type: "Events/On Update", x: 0, y: 0 },
+            { id: 2, type: "Actions/Move By", x: 280, y: 0 },
+            { id: 3, type: "Actions/Rotate By", x: 540, y: 0 },
+            { id: 4, type: "Input/Time", x: -300, y: 170 },
+            { id: 5, type: "Math/Sine", x: -60, y: 150 },
+            { id: 6, type: "Math/Multiply", x: -60, y: 260 },
+            { id: 7, type: "Vectors/Scale Vector", x: 180, y: 190, values: { Vector: [0, 1, 0] } },
+            { id: 8, type: "Math/Multiply", x: 180, y: 310, values: { B: 90 } },
+            { id: 9, type: "Vectors/Make Vector", x: 420, y: 250 }
+        ],
+        links: [
+            { from: 1, out: "Then", to: 2, in: "In" },
+            { from: 2, out: "Then", to: 3, in: "In" },
+            { from: 4, out: "Time", to: 5, in: "Value" },
+            { from: 5, out: "Result", to: 6, in: "A" },
+            { from: 4, out: "Delta Time", to: 6, in: "B" },
+            { from: 6, out: "Result", to: 7, in: "By" },
+            { from: 7, out: "Result", to: 2, in: "Offset" },
+            { from: 4, out: "Delta Time", to: 8, in: "A" },
+            { from: 8, out: "Result", to: 9, in: "Y" },
+            { from: 9, out: "Vector", to: 3, in: "Degrees" }
+        ]
+    }, { title: "Bobber" });
+</script>
+</body>
+</html>

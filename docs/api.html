@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>C# API · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout wide">
+<main class="content">
+    <div class="api">
+        <nav class="api-list">
+            <input class="ref-search" id="filter" placeholder="Filter types and members" aria-label="Filter types" style="width:100%;min-width:0;margin-bottom:8px">
+            <div id="types"></div>
+        </nav>
+        <div id="page"></div>
+    </div>
+</main>
+</div>
+<script src="data/api.js"></script>
+<script src="assets/site.js"></script>
+<script>
+    (() => {
+        const api = window.VertexApi;
+        const byName = new Map();
+        for (const ns of api.namespaces) for (const t of ns.types) byName.set(t.fullName, { ...t, ns: ns.name });
+
+        // The engine's own namespaces first; the graphics backends last, as few need them.
+        const order = ns => ns === "Vertex" ? 0 : /OpenGL|Vulkan/.test(ns) ? 2 : 1;
+        const namespaces = [...api.namespaces].sort((a, b) => order(a.name) - order(b.name) || a.name.localeCompare(b.name));
+        const kindLetter = k => k.includes("enum") ? ["E", "enum"] : k.includes("interface") ? ["I", "interface"] : k.includes("static") ? ["S", "static"] : k.includes("struct") ? ["S", "struct"] : k === "delegate" ? ["D", "class"] : ["C", "class"];
+
+        const list = document.getElementById("types"), page = document.getElementById("page"), filter = document.getElementById("filter");
+
+        function drawList() {
+            const terms = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+            const hit = t => !terms.length || terms.every(w => t.name.toLowerCase().includes(w) || t.members.some(m => m.name.toLowerCase().includes(w)));
+            list.innerHTML = namespaces.map(ns => {
+                const types = ns.types.filter(hit);
+                if (!types.length) return "";
+                return `<div class="ns">${ns.name}</div>` + types.map(t => {
+                    const [letter, cls] = kindLetter(t.kind);
+                    return `<a href="#${t.fullName}" data-type="${t.fullName}"><span class="k ${cls}">${letter}</span>${Site.escape(t.name)}</a>`;
+                }).join("");
+            }).join("") || '<p style="color:var(--text-faint)">Nothing matches.</p>';
+            mark();
+        }
+
+        function mark() {
+            const current = location.hash.slice(1);
+            list.querySelectorAll("a").forEach(a => a.classList.toggle("active", current === a.dataset.type || current.startsWith(a.dataset.type + ".") && !byName.has(current)));
+        }
+
+        // Doc comments link to other types and members: made into links within this page.
+        function links(html) {
+            const box = document.createElement("div");
+            box.innerHTML = html ?? "";
+            box.querySelectorAll("a[data-ref]").forEach(a => {
+                let ref = a.dataset.ref.replace(/^[A-Z]:/, "").replace(/\(.*$/, "").replace(/`+\d+/g, "");
+                let type = ref, member = "";
+                if (!byName.has(type)) { const dot = ref.lastIndexOf("."); type = ref.slice(0, dot); member = ref.slice(dot + 1); }
+                if (byName.has(type)) a.href = "#" + type + (member && member !== "#ctor" ? "." + member : "");
+                else a.outerHTML = `<code>${a.textContent}</code>`;
+            });
+            return box.innerHTML;
+        }
+
+        function memberHtml(t, m) {
+            const params = m.params ? `<div class="params">${Object.entries(m.params).map(([k, v]) => `<code>${Site.escape(k)}</code> ${links(v)}`).join("<br>")}</div>` : "";
+            const returns = m.returns ? `<div class="params">Returns ${links(m.returns)}</div>` : "";
+            const throws = m.throws ? `<div class="params">Throws: ${links(m.throws)}</div>` : "";
+            return `<div class="member" id="m-${t.fullName}.${m.name}"><div class="sig">${Site.highlight(m.signature)}</div>${m.summary ? `<div class="doc">${links(m.summary)}</div>` : ""}${params}${returns}${throws}</div>`;
+        }
+
+        function overview() {
+            const start = ["Vertex.Game", "Vertex.GameObject", "Vertex.Component", "Vertex.Transform", "Vertex.Scene", "Vertex.Time", "Vertex.Input.InputSystem",
+                "Vertex.Physics.Rigidbody", "Vertex.Physics.CharacterController", "Vertex.Physics.PhysicsWorld", "Vertex.Prefab", "Vertex.Assets",
+                "Vertex.Audio.Sound", "Vertex.UI.Canvas", "Vertex.Networking.NetworkScene", "Vertex.Networking.NetworkManager", "Vertex.Scripting.VisualScript", "Vertex.Log"];
+            const count = api.namespaces.reduce((s, n) => s + n.types.length, 0);
+            page.innerHTML = `<div class="api-type"><span class="eyebrow">Reference</span><h1>C# API</h1>
+                <p class="lead">All ${count} public types in the engine, with their doc comments, taken from the engine itself. Pick one on the left, filter by name, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search every member.</p>
+                <h2 style="font-size:22px">Start with these</h2>
+                <div class="cards">${start.filter(n => byName.has(n)).map(n => { const t = byName.get(n); return `<a class="card" href="#${n}"><h3 style="margin-top:0">${t.name}</h3><p>${(links(t.summary).replace(/<[^>]+>/g, "").split(/(?<=\.)\s/)[0] || t.kind)}</p></a>`; }).join("")}</div></div>`;
+        }
+
+        function showType(name, member) {
+            const t = byName.get(name);
+            if (!t) { overview(); return; }
+            const groups = [["value", "Values"], ["constructor", "Constructors"], ["property", "Properties"], ["method", "Methods"], ["event", "Events"], ["field", "Fields"], ["constant", "Constants"]];
+            const chain = [];
+            for (let b = t.base, guard = 0; b && guard < 8; guard++) {
+                const found = [...byName.values()].find(x => x.name === b);
+                chain.push(found ? `<a href="#${found.fullName}">${Site.escape(b)}</a>` : `<code>${Site.escape(b)}</code>`);
+                b = found?.base;
+            }
+
+            page.innerHTML = `<div class="api-type">
+                <div class="crumbs">${t.ns}</div>
+                <h1>${Site.escape(t.name)} <span class="badge">${t.kind}</span>${t.abstract ? '<span class="badge">abstract</span>' : ""}${t.component ? '<span class="badge ed">component</span>' : ""}</h1>
+                ${chain.length ? `<p style="color:var(--text-faint);font-size:14px">Inherits ${chain.join(" › ")}</p>` : ""}
+                ${t.signature ? `<div class="member"><div class="sig">${Site.highlight(t.signature)}</div></div>` : ""}
+                <div class="summary">${links(t.summary) || '<span style="color:var(--text-faint)">No description yet.</span>'}</div>
+                ${t.component ? `<p class="note">A component: add it in the inspector's <strong>Add Component</strong>, or in code with <code>gameObject.AddComponent&lt;${Site.escape(t.name)}&gt;()</code>.</p>` : ""}
+                ${groups.map(([kind, title]) => {
+                    const members = t.members.filter(m => m.kind === kind);
+                    return members.length ? `<div class="api-group"><h2 class="no-toc">${title}</h2>${members.map(m => memberHtml(t, m)).join("")}</div>` : "";
+                }).join("")}
+                ${!t.members.length ? '<p style="color:var(--text-faint)">No public members of its own.</p>' : ""}
+            </div>`;
+
+            if (member) {
+                const el = document.getElementById(`m-${name}.${member}`);
+                if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
+            } else {
+                scrollTo({ top: 0 });
+            }
+        }
+
+        function route() {
+            const hash = decodeURIComponent(location.hash.slice(1));
+            if (!hash) { overview(); mark(); return; }
+            if (byName.has(hash)) showType(hash);
+            else {
+                const dot = hash.lastIndexOf(".");
+                showType(hash.slice(0, dot), hash.slice(dot + 1));
+            }
+            mark();
+            document.querySelector(".api-list a.active")?.scrollIntoView({ block: "nearest" });
+        }
+
+        filter.addEventListener("input", drawList);
+        addEventListener("hashchange", route);
+        drawList();
+        route();
+    })();
+</script>
+</body>
+</html>

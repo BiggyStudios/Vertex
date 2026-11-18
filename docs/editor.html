@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The editor · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>The editor</h1>
+    <p class="lead">Where scenes, prefabs, materials, effects and visual scripts are made. Everything you change can be undone, and Play runs the game right there.</p>
+
+    <div class="figure reveal"><img src="images/editor.jpg" alt="The editor's panels"><figcaption>The outliner (left), the scene view with its tabs (middle), the inspector (right), and the assets and console (bottom).</figcaption></div>
+
+    <h2>The panels</h2>
+    <table>
+        <tr><th>Panel</th><th>What it's for</th></tr>
+        <tr><td><strong>Outliner</strong></td><td>Every object in the scene, as a tree. Click to select (<kbd>Ctrl</kbd> and <kbd>Shift</kbd> for more than one), drag one onto another to put it under it, double-click or <kbd>F2</kbd> to rename, right-click for more. The search box at the top filters by name. Click the scene's own row to edit its lighting and sky.</td></tr>
+        <tr><td><strong>Scene view</strong></td><td>The world, to look round and arrange. Its tabs also hold the <strong>Game</strong> view (what the game's camera sees, and where UI is arranged), and any visual scripts, VFX graphs and prefabs you open.</td></tr>
+        <tr><td><strong>Inspector</strong></td><td>What's selected: its name, transform and components, with all their settings. Add components here.</td></tr>
+        <tr><td><strong>Assets</strong></td><td>The project's <code>Assets</code> folder: scenes, prefabs, materials, textures, models, sounds, fonts, scripts, visual scripts and VFX graphs.</td></tr>
+        <tr><td><strong>Console</strong></td><td>Messages from the editor and the game: <code>Log.Info</code>, warnings, errors, and build errors in your C# code. Double-click an error to open the code at its line.</td></tr>
+    </table>
+    <p>Panels can be dragged to rearrange them and shown or hidden from the <strong>View</strong> menu; <strong>View › Reset Layout</strong> puts them back. <strong>View › Bigger Interface</strong> (<kbd>Ctrl</kbd>+<kbd>=</kbd>) scales the whole editor.</p>
+
+    <h2>Moving around</h2>
+    <table>
+        <tr><th>Do this</th><th>To</th></tr>
+        <tr><td>Right mouse + <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Q</kbd>, <kbd>E</kbd></td><td>Look round and fly (<kbd>Shift</kbd> for faster; the wheel sets the speed)</td></tr>
+        <tr><td><kbd>Alt</kbd> + left mouse</td><td>Orbit round what you're looking at</td></tr>
+        <tr><td>Middle mouse</td><td>Pan</td></tr>
+        <tr><td>Mouse wheel</td><td>Zoom</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Frame the selection</td></tr>
+        <tr><td>The axes in the corner</td><td>Click one to look along it</td></tr>
+    </table>
+
+    <h2>Arranging things</h2>
+    <p>Click an object in the scene to select it. <kbd>W</kbd>, <kbd>E</kbd> and <kbd>R</kbd> switch between moving, rotating and scaling, with handles to drag; the toolbar in the corner of the view has the same tools, and whether they work in world or local directions. Hold <kbd>Ctrl</kbd> while dragging to snap (or set snapping up in <strong>Edit › Snapping</strong>). Exact values go in the inspector's Transform.</p>
+    <table>
+        <tr><th>Keys</th><th>Does</th></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Duplicate</td></tr>
+        <tr><td><kbd>F2</kbd></td><td>Rename</td></tr>
+        <tr><td><kbd>Del</kbd></td><td>Delete</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select everything</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo, redo: every change, even a drag of a number, a change to a prefab, or an edit in a graph</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save the scene</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>P</kbd></td><td>Play and stop</td></tr>
+    </table>
+
+    <h2>Making things</h2>
+    <p>The <strong>Create</strong> menu (or the <strong>+</strong> in the outliner) makes objects: an <strong>Empty</strong> object, a <strong>Cube</strong>, <strong>Sphere</strong> or <strong>Plane</strong>, a <strong>Sun</strong> or <strong>Point Light</strong>, a <strong>Camera</strong>, and <strong>UI</strong>: a <strong>Canvas</strong> with <strong>Panels</strong>, <strong>Text</strong>, <strong>Images</strong> and <strong>Buttons</strong>. New objects go where the view is looking (at the point it orbits round).</p>
+    <p>Shapes from the Create menu are only drawn. To make one solid, add a collider: <strong>Box Collider</strong>, <strong>Sphere Collider</strong>, <strong>Capsule Collider</strong> or <strong>Mesh Collider</strong>. Add a <strong>Rigidbody</strong> as well for physics to move it.</p>
+    <p>Dragging a model (<code>.gltf</code>, <code>.glb</code>, <code>.fbx</code>, <code>.obj</code>) or a prefab from the Assets panel into the scene puts it there. Dragging a texture onto an object paints its material with it; a material, gives it that material.</p>
+
+    <h2>The inspector</h2>
+    <p>Components are what objects do. <strong>Add Component</strong> lists the engine's (rendering, physics, audio, UI, networking, effects…) and your game's own, with a search box. Typing a name that isn't there offers <strong>New Script</strong>, which writes a C# component of that name, builds it and adds it.</p>
+    <p>Each component's <strong>⋯</strong> menu moves it up or down or removes it. Settings are edited by dragging numbers sideways or typing in them, picking colours, choosing from lists, and filling <strong>slots</strong>:</p>
+    <ul>
+        <li><strong>File slots</strong> (a texture, material, prefab, sound, font, visual script, VFX graph): click to pick from the project's files, or drag one in from Assets.</li>
+        <li><strong>Object slots</strong> (another object, or one of its components): click to pick from the scene's objects that fit, or drag one in from the outliner. While you drag a row out of the outliner, the inspector keeps showing what you had selected, so you can drop it there.</li>
+    </ul>
+    <p>Select several objects to edit them together: values that differ show a dash, and whatever you set goes on all of them.</p>
+    <div class="figure reveal"><img src="images/prefab-inspector.jpg" alt="Script slots filled with objects"><figcaption>A C# component's settings: numbers in titled sections, and slots for an object, a sound and a particle system.</figcaption></div>
+
+    <h2>Assets</h2>
+    <p>Right-click in the Assets panel to make a <strong>New Folder</strong>, <strong>New Scene</strong>, <strong>New Material</strong>, <strong>New Script</strong>, <strong>New Visual Script</strong> or <strong>New VFX Graph</strong>. Double-click to open: a folder, a scene, a prefab (in its tab), a graph (in its tab), or a script (in your code editor). <kbd>F2</kbd> renames, and things using a file keep using it under its new name. Drag files into folders to move them.</p>
+    <p>Files added to the folder from outside the editor (a sound, a model, a texture) show up by themselves. Changed materials and graphs are saved as you edit them; scenes are saved with <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p>
+
+    <h2>Prefabs</h2>
+    <p>A prefab is a reusable object (with everything under it) saved in a file: a player, a pickup, a piece of scenery. Make one by dragging an object from the outliner into the Assets panel, or with <strong>Make Prefab</strong> on its right-click menu.</p>
+    <ul>
+        <li><strong>Double-click</strong> a prefab to open it in a tab of its own, shown alone and lit. The outliner and inspector then edit the prefab, with its own undo, and it's saved as you change it.</li>
+        <li><strong>Back to Scene</strong> returns to the scene, and every copy of the prefab in it is updated.</li>
+        <li>A copy in the scene can be changed by itself. <strong>Apply to Prefab</strong> (right-click it in the outliner) saves those changes to the prefab, and <strong>Revert to Prefab</strong> throws them away.</li>
+        <li>To put a copy in the scene, drag the prefab in, or use <strong>Add to Scene</strong> from its menu.</li>
+    </ul>
+
+    <h2>Playing</h2>
+    <p><strong>Play</strong> (<kbd>Ctrl</kbd>+<kbd>P</kbd>) runs the open scene in the Game view, with its components and scripts, physics and sound. Click in the view to give the game the mouse and keyboard; <kbd>Shift</kbd>+<kbd>F1</kbd> gives them back. <strong>Pause</strong> stops time to look round. <strong>Stop</strong> puts the scene back exactly as it was before Play: anything changed while playing is thrown away.</p>
+    <p>While playing, visual script tabs show the flow lighting up as it runs, and a node that goes wrong is marked with the error.</p>
+
+    <h2>Game code</h2>
+    <p>A project's C# lives in the <code>.csproj</code> beside its project file, which the editor makes the first time you make a script. The editor builds it in the background:</p>
+    <ul>
+        <li>when the project opens,</li>
+        <li>whenever you come back to the editor after changing code,</li>
+        <li>and with <strong>File › Rebuild Game Code</strong> (<kbd>Ctrl</kbd>+<kbd>R</kbd>).</li>
+    </ul>
+    <p>Rebuilding keeps the scene you're editing and what's selected. If the code doesn't build, the errors go to the Console, and the scene stays open with the scripts from before.</p>
+    <p>Opening a game's <code>.csproj</code> directly (<strong>File › Open Project</strong>) works too: it's how a game made only in code is opened. See <a href="workflows.html#mixing-them">mixing workflows</a>.</p>
+
+    <h2>Project settings</h2>
+    <p><strong>File › Project Settings</strong> holds the game's name and version, the <strong>Startup Scene</strong> the project opens on, how many <strong>physics steps</strong> a second it runs (FixedUpdate runs that often), and how detailed the sun's shadows are.</p>
+
+    <h2>Lighting and sky</h2>
+    <p>Click the scene's row at the top of the outliner to edit its lighting: the sky and clouds, fog, the colour of the ground light bounces off, ambient occlusion, bloom, and how far shadows reach. The sky follows the first sun: turn it lower for a sunset.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Node reference · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout wide">
+<main class="content">
+    <span class="eyebrow">Reference</span>
+    <h1>Nodes</h1>
+    <p class="lead">Every node there is, taken from the engine itself. Search by name or what it's for, pick a category, and open a node for what each port means.</p>
+
+    <div class="ref-tools">
+        <span class="track-switch" id="kinds" data-own><button data-kind="script">Visual scripts</button><button data-kind="vfx">VFX graphs</button></span>
+        <input class="ref-search" id="search" placeholder="Search nodes: raycast, jump, score, colour…" aria-label="Search nodes">
+    </div>
+    <div class="chips" id="categories"></div>
+    <p id="count" style="color:var(--text-faint);font-size:14px"></p>
+    <div class="node-grid" id="grid"></div>
+</main>
+</div>
+<script src="data/nodes.js"></script>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (() => {
+        const data = window.VertexNodes;
+        const params = new URLSearchParams(location.search);
+        let kind = params.get("kind") === "vfx" ? "vfx" : "script";
+        let category = null;
+        const grid = document.getElementById("grid"), search = document.getElementById("search");
+
+        // The library switch, with its sliding pill.
+        const kinds = document.getElementById("kinds");
+        kinds.insertAdjacentHTML("afterbegin", '<span class="pill"></span>');
+        const placePill = () => {
+            const on = kinds.querySelector(`button[data-kind="${kind}"]`), pill = kinds.querySelector(".pill");
+            kinds.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === on));
+            pill.style.left = on.offsetLeft + "px";
+            pill.style.width = on.offsetWidth + "px";
+        };
+        kinds.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { kind = b.dataset.kind; category = null; placePill(); chips(); show(); }));
+
+        const words = (t) => t.toLowerCase().split(/\s+/).filter(Boolean);
+        const matches = (node, terms) => {
+            const hay = `${node.title} ${node.category} ${node.description} ${node.keywords} ${node.inputs.map(p => p.name).join(" ")} ${node.outputs.map(p => p.name).join(" ")}`.toLowerCase();
+            return terms.every(t => hay.includes(t));
+        };
+
+        function chips() {
+            const library = data.libraries[kind];
+            const counts = {};
+            for (const n of library.nodes) counts[n.category] = (counts[n.category] ?? 0) + 1;
+            const el = document.getElementById("categories");
+            el.innerHTML = `<button class="chip ${category ? "" : "on"}" data-cat="">All <span class="count">${library.nodes.length}</span></button>` +
+                Object.entries(library.categories).map(([c, color]) =>
+                    `<button class="chip ${category === c ? "on" : ""}" data-cat="${c}"><i style="background:${color}"></i>${c} <span class="count">${counts[c] ?? 0}</span></button>`).join("");
+            el.querySelectorAll(".chip").forEach(chip => chip.addEventListener("click", () => {
+                category = chip.dataset.cat || null;
+                el.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c === chip));
+                show();
+            }));
+        }
+
+        function portRows(ports, out) {
+            return ports.filter(p => !p.variable).map(p => {
+                const type = p.type === "Flow" ? "flow" : p.type;
+                const extra = [p.setting ? "set on the node" : null, !out && p.default != null && p.default !== "" && p.type !== "Flow" ? `default ${Site.escape(GraphView.show(p.default))}` : null,
+                    p.choices ? `one of ${p.choices.slice(0, 6).join(", ")}${p.choices.length > 6 ? "…" : ""}` : null].filter(Boolean).join(" · ");
+                return `<dt>${p.name === "In" || p.name === "Then" ? (out ? "Then" : "In") : Site.escape(p.name)}</dt><dd><span style="color:${GraphView.color(p.type)}">${type}</span>${extra ? ` <span style="color:var(--text-faint)">(${extra})</span>` : ""}${p.tooltip ? `<br>${Site.escape(p.tooltip)}` : ""}</dd>`;
+            }).join("");
+        }
+
+        function show() {
+            const library = data.libraries[kind];
+            const terms = words(search.value);
+            const list = library.nodes.filter(n => (!category || n.category === category) && (!terms.length || matches(n, terms)));
+            document.getElementById("count").textContent = `${list.length} node${list.length === 1 ? "" : "s"}`;
+            grid.innerHTML = list.map((n, i) => `
+                <div class="node-entry" id="${encodeURIComponent(n.id)}" style="animation-delay:${Math.min(i, 20) * 18}ms">
+                    ${GraphView.nodeCard(kind, n)}
+                    <p>${Site.escape(n.description || "")}</p>
+                    <div class="meta">${n.event ? '<span class="badge">event</span>' : ""}${n.role ? `<span class="badge">${n.role} step</span>` : ""}<span class="badge">${n.category}</span></div>
+                    <details><summary>Ports</summary>
+                        ${n.inputs.some(p => !p.variable) ? `<b style="font-size:12.5px;color:var(--text-faint)">INPUTS</b><dl>${portRows(n.inputs, false)}</dl>` : ""}
+                        ${n.outputs.length ? `<b style="font-size:12.5px;color:var(--text-faint);display:block;margin-top:8px">OUTPUTS</b><dl>${portRows(n.outputs, true)}</dl>` : ""}
+                    </details>
+                </div>`).join("") || `<p style="color:var(--text-faint)">No nodes match. Try a different word.</p>`;
+        }
+
+        search.addEventListener("input", show);
+        chips();
+        show();
+        requestAnimationFrame(placePill);
+
+        // Linked to one node: show it, open its ports, and light it up.
+        const target = decodeURIComponent(location.hash.slice(1));
+        if (target) {
+            const el = document.getElementById(encodeURIComponent(target));
+            if (el) {
+                el.querySelector("details").open = true;
+                setTimeout(() => { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("flash"); }, 200);
+            }
+        }
+    })();
+</script>
+</body>
+</html>

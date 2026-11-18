@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Getting started · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Start here</span>
+    <h1>Getting started</h1>
+    <p class="lead">Get the engine, open the editor, and play the samples. It takes about five minutes.</p>
+
+    <h2>What you need</h2>
+    <ul>
+        <li><strong>The .NET 10 SDK</strong> (<a href="https://dotnet.microsoft.com/download">dotnet.microsoft.com/download</a>). Vertex and your games are .NET projects.</li>
+        <li><strong>A graphics card with Vulkan</strong>, or OpenGL 3.3 or later. Vertex renders with Vulkan where it can and falls back to OpenGL by itself.</li>
+        <li><strong>Git</strong>, to get the code.</li>
+        <li><strong>Steam</strong>, only for playing online through Steam. Testing on one PC uses the local network and doesn't need it.</li>
+        <li>A code editor for C# is handy (Visual Studio, Rider or VS Code), though the visual scripting route doesn't need one.</li>
+    </ul>
+    <p class="note">Vertex is developed and tested on Windows.</p>
+
+    <h2>Get the engine</h2>
+    <pre class="sh">git clone https://github.com/BiggyStudios/Vertex.git
+cd Vertex
+dotnet build Vertex.slnx</pre>
+    <p>That builds the engine, the editor, the samples and the tests. To check everything works, run the tests (they don't need a window):</p>
+    <pre class="sh">dotnet test Vertex.Tests
+dotnet test Vertex.Editor.Tests</pre>
+
+    <h2>Open the editor</h2>
+    <pre class="sh">dotnet run --project Vertex.Editor</pre>
+    <p>The editor opens on a small scene to try things on. Hold the <strong>right mouse button</strong> and use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly around, click things to select them, and drag the arrows to move them. <a href="editor.html">The editor guide</a> covers the rest.</p>
+
+    <div class="figure reveal"><img src="images/editor.jpg" alt="The editor: outliner on the left, the scene in the middle, the inspector on the right and assets below"><figcaption>The editor with the Duel sample open: the outliner, the scene view, the inspector, and the project's assets.</figcaption></div>
+
+    <h2>Play the samples</h2>
+    <p>The <a href="https://github.com/BiggyStudios/Vertex/tree/master/Samples">Samples</a> folder has the finished versions of the two tutorials:</p>
+    <table>
+        <tr><th>Sample</th><th>What it is</th><th>Run it</th></tr>
+        <tr><td><strong>CodeOnly</strong></td><td>Coin Grab: a whole game in one C# file, made without the editor.</td><td><code>dotnet run --project Samples/CodeOnly</code></td></tr>
+        <tr><td><strong>Duel</strong></td><td>A 1v1 multiplayer shooter made in the editor, twice: with C# scripts and with visual scripts.</td><td><code>dotnet run --project Samples/Duel</code><br><code>dotnet run --project Samples/Duel -- --visual</code></td></tr>
+    </table>
+    <p>To open the duel in the editor, use <strong>File › Open Project</strong> and pick <code>Samples/Duel/Duel.vertexproject</code>. The editor builds its C# scripts in the background, then opens the C# version's scene. Press <strong>Play</strong> (or <kbd>Ctrl</kbd>+<kbd>P</kbd>), click in the game to take the mouse, and <kbd>Shift</kbd>+<kbd>F1</kbd> gives it back.</p>
+
+    <div class="note tip"><p><strong>Try the duel with two players on one PC:</strong> run two copies with <code>-lan</code> so they use the local network instead of Steam, then press <kbd>Enter</kbd> in each. The first hosts and the second joins.</p></div>
+    <pre class="sh">dotnet run --project Samples/Duel -- -lan</pre>
+
+    <h2>Make your own project</h2>
+    <p>In the editor, choose <strong>File › New Project</strong> and pick where it goes. A project is a folder with:</p>
+    <ul>
+        <li>a <code>.vertexproject</code> file, which holds its settings (<strong>File › Project Settings</strong>): its name, the scene it starts in, how often physics steps;</li>
+        <li>an <code>Assets</code> folder for scenes, prefabs, materials, textures, models, sounds and scripts;</li>
+        <li>once you write a C# script, a <code>.csproj</code> for its code. The editor makes this for you the first time you choose <strong>New Script</strong>.</li>
+    </ul>
+    <p>A new scene starts with a sun and a camera. Add things from the <strong>Create</strong> menu, save with <kbd>Ctrl</kbd>+<kbd>S</kbd>, and press Play.</p>
+
+    <h2>Which way next?</h2>
+    <div class="cards">
+        <a class="card" href="tutorial-code-only.html"><div class="card-icon">{ }</div><h3>Code only</h3><p>Write Coin Grab in one C# file, no editor.</p></a>
+        <a class="card" href="tutorial-duel.html?track=cs"><div class="card-icon">▣</div><h3>Editor + C#</h3><p>Make the 1v1 Duel with the editor and C# scripts.</p></a>
+        <a class="card" href="tutorial-duel.html?track=vs"><div class="card-icon">⌁</div><h3>Editor + visual scripting</h3><p>Make the same Duel with nodes instead of code.</p></a>
+    </div>
+    <p>Not sure? Read <a href="workflows.html">Three ways to make a game</a>. It shows the same small thing done each way, and how they mix.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>

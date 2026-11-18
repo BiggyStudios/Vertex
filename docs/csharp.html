@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>C# scripting · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>C# scripting</h1>
+    <p class="lead">Behaviour in Vertex is written as <strong>components</strong>: small C# classes added to objects. The same components work in a game made only in code and in one made in the editor. This page is a tour of what you'll use most. Every type and member is in <a href="api.html">the C# API</a>.</p>
+
+    <h2>A component</h2>
+    <pre class="cs" data-file="Spinner.cs">using System.Numerics;
+
+using Vertex;
+
+public class Spinner : Component
+{
+    [Range(0f, 720f)]
+    [Tooltip("Degrees a second")]
+    public float Speed { get; set; } = 90f;
+
+    protected override void Update()
+    {
+        Transform.EulerAngles += new Vector3(0f, Speed * Time.DeltaTime, 0f);
+    }
+}</pre>
+    <p>In the editor, <strong>Add Component › New Script</strong> writes one of these for you. In code, <code>gameObject.AddComponent&lt;Spinner&gt;()</code> adds it. Either way, a component's <code>GameObject</code> is the object it's on, and <code>Transform</code> is that object's position, rotation and scale.</p>
+
+    <h3>When things are called</h3>
+    <p>Override any of these; leave out the ones you don't need.</p>
+    <table>
+        <tr><th>Method</th><th>Called</th></tr>
+        <tr><td><code>Start()</code></td><td>Once, just before the component's first <code>Update</code>. Find things and set up here.</td></tr>
+        <tr><td><code>Update()</code></td><td>Every frame. Read input, move things that aren't physics, update UI.</td></tr>
+        <tr><td><code>FixedUpdate()</code></td><td>Before every physics step, a fixed number of times a second (60 unless the project says otherwise). Push rigidbodies here.</td></tr>
+        <tr><td><code>OnCollisionEnter(Collision)</code>, <code>…Stay</code>, <code>…Exit</code></td><td>When the object's collider starts, keeps, or stops touching another.</td></tr>
+        <tr><td><code>OnTriggerEnter(Collider)</code>, <code>OnTriggerExit</code></td><td>When something goes into or out of a trigger collider (one with <code>IsTrigger</code> on).</td></tr>
+        <tr><td><code>OnNetworkEvent(NetworkEvent)</code></td><td>When a network event about this object (or about no object) arrives. See <a href="multiplayer.html">Multiplayer</a>.</td></tr>
+        <tr><td><code>OnDestroy()</code></td><td>When the component or its object is destroyed.</td></tr>
+    </table>
+
+    <h2>Settings in the inspector</h2>
+    <p>Public properties with a getter and a setter (and public fields) are shown in the inspector and saved with the scene or prefab. Attributes change how:</p>
+    <pre class="cs">public class Turret : Component
+{
+    [Header("Aiming")]                          // a titled section
+    [Range(1f, 50f)] public float Range { get; set; } = 20f;    // a slider
+    [Tooltip("Degrees a second")] public float TurnSpeed { get; set; } = 120f;
+
+    [Header("Firing")]
+    public Prefab? Bullet { get; set; }         // a slot for a prefab file
+    public AudioClip? FireSound { get; set; }   // ...a sound
+    public GameObject? Barrel { get; set; }     // ...another object in the scene
+    public Light? Lamp { get; set; }            // ...an object's Light component
+    public List&lt;GameObject&gt; Targets { get; set; } = new();     // saved, but not edited in the inspector yet
+
+    [HideInInspector] public int ShotsFired { get; set; }     // saved, not shown
+    [DontSave] public float Heat { get; set; }                  // shown, not saved
+}</pre>
+    <p>Shown and saved: numbers, true/false, text, vectors, colours, enums (as a dropdown), ranges (<code>FloatRange</code>, a smallest and largest), materials (edited in place), and slots for textures, materials, prefabs, sounds, fonts, visual scripts, VFX graphs, other objects and their components. A slot for another object is filled by dragging the object from the outliner, or by clicking it and picking from a list.</p>
+
+    <h2>Objects, finding and making</h2>
+    <pre class="cs">// Other components on the same object, or below it.
+var body = GetComponent&lt;Rigidbody&gt;();
+var model = GameObject.GetComponentInChildren&lt;MeshRenderer&gt;();
+
+// Things elsewhere in the scene.
+GameObject? door = GameObject.Find("Door");
+NetworkManager? network = Scene.Active.FindComponent&lt;NetworkManager&gt;();
+foreach (Light light in Scene.Active.FindComponents&lt;Light&gt;()) light.Intensity *= 0.5f;
+
+// Making things.
+var lamp = new GameObject("Lamp");
+lamp.Transform.Position = new Vector3(0f, 3f, 0f);
+lamp.AddComponent&lt;Light&gt;(light =&gt; { light.Type = LightType.Point; light.Range = 8f; });
+GameObject crate = GameObject.CreateCube(new Vector3(2f, 0.5f, 0f), Color.Orange);
+
+// Copies of a prefab.
+Prefab rocket = Prefab.Load(Application.AssetPath("Prefabs", "Rocket.prefab"));
+GameObject fired = rocket.Instantiate(Transform.WorldPosition, Transform.WorldRotation);
+
+// Gone at the end of the frame (with everything under it).
+crate.Destroy();</pre>
+    <p>Children: set <code>child.Transform.Parent = parent.Transform</code>. <code>Position</code>, <code>Rotation</code> and <code>EulerAngles</code> are relative to the parent; <code>WorldPosition</code> and <code>WorldRotation</code> aren't. <code>Forward</code>, <code>Right</code> and <code>Up</code> are the ways an object faces, in the world (forward is −Z).</p>
+
+    <h2>Time</h2>
+    <p><code>Time.DeltaTime</code> is how long the last frame took, in seconds: multiply speeds by it so things move the same at any frame rate. <code>Time.TotalTime</code> is the seconds since the game started; <code>Time.FixedDeltaTime</code> is the length of a physics step.</p>
+
+    <h2>Input</h2>
+    <pre class="cs">if (InputSystem.GetKey(Key.W)) { }              // held
+if (InputSystem.GetKeyDown(Key.Space)) { }      // pressed this frame
+if (InputSystem.GetKeyUp(Key.E)) { }            // let go this frame
+if (InputSystem.GetMouseButtonDown(MouseButton.Left)) { }
+Vector2 look = InputSystem.MouseDelta;          // how far the mouse moved this frame
+Vector2 at = InputSystem.MousePosition;          // where it is in the window
+float wheel = InputSystem.ScrollDelta;
+InputSystem.CursorLocked = true;                 // hide the pointer and keep it in the window, to look round</pre>
+
+    <h2>Physics</h2>
+    <p>A <strong>collider</strong> gives an object a shape (Box, Sphere, Capsule, Mesh, Convex). Alone it doesn't move: walls, floors. Add a <strong>Rigidbody</strong> and physics moves it: it falls, bounces, and can be pushed.</p>
+    <pre class="cs">var body = GetComponent&lt;Rigidbody&gt;()!;
+body.AddForce(Vector3.UnitY * 20f);       // over time (call in FixedUpdate)
+body.AddImpulse(Vector3.UnitY * 5f);      // all at once: a jump, a knockback
+body.Velocity = Vector3.Zero;
+
+// What's in front of the camera?
+Transform eye = Camera.Main!.Transform;
+if (GameObject.Scene.Physics.Raycast(eye.WorldPosition, eye.Forward, 100f, out RaycastHit hit))
+{
+    Log.Info($"Looking at {hit.GameObject.Name}, {hit.Distance:0.0} m away");
+}</pre>
+    <p>For players, a <strong>CharacterController</strong> is easier than a rigidbody: set its <code>Velocity</code> and call <code>Move(Time.DeltaTime)</code> each frame, and it slides along walls, climbs steps and stands on slopes. <code>IsGrounded</code> says whether it's on something. Its position is at its feet. The Duel's <a href="tutorial-duel.html?track=cs">PlayerMovement</a> is a full example.</p>
+
+    <h2>Scenes and files</h2>
+    <pre class="cs">Scene.Load("Scenes/Level 2.scene");          // switch level (the old one's objects go)
+Scene.Active.Add("Scenes/Bonus Room.scene");  // add a scene's objects to this one
+
+// Files in the game's Assets folder.
+Texture grass = Assets.LoadTexture(Application.AssetPath("Textures", "Grass.png"));
+Material brick = Assets.LoadMaterial(Application.AssetPath("Materials", "Brick.material"));
+AudioClip boom = Assets.LoadSound(Application.AssetPath("Sounds", "Boom.wav"));</pre>
+    <p>Each file is loaded once and shared, so asking again is cheap. Load files with <code>Application.AssetPath</code> so they're found however the game's run, in the editor or not.</p>
+
+    <h2>Sound</h2>
+    <pre class="cs">Sound.Play(boom);                                 // the same everywhere: UI, music
+Sound.PlayAt(boom, Transform.WorldPosition, 0.8f); // from a place: quieter further away</pre>
+    <p>Both give back a <code>PlayingSound</code>, to ask whether it's still playing (<code>IsPlaying</code>) or <code>Stop()</code> it.</p>
+
+    <h2>UI</h2>
+    <p>Two kinds. <strong>Drawn each frame</strong> from code, quick for a score or a debug readout:</p>
+    <pre class="cs">Canvas.DrawText(Font.Default, $"Score {score}", new Vector2(20f, 20f), Color.White, 28f);
+if (Gui.Button(Font.Default, "Play again", new Vector2(20f, 70f), new Vector2(180f, 44f))) Restart();</pre>
+    <p>And <strong>made of objects</strong>, laid out in the editor's Game tab: a <code>UICanvas</code> with <code>UIText</code>, <code>UIImage</code>, <code>UIPanel</code> and <code>UIButton</code> under it, each placed by its <code>UIRect</code>. Set <code>uiText.Text</code> from a script to change what it says.</p>
+
+    <h2>Messages</h2>
+    <pre class="cs">Log.Info("Level loaded");
+Log.Warning("No spawn points: starting at the middle");
+Log.Error("Couldn't read the save file", exception);</pre>
+    <p>They show in the editor's Console, and in the game's own console (the <kbd>`</kbd> key).</p>
+
+    <h2>A game class</h2>
+    <p>Components are enough for most games. A <code>Game</code> class is for code that runs for the whole game: in a code-only game it builds the world, and in an editor game it can run around your scenes. See <a href="workflows.html">Three ways to make a game</a>.</p>
+
+    <h2>Talking to visual scripts</h2>
+    <pre class="cs">VisualScript script = GetComponent&lt;VisualScript&gt;()!;
+script.SetVariable("Speed", 8f);
+object? health = script.GetVariable("Health");
+VisualScript.SendEvent("Alarm", GameObject);   // starts On Event "Alarm" in every visual script</pre>
+</main>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>

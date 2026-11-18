@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Particles and VFX graphs · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Particles and VFX graphs</h1>
+    <p class="lead">Two ways to make sparks, smoke, flashes and magic: a <strong>Particle System</strong> with settings to tweak, or a <strong>VFX graph</strong> designed with nodes. Both play in the scene view while they're selected, so you see changes as you make them.</p>
+
+    <h2>Particle System</h2>
+    <p>Add a <strong>Particle System</strong> component to an object. Its settings come in sections:</p>
+    <table>
+        <tr><th>Section</th><th>What's in it</th></tr>
+        <tr><td><strong>Emission</strong></td><td>How many a second (<em>Rate</em>), a <em>Burst</em> all at once, how long it lasts and whether it <em>Loops</em>, the most alive at once, and whether the object goes when it's finished (for one-off effects).</td></tr>
+        <tr><td><strong>Shape</strong></td><td>Where they start: a box, a sphere or a circle, from inside or the edge, and whether they head outwards from it.</td></tr>
+        <tr><td><strong>Particles</strong></td><td>How long they live, how big, what colour from start to end, how they look (<em>Soft</em>, <em>Disc</em>, <em>Square</em>, <em>Ring</em>, <em>Spark</em>), rotation and spin, glow, stretching along their movement, fading in.</td></tr>
+        <tr><td><strong>Movement</strong></td><td>Direction, spread, speed, gravity, drag, turbulence, and whether they move with the object (<em>Local Space</em>) or are left behind.</td></tr>
+    </table>
+    <p>Selected, it plays in the scene view with a bar to restart or pause it and a count of particles alive. Ranges like <em>Lifetime</em> and <em>Speed</em> take a smallest and largest, and each particle gets a value between them.</p>
+    <p>From code or a visual script: <code>Play()</code> starts it from the beginning (the <strong>Play Effect</strong> node), <code>Stop()</code> stops making new ones, and <code>Emit(count)</code> lets out a burst now (<strong>Emit Particles</strong>). A muzzle flash, for example, is a burst with <em>Emitting</em> and <em>Loop</em> off, played on each shot.</p>
+
+    <h2>VFX graphs</h2>
+    <p>For effects that need more than settings: particles whose size follows a curve over their life, colours from a gradient, swirling noise, values the game can change. Make one with <strong>New VFX Graph</strong> in the Assets panel (or press the button on a <strong>Visual Effect</strong> component), and play it with a Visual Effect component. A new one starts as rising embers:</p>
+    <div data-graph="Embers (VFX)"></div>
+    <p>A VFX graph has four <strong>steps</strong>, wired in order, and values feeding into them:</p>
+    <table>
+        <tr><th>Step</th><th>Decides</th></tr>
+        <tr><td><strong>Spawn</strong></td><td>How many are made: a rate, a burst, how long, whether it loops.</td></tr>
+        <tr><td><strong>Initialize</strong></td><td>Each particle as it's made: where (link a shape: <em>Point in Sphere</em>, <em>Point on Circle</em>, <em>Direction in Cone</em>…), how fast and which way, how long it lives, its size and colour.</td></tr>
+        <tr><td><strong>Update</strong></td><td>Every frame of its life: forces (gravity, wind, a <em>Swirl</em> of noise), drag.</td></tr>
+        <tr><td><strong>Output</strong></td><td>How it's drawn: size and tint (link <em>Curve</em> or <em>Gradient</em> by the particle's <em>Life</em> to change them as it ages), its look, glow, blending.</td></tr>
+    </table>
+    <p>Value nodes read the particle (<em>Age</em>, <em>Life</em> from 0 to 1, a random number of its own, position, velocity), the effect (its time, where it is), and <strong>properties</strong>: values the graph declares, set per object from the game. In C#:</p>
+    <pre class="cs">var fire = GetComponent&lt;VisualEffect&gt;()!;
+fire.SetProperty("Strength", 2.5f);     // a number property
+fire.SetProperty("Tint", Color.Orange);  // a colour property
+fire.Restart();</pre>
+    <p>A system can make several kinds of particle at once: each Spawn → Initialize → Update → Output chain is one. All the VFX nodes are in the <a href="nodes.html?kind=vfx">node reference</a>, under VFX Graph.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+</body>
+</html>
