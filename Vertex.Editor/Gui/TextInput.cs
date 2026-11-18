@@ -42,6 +42,7 @@ namespace Vertex.Editor.Gui
         {
             _pendingFocus = id;
             _pendingSelectAll = selectAll;
+            if (Ui.FocusId != id && _states.TryGetValue(id, out State? state)) state.WasFocused = false;
             Ui.Focus(id);
         }
 
@@ -95,9 +96,13 @@ namespace Vertex.Editor.Gui
             float scroll = state.Scroll;
             bool changed = false;
 
-            // Starting to type: by a click, or by Focus from elsewhere.
-            if (interaction.Pressed && Ui.FocusId != id) Ui.Focus(id);
-            bool focused = Ui.FocusId == id;
+            // Starting to type: by a click, or by Focus from elsewhere. Either starts afresh, even if the box was last
+            // left without being drawn again to finish (clicked away from as its panel went).
+            if (interaction.Pressed && Ui.FocusId != id)
+            {
+                Ui.Focus(id);
+                state.WasFocused = false;
+            }            bool focused = Ui.FocusId == id;
 
             if (focused && !state.WasFocused)
             {

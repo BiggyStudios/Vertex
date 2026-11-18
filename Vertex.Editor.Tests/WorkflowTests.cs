@@ -50,6 +50,58 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_number_typed_into_the_inspector_counts_when_clicked_away_from_without_Enter()
+        {
+            var app = new EditorApp();
+            GameObject first = app.Context.Create("First");
+            GameObject second = app.Context.Create("Second");
+            app.Context.Selection.Select(first);
+            Frame(app, 2);
+
+            int x = Ui.Id(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(first.Transform), "transform"), "position"), "x");
+            void TypeX(string text)
+            {
+                NumberField.BeginTyping(x);
+                Frame(app);
+                foreach (char c in text) InputSystem.TypeCharacter(c);
+                Frame(app);
+            }
+
+            void ClickAt(Vector2 at)
+            {
+                InputSystem.MoveMouse(at);
+                Frame(app);
+                InputSystem.PressButton(MouseButton.Left);
+                Frame(app);
+                InputSystem.ReleaseButton(MouseButton.Left);
+                Frame(app, 2);
+            }
+
+            // Clicking empty space.
+            TypeX("7");
+            ClickAt(new Vector2(ScreenWidth - 150f, ScreenHeight - 60f));
+            Assert.Equal(7f, first.Transform.Position.X);
+            Assert.Equal(0, Ui.FocusId);
+
+            // Clicking another object in the outliner: the number goes to the object it was typed for, then the other's selected.
+            int secondRow = Ui.Id(RuntimeHelpers.GetHashCode(second), "row");
+            Vector2? row = null;
+            for (float y = 60f; y < 500f && row == null; y += 6f)
+            {
+                InputSystem.MoveMouse(new Vector2(150f, y));
+                Frame(app, 2);
+                if (Ui.HotId == secondRow) row = new Vector2(150f, y);
+            }
+
+            Assert.NotNull(row);
+            TypeX("3");
+            ClickAt(row!.Value);
+            Assert.Equal(3f, first.Transform.Position.X);
+            Assert.Equal(0f, second.Transform.Position.X);
+            Assert.Same(second, app.Context.Selection.Object);
+        }
+
+        [Fact]
         public void Text_typed_into_the_inspector_changes_as_it_is_typed_and_undoes_in_one_go()
         {
             var context = new EditorContext();

@@ -144,7 +144,7 @@ namespace Vertex.Editor.Gui
         /// </summary>
         public static bool Slider(int id, Rect rect, ref float value, float min, float max, string format = "0.##")
         {
-            if (Ui.FocusId == id) return NumberField.Typed(id, rect, ref value, format, min, max);
+            if (NumberField.IsTyping(id)) return NumberField.Typed(id, rect, ref value, format, min, max);
 
             Interaction interaction = Ui.Interact(id, rect);
             if (interaction.Hovered) Ui.Cursor = CursorShape.ResizeHorizontal;

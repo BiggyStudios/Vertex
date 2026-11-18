@@ -142,8 +142,19 @@ namespace Vertex.Editor.Gui
             Opacity = 1f;
             _idStack.Clear();
 
-            // A press anywhere but the text box being typed in takes the keyboard away from it (it notices, and finishes up).
-            if ((InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButtonDown(MouseButton.Right)) && HotId != FocusId) FocusId = 0;
+            // A press anywhere but the text box being typed in takes the keyboard away from it (it notices, and finishes up:
+            // what was typed counts, as with Enter). The press itself comes a frame later, so the box is drawn once more
+            // with everything as it was and hands over its text before the press changes anything (picks another object).
+            if ((InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButtonDown(MouseButton.Right)) && HotId != FocusId)
+            {
+                if (FocusId != 0)
+                {
+                    InputSystem.DeferPress(MouseButton.Left);
+                    InputSystem.DeferPress(MouseButton.Right);
+                }
+
+                FocusId = 0;
+            }
 
             // As does the text box no longer being drawn (its popup closed).
             if (_focusKeptFrame < Frame - 1) FocusId = 0;

@@ -18,7 +18,7 @@ namespace Vertex.Editor.Gui
         private static bool _dragging;
 
         // Box being typed in, and its text while it is.
-        private static readonly Dictionary<int, string> _typing = new();
+        private static readonly Dictionary<int, (string Text, int Frame)> _typing = new();
 
         /// <summary>
         /// A number box. <paramref name="speed"/> is how much the value changes per UI unit dragged; 0 picks one to suit the value's size (a hundredth of it, at least 0.01). An axis colour shows
@@ -27,7 +27,7 @@ namespace Vertex.Editor.Gui
         public static bool Float(int id, Rect rect, ref float value, float speed = 0f, string format = "0.###", Color? axis = null,
             float min = float.MinValue, float max = float.MaxValue, bool mixed = false)
         {
-            if (Ui.FocusId == id) return Typed(id, rect, ref value, format, min, max, axis);
+            if (IsTyping(id)) return Typed(id, rect, ref value, format, min, max, axis);
 
             Interaction interaction = Ui.Interact(id, rect);
             if (interaction.Hovered) Ui.Cursor = CursorShape.ResizeHorizontal;
@@ -122,6 +122,20 @@ namespace Vertex.Editor.Gui
         /// <summary>Whether a number box is being dragged right now (and so has the cursor locked).</summary>
         public static bool Dragging => _dragging;
 
+        /// <summary>
+        /// Whether box <paramref name="id"/> is being typed in: it has the keyboard, or it lost it last frame (clicked
+        /// away from), and has yet to hand over what was typed. One not drawn since is forgotten: what was typed is dropped.
+        /// </summary>
+        internal static bool IsTyping(int id)
+        {
+            if (Ui.FocusId == id) return true;
+            if (!_typing.TryGetValue(id, out var typing)) return false;
+            if (typing.Frame >= Ui.Frame - 1) return true;
+
+            _typing.Remove(id);
+            return false;
+        }
+
         /// <summary>Switches box <paramref name="id"/> to typing, with its value selected.</summary>
         internal static void BeginTyping(int id)
         {
@@ -132,14 +146,14 @@ namespace Vertex.Editor.Gui
         /// <summary>The box while it's being typed in: a text box that turns back into a number when done.</summary>
         internal static bool Typed(int id, Rect rect, ref float value, string format, float min, float max, Color? axis = null)
         {
-            if (!_typing.TryGetValue(id, out string? text)) text = Format(value, format);
+            string text = _typing.TryGetValue(id, out var typing) ? typing.Text : Format(value, format);
 
             bool committed = TextInput.Draw(id, rect, ref text, selectAllOnFocus: true);
             if (axis is Color axisColor) DrawAxis(rect, axisColor, highlighted: true);
 
             if (Ui.FocusId == id)
             {
-                _typing[id] = text;
+                _typing[id] = (text, Ui.Frame);
                 return false;
             }
 

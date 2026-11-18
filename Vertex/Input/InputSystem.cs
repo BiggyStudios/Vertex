@@ -128,6 +128,17 @@ namespace Vertex.Input
             if (_buttonsHeld.Remove(button)) _buttonsReleased.Add(button);
         }
 
+        private static readonly HashSet<MouseButton> _deferredPresses = new();
+
+        /// <summary>
+        /// Holds this frame's press of <paramref name="button"/> back until the next frame, as if it came a frame later:
+        /// an editor finishing typing in a box clicked away from lets the box hand over its text before the click does anything.
+        /// </summary>
+        internal static void DeferPress(MouseButton button)
+        {
+            if (_buttonsPressed.Remove(button)) _deferredPresses.Add(button);
+        }
+
         internal static void TypeCharacter(char character) => _typedText.Append(character);
 
         internal static void Scroll(float amount) => _scrollDelta += amount;
@@ -159,11 +170,21 @@ namespace Vertex.Input
             MouseDelta = Vector2.Zero;
             ScrollDelta = 0f;
             _typedText.Clear();
+
+            // Presses held back a frame arrive now (let go already: the whole click arrives at once).
+            foreach (MouseButton button in _deferredPresses)
+            {
+                _buttonsPressed.Add(button);
+                if (!_buttonsHeld.Contains(button)) _buttonsReleased.Add(button);
+            }
+
+            _deferredPresses.Clear();
         }
 
         /// <summary>Forgets everything, as if the game had just started. For tests.</summary>
         internal static void Reset()
         {
+            _deferredPresses.Clear();
             EndFrame();
             _keysHeld.Clear();
             _buttonsHeld.Clear();
