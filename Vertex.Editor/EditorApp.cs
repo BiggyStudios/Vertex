@@ -72,6 +72,7 @@ namespace Vertex.Editor
         /// <summary>A mouse pointer the window wants (resize arrows at its edges), over whatever the editor would show.</summary>
         public CursorShape? CursorOverride { get; set; }
         public SceneViewPanel SceneView => _sceneView;
+        public InspectorPanel Inspector => _inspector;
 
         /// <summary>Where the panels are docked, as tabs round the scene view.</summary>
         public DockLayout Dock => _dock;
@@ -156,7 +157,12 @@ namespace Vertex.Editor
 
             // Edits show without the scene running: new objects come in, deleted ones go.
             if (!Context.Play.Playing) Context.Scene.ApplyChanges();
-            if (Context.Selection.Object is { } selected && !Context.InScene(selected)) Context.Selection.Clear();
+            if (Context.Selection.Count == 1 && !Context.InScene(Context.Selection.Object!)) Context.Selection.Clear();
+            else if (Context.Selection.Count > 1)
+            {
+                HashSet<GameObject> inScene = Context.Scene.GameObjects.ToHashSet();
+                Context.Selection.RemoveWhere(o => o.IsDestroyed || !inScene.Contains(o));
+            }
 
             var screen = new Rect(0f, 0f, Canvas.Width, Canvas.Height);
             Ui.Rect(screen, Theme.Background);
@@ -380,9 +386,10 @@ namespace Vertex.Editor
                         new MenuItem(Context.History.NextUndo is { } undo ? $"Undo {undo}" : "Undo", Context.Undo) { Shortcut = "Ctrl+Z", Enabled = Context.History.CanUndo, Icon = Icons.Undo },
                         new MenuItem(Context.History.NextRedo is { } redo ? $"Redo {redo}" : "Redo", Context.Redo) { Shortcut = "Ctrl+Y", Enabled = Context.History.CanRedo, Icon = Icons.Redo },
                         MenuItem.Separator,
-                        new MenuItem("Duplicate", () => Context.Duplicate(selected!)) { Shortcut = "Ctrl+D", Enabled = selected != null },
+                        new MenuItem("Duplicate", Context.DuplicateSelected) { Shortcut = "Ctrl+D", Enabled = selected != null },
                         new MenuItem("Rename", () => Context.Rename(selected!)) { Shortcut = "F2", Enabled = selected != null },
-                        new MenuItem("Delete", () => Context.Delete(selected!)) { Shortcut = "Del", Enabled = selected != null, Icon = Icons.Trash },
+                        new MenuItem("Delete", Context.DeleteSelected) { Shortcut = "Del", Enabled = selected != null, Icon = Icons.Trash },
+                        new MenuItem("Select All", SelectAll) { Shortcut = "Ctrl+A", Enabled = editing },
                         new MenuItem("Frame Selected", _sceneView.FrameSelection) { Shortcut = "F", Enabled = selected != null },
                         MenuItem.Separator,
                         new MenuItem("Snapping…", ShowSnapping) { Icon = Icons.Magnet },
@@ -550,6 +557,13 @@ namespace Vertex.Editor
 
         // ---------------------------------------------------------------- Keys
 
+        /// <summary>Selects every object in the scene.</summary>
+        private void SelectAll()
+        {
+            if (Context.Play.Playing) return;
+            Context.Selection.Select(Context.Scene.GameObjects);
+        }
+
         private void HandleShortcuts()
         {
             if (Context.Play.GameFocused || Dialog.IsOpen || Ui.KeyboardTaken || Menu.IsAnyOpen || _sceneView.Looking) return;
@@ -570,7 +584,8 @@ namespace Vertex.Editor
                 if (InputSystem.GetKeyDown(Key.S)) Context.SaveScene(saveAs: shift);
                 if (InputSystem.GetKeyDown(Key.O)) OpenSceneDialog();
                 if (InputSystem.GetKeyDown(Key.N)) ConfirmDiscard(Context.NewScene);
-                if (InputSystem.GetKeyDown(Key.D) && selected != null) Context.Duplicate(selected);
+                if (InputSystem.GetKeyDown(Key.D) && selected != null) Context.DuplicateSelected();
+                if (InputSystem.GetKeyDown(Key.A)) SelectAll();
                 if (InputSystem.GetKeyDown(Key.R)) Context.BuildGame();
                 if (InputSystem.GetKeyDown(Key.Equal) || InputSystem.GetKeyDown(Key.KeypadAdd)) ChangeSize(+0.1f);
                 if (InputSystem.GetKeyDown(Key.Minus) || InputSystem.GetKeyDown(Key.KeypadSubtract)) ChangeSize(-0.1f);
@@ -590,7 +605,7 @@ namespace Vertex.Editor
             if (InputSystem.GetKeyDown(Key.R)) Context.Tool = TransformTool.Scale;
             if (InputSystem.GetKeyDown(Key.F)) _sceneView.FrameSelection();
             if (InputSystem.GetKeyDown(Key.F2) && selected != null) Context.Rename(selected);
-            if ((InputSystem.GetKeyDown(Key.Delete) || InputSystem.GetKeyDown(Key.Backspace)) && selected != null) Context.Delete(selected);
+            if ((InputSystem.GetKeyDown(Key.Delete) || InputSystem.GetKeyDown(Key.Backspace)) && selected != null) Context.DeleteSelected();
             if (InputSystem.GetKeyDown(Key.Escape)) Context.Selection.Clear();
         }
 

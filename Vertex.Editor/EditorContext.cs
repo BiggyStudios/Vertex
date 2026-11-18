@@ -30,10 +30,21 @@ namespace Vertex.Editor
         GameWorld
     }
 
-    /// <summary>What's selected: an object, the scene itself (for its lighting and sky), an asset, or nothing.</summary>
+    /// <summary>
+    /// What's selected: one or more objects, the scene itself (for its lighting and sky), an asset, or nothing. Of several
+    /// objects, the one picked last is the main one: the handles sit on it, and the inspector shows its values.
+    /// </summary>
     public sealed class Selection
     {
-        public GameObject? Object { get; private set; }
+        private readonly List<GameObject> _objects = new();
+
+        /// <summary>The selected objects, in the order they were picked.</summary>
+        public IReadOnlyList<GameObject> Objects => _objects;
+
+        /// <summary>The main selected object: the one picked last. Null if no object is selected.</summary>
+        public GameObject? Object => _objects.Count > 0 ? _objects[^1] : null;
+
+        public int Count => _objects.Count;
 
         /// <summary>The scene itself is selected, so the inspector shows its lighting and sky.</summary>
         public bool Scene { get; private set; }
@@ -44,28 +55,97 @@ namespace Vertex.Editor
         /// <summary>Counts every change of selection, so panels can tell.</summary>
         public int Version { get; private set; }
 
+        public bool Contains(GameObject gameObject) => _objects.Contains(gameObject);
+
+        /// <summary>Selects just <paramref name="gameObject"/> (or nothing, for null).</summary>
         public void Select(GameObject? gameObject)
         {
-            if (Object == gameObject && !Scene && Asset == null) return;
-            (Object, Scene, Asset) = (gameObject, false, null);
+            if (!Scene && Asset == null && (gameObject == null ? _objects.Count == 0 : _objects.Count == 1 && _objects[0] == gameObject)) return;
+            _objects.Clear();
+            if (gameObject != null) _objects.Add(gameObject);
+            (Scene, Asset) = (false, null);
             Version++;
+        }
+
+        /// <summary>Selects these objects; the last is the main one.</summary>
+        public void Select(IEnumerable<GameObject> objects)
+        {
+            List<GameObject> wanted = objects.Distinct().ToList();
+            if (!Scene && Asset == null && wanted.SequenceEqual(_objects)) return;
+            _objects.Clear();
+            _objects.AddRange(wanted);
+            (Scene, Asset) = (false, null);
+            Version++;
+        }
+
+        /// <summary>Adds an object to what's selected, as the main one (Ctrl-click); it stays selected if it already was.</summary>
+        public void Add(GameObject gameObject)
+        {
+            if (Object == gameObject && !Scene && Asset == null) return;
+            if (Scene || Asset != null) _objects.Clear();
+            _objects.Remove(gameObject);
+            _objects.Add(gameObject);
+            (Scene, Asset) = (false, null);
+            Version++;
+        }
+
+        /// <summary>Ctrl-click: selects an object along with the others, or leaves it out if it was selected.</summary>
+        public void Toggle(GameObject gameObject)
+        {
+            if (Contains(gameObject))
+            {
+                Remove(gameObject);
+                return;
+            }
+
+            Add(gameObject);
+        }
+
+        public void Remove(GameObject gameObject)
+        {
+            if (_objects.Remove(gameObject)) Version++;
+        }
+
+        /// <summary>Leaves out the selected objects <paramref name="gone"/> says to: ones deleted, say.</summary>
+        public void RemoveWhere(Predicate<GameObject> gone)
+        {
+            if (_objects.RemoveAll(gone) > 0) Version++;
         }
 
         public void SelectScene()
         {
             if (Scene) return;
-            (Object, Scene, Asset) = (null, true, null);
+            _objects.Clear();
+            (Scene, Asset) = (true, null);
             Version++;
         }
 
         public void SelectAsset(AssetEntry? asset)
         {
-            if (Asset == asset) return;
-            (Object, Scene, Asset) = (null, false, asset);
+            if (Asset == asset && _objects.Count == 0) return;
+            _objects.Clear();
+            (Scene, Asset) = (false, asset);
             Version++;
         }
 
-        public void Clear() => Select(null);
+        public void Clear() => Select((GameObject?)null);
+
+        /// <summary>
+        /// The selected objects that aren't under another selected one: what to delete, duplicate or move, since what's
+        /// under an object goes with it.
+        /// </summary>
+        public List<GameObject> Tops()
+        {
+            var tops = new List<GameObject>();
+            foreach (GameObject gameObject in _objects)
+            {
+                bool under = false;
+                for (Transform? parent = gameObject.Transform.Parent; parent != null && !under; parent = parent.Parent) under = _objects.Contains(parent.GameObject);
+                if (!under) tops.Add(gameObject);
+            }
+
+            return tops;
+        }
     }
 
     /// <summary>
@@ -180,8 +260,55 @@ namespace Vertex.Editor
         public void Delete(GameObject gameObject)
         {
             History.Do(new DeleteObject(gameObject));
-            if (Selection.Object == gameObject) Selection.Clear();
+            if (Selection.Contains(gameObject)) Selection.Clear();
             Notify($"Deleted {gameObject.Name}");
+        }
+
+        /// <summary>Deletes what's selected (an object, or several), as one change to undo.</summary>
+        public void DeleteSelected()
+        {
+            List<GameObject> tops = Selection.Tops();
+            if (tops.Count == 0) return;
+            if (tops.Count == 1)
+            {
+                Delete(tops[0]);
+                return;
+            }
+
+            History.Do(new ChangeGroup($"Delete {tops.Count} Objects", tops.Select(o => (IUndoable)new DeleteObject(o)).ToList()));
+            Selection.Clear();
+            Notify($"Deleted {tops.Count} objects");
+        }
+
+        /// <summary>Duplicates what's selected, each copy just after its original, and selects the copies.</summary>
+        public void DuplicateSelected()
+        {
+            List<GameObject> tops = Selection.Tops();
+            if (tops.Count == 1) Duplicate(tops[0]);
+            if (tops.Count <= 1) return;
+
+            var copies = new List<GameObject>();
+            var changes = new List<IUndoable>();
+            foreach (GameObject original in tops)
+            {
+                try
+                {
+                    GameObject copy = SceneFile.TakeSnapshot(Scene, [original]).Restore(Scene)[0];
+                    copy.Transform.Parent = original.Transform.Parent;
+                    Scene.ApplyChanges();
+                    copy.Transform.SiblingIndex = original.Transform.SiblingIndex + 1;
+                    copies.Add(copy);
+                    changes.Add(new CreateObject(copy));
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't duplicate {original.Name}: {exception.Message}");
+                }
+            }
+
+            if (changes.Count == 0) return;
+            History.Record(new ChangeGroup($"Duplicate {changes.Count} Objects", changes));
+            Selection.Select(copies);
         }
 
         /// <summary>Copies an object and everything under it, just after it, and selects the copy.</summary>

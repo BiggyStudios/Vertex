@@ -47,6 +47,9 @@ namespace Vertex.Editor.SceneEditing
         private Vector2 _startMouse;
         private Vector3 _dragAxis;
 
+        // The other selected objects being dragged along, and where each started.
+        private readonly List<(Transform Transform, Vector3 WorldPosition, Quaternion WorldRotation, (Vector3, Quaternion, Vector3) Pose)> _others = new();
+
         private const float _handleLength = 90f;
         private const float _hitDistance = 8f;
 
@@ -62,7 +65,9 @@ namespace Vertex.Editor.SceneEditing
         /// <paramref name="mouseFree"/> (nothing else on screen has it) or a drag is under way. Returns true when it took
         /// a press, so the view doesn't also select whatever's under the mouse.
         /// </summary>
-        public bool Draw(Transform transform, TransformTool tool, in ViewProjection view, UndoHistory history, SnapSettings snap, bool mouseFree)
+        /// <param name="others">Other selected objects, moved, turned and scaled along with it: turned about its position, each scaled about its own.</param>
+        public bool Draw(Transform transform, TransformTool tool, in ViewProjection view, UndoHistory history, SnapSettings snap, bool mouseFree,
+            IReadOnlyList<Transform>? others = null)
         {
             Vector3 origin = transform.WorldPosition;
             if (view.ToScreen(origin) is not Vector2 centre) return false;
@@ -86,7 +91,7 @@ namespace Vertex.Editor.SceneEditing
                 _hover = mouseFree ? HitTest(tool, view, origin, centre, length, xAxis, yAxis, zAxis) : Part.None;
                 if (_hover != Part.None && Ui.MousePressed())
                 {
-                    BeginDrag(transform, tool, view, origin, _hover, Axis(_hover));
+                    BeginDrag(transform, tool, view, origin, _hover, Axis(_hover), others ?? []);
                     tookPress = true;
                 }
             }
@@ -112,13 +117,15 @@ namespace Vertex.Editor.SceneEditing
 
         // ---------------------------------------------------------------- Dragging
 
-        private void BeginDrag(Transform transform, TransformTool tool, in ViewProjection view, Vector3 origin, Part part, Vector3 axis)
+        private void BeginDrag(Transform transform, TransformTool tool, in ViewProjection view, Vector3 origin, Part part, Vector3 axis, IReadOnlyList<Transform> others)
         {
             _dragging = part;
             _dragAxis = axis;
             _startPose = SetPose.Of(transform);
             _startWorldPosition = origin;
             _startWorldRotation = transform.WorldRotation;
+            _others.Clear();
+            foreach (Transform other in others) _others.Add((other, other.WorldPosition, other.WorldRotation, SetPose.Of(other)));
             _startMouse = Ui.Mouse;
             _angle = 0f;
 
@@ -193,8 +200,43 @@ namespace Vertex.Editor.SceneEditing
                 }
             }
 
-            history.Record(new SetPose(name, transform, _startPose, SetPose.Of(transform)), ("pose", transform));
+            if (_others.Count == 0)
+            {
+                history.Record(new SetPose(name, transform, _startPose, SetPose.Of(transform)), ("pose", transform));
+                return;
+            }
+
+            // The others follow: moved as far, turned as much about this one's position, scaled by as much each.
+            Vector3 moved = transform.WorldPosition - _startWorldPosition;
+            Quaternion turned = Quaternion.Normalize(Quaternion.Concatenate(Quaternion.Inverse(_startWorldRotation), transform.WorldRotation));
+            Vector3 startScale = _startPose.Item3, nowScale = transform.Scale;
+            var scaled = new Vector3(Ratio(nowScale.X, startScale.X), Ratio(nowScale.Y, startScale.Y), Ratio(nowScale.Z, startScale.Z));
+
+            var changes = new List<IUndoable> { new SetPose(name, transform, _startPose, SetPose.Of(transform)) };
+            foreach ((Transform other, Vector3 position, Quaternion rotation, (Vector3, Quaternion, Vector3) pose) in _others)
+            {
+                switch (tool)
+                {
+                    case TransformTool.Move:
+                        other.WorldPosition = position + moved;
+                        break;
+                    case TransformTool.Rotate:
+                        other.WorldPosition = _startWorldPosition + Vector3.Transform(position - _startWorldPosition, turned);
+                        other.WorldRotation = Quaternion.Normalize(Quaternion.Concatenate(rotation, turned));
+                        break;
+                    default:
+                        other.Scale = pose.Item3 * scaled;
+                        break;
+                }
+
+                changes.Add(new SetPose(name, other, pose, SetPose.Of(other)));
+            }
+
+            string many = $"{name.Split(' ')[0]} {_others.Count + 1} Objects";
+            history.Record(new ChangeGroup(many, changes), ("pose", transform, _others.Count));
         }
+
+        private static float Ratio(float now, float start) => MathF.Abs(start) > 1e-6f ? now / start : 1f;
 
         /// <summary>Where the mouse ray meets the handle being dragged: the closest point on an axis, or where it crosses a plane.</summary>
         private static Vector3? HitPoint(TransformTool tool, Part part, in ViewProjection view, Vector3 origin, Vector3 axis, Vector3 rayOrigin, Vector3 rayDirection)

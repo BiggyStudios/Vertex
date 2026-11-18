@@ -198,9 +198,10 @@ namespace Vertex.Editor.Panels
             _drawing.Add(gameObject);
             int id = RuntimeHelpers.GetHashCode(gameObject);
             var row = new Rect(x, y, width, _rowHeight);
-            bool selected = _context.Selection.Object == gameObject;
+            bool main = _context.Selection.Object == gameObject;
+            bool selected = main || _context.Selection.Count > 1 && _context.Selection.Contains(gameObject);
             // Not while it's sliding away under a parent being folded: the highlight leaves straight away.
-            if (selected && _closing == 0) _selectedY = row.Y;
+            if (main && _closing == 0) _selectedY = row.Y;
 
             // Rows scrolled out of sight take their place but aren't drawn: big scenes have thousands.
             if (Vertex.UI.Canvas.ClipRect is var (clipAt, clipSize) && (row.Bottom < clipAt.Y || row.Y > clipAt.Y + clipSize.Y)) return y + _rowHeight;
@@ -215,22 +216,19 @@ namespace Vertex.Editor.Panels
 
             Interaction interaction = Ui.Interact(Ui.Id(id, "row"), row, rightClick: true);
             if (interaction.Pressed && onArrow) Toggle(gameObject);
-            else if (interaction.Pressed)
-            {
-                _context.Selection.Select(gameObject);
-                _pressed = gameObject;
-                _pressedAt = Ui.Mouse;
-            }
+            else if (interaction.Pressed) Press(gameObject);
 
-            if (interaction.DoubleClicked && !onArrow) BeginRename(gameObject);
+            if (interaction.DoubleClicked && !onArrow && !Ctrl && !Shift) BeginRename(gameObject);
             if (interaction.RightClicked)
             {
-                _context.Selection.Select(gameObject);
+                // Right-clicking one of several selected keeps them all, for the menu to act on.
+                if (!_context.Selection.Contains(gameObject)) _context.Selection.Select(gameObject);
+                else _context.Selection.Add(gameObject);
                 Menu.Open(Ui.Id(id, "menu"), Ui.Mouse, RowMenu(gameObject));
             }
 
             // Where a dragged object would go.
-            bool dropHere = _dragging != null && _dragging != gameObject && row.Contains(Ui.Mouse) && Canvas_InClip() && !IsUnder(gameObject, _dragging);
+            bool dropHere = _dragging != null && !_draggingAll.Contains(gameObject) && row.Contains(Ui.Mouse) && Canvas_InClip() && !_draggingAll.Any(d => IsUnder(gameObject, d));
             if (dropHere)
             {
                 _dropTarget = gameObject;
@@ -239,6 +237,9 @@ namespace Vertex.Editor.Panels
             }
 
             if (!selected) HoverBackground(Ui.Id(id, "row"), row, interaction.Hovered && _dragging == null);
+
+            // The main selection's highlight slides from row to row (drawn under the rows); the others' sit still.
+            else if (!main) Ui.Rect(row, Theme.Accent.WithAlpha(0.5f), 4f);
             if (dropHere)
             {
                 // A line between rows to go there, or an outline to go under this one.
@@ -274,6 +275,52 @@ namespace Vertex.Editor.Panels
             else Ui.Text(nameRect, gameObject.Name, textColor);
 
             return y + _rowHeight;
+        }
+
+        private static bool Ctrl => InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
+        private static bool Shift => InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+
+        // Where a Shift-click's range starts: the row last clicked without Shift.
+        private GameObject? _anchor;
+
+        // A press on one of several selected rows: it may be the start of dragging them all, so they stay selected
+        // until it's let go without dragging, which selects just it.
+        private bool _selectOnRelease;
+
+        /// <summary>
+        /// A row pressed: selects it, or with Ctrl adds it to the selection (or takes it out), or with Shift selects every
+        /// row from the last one clicked to it.
+        /// </summary>
+        private void Press(GameObject gameObject)
+        {
+            Selection selection = _context.Selection;
+            _selectOnRelease = false;
+
+            // From the row last clicked, if it's still selected; otherwise from whatever's selected (picked in the scene, say).
+            GameObject? anchor = _anchor != null && selection.Contains(_anchor) ? _anchor : selection.Object;
+            if (Shift && anchor != null && _rows.Contains(anchor) && _rows.Contains(gameObject))
+            {
+                int from = _rows.IndexOf(anchor), to = _rows.IndexOf(gameObject);
+                _anchor = anchor;
+                IEnumerable<GameObject> range = from <= to ? _rows.Skip(from).Take(to - from + 1) : _rows.Skip(to).Take(from - to + 1).Reverse();
+
+                // With Ctrl too, the range is added to what's selected.
+                selection.Select((Ctrl ? selection.Objects.Except(range) : []).Concat(range.Where(o => o != gameObject)).Append(gameObject).ToList());
+                return;
+            }
+
+            _anchor = gameObject;
+            if (Ctrl)
+            {
+                selection.Toggle(gameObject);
+                return;
+            }
+
+            if (selection.Count > 1 && selection.Contains(gameObject)) _selectOnRelease = true;
+            else selection.Select(gameObject);
+
+            _pressed = gameObject;
+            _pressedAt = Ui.Mouse;
         }
 
         private void HoverBackground(int id, Rect row, bool hovered)
@@ -358,6 +405,28 @@ namespace Vertex.Editor.Panels
 
         private List<MenuItem> RowMenu(GameObject gameObject)
         {
+            // Several selected: what's done to one is done to them all.
+            int count = _context.Selection.Count;
+            if (count > 1)
+            {
+                List<GameObject> tops = _context.Selection.Tops();
+                var several = new List<MenuItem>
+                {
+                    new($"Duplicate {count} Objects", _context.DuplicateSelected) { Shortcut = "Ctrl+D" },
+                    new($"Delete {count} Objects", _context.DeleteSelected) { Shortcut = "Del", Icon = Icons.Trash },
+                    MenuItem.Separator,
+                    new("Group Under New Object", () => GroupSelected(tops))
+                };
+
+                if (tops.Any(o => o.Transform.Parent != null))
+                {
+                    several.Add(new MenuItem("Move to Top Level", () => _context.History.Do(new ChangeGroup("Move to Top Level",
+                        tops.Where(o => o.Transform.Parent != null).Select(o => (IUndoable)new Reparent(o, null)).ToList()))));
+                }
+
+                return several;
+            }
+
             // Things made from here go under the object: a cube on an empty, a light on a lamp post.
             var items = new List<MenuItem>
             {
@@ -393,13 +462,60 @@ namespace Vertex.Editor.Panels
             return items;
         }
 
+        /// <summary>
+        /// Puts the objects under a new empty one, in the middle of them: under their parent if they share one. The new
+        /// object is selected, ready to move them all by.
+        /// </summary>
+        private void GroupSelected(List<GameObject> tops)
+        {
+            if (tops.Count == 0) return;
+            tops = InRowOrder(tops);
+            Transform? parent = tops.All(o => o.Transform.Parent == tops[0].Transform.Parent) ? tops[0].Transform.Parent : null;
+            Vector3 centre = tops.Aggregate(Vector3.Zero, (sum, o) => sum + o.Transform.WorldPosition) / tops.Count;
+            int index = tops[0].Transform.Parent == parent ? tops[0].Transform.SiblingIndex : -1;
+
+            var group = new GameObject("Group", _context.Scene);
+            group.Transform.Parent = parent;
+            group.Transform.WorldPosition = centre;
+            _context.Scene.ApplyChanges();
+            if (index >= 0) group.Transform.SiblingIndex = index;
+
+            var changes = new List<IUndoable> { new CreateObject(group, "Group") };
+            foreach (GameObject gameObject in tops)
+            {
+                var move = new MoveInHierarchy(gameObject, group.Transform, group.Transform.Children.Count);
+                move.Redo();
+                changes.Add(move);
+            }
+
+            _context.History.Record(new ChangeGroup($"Group {tops.Count} Objects", changes));
+            _expanded.Add(group);
+            _context.Selection.Select(group);
+        }
+
+        /// <summary>The objects in the order their rows are shown, top to bottom (ones not shown last).</summary>
+        private List<GameObject> InRowOrder(IEnumerable<GameObject> objects) =>
+            objects.OrderBy(o => _rows.IndexOf(o) is int at && at >= 0 ? at : int.MaxValue).ToList();
+
         private void HandleKeys()
         {
             GameObject? selected = _context.Selection.Object;
             int index = selected == null ? -1 : _rows.IndexOf(selected);
 
-            if (InputSystem.GetKeyDown(Key.Down) && _rows.Count > 0) _context.Selection.Select(_rows[Math.Min(index + 1, _rows.Count - 1)]);
-            if (InputSystem.GetKeyDown(Key.Up) && _rows.Count > 0) _context.Selection.Select(_rows[Math.Max(index - 1, 0)]);
+            // Up and down move the selection; with Shift, they take in the next row too.
+            GameObject? next = null;
+            if (InputSystem.GetKeyDown(Key.Down) && _rows.Count > 0) next = _rows[Math.Min(index + 1, _rows.Count - 1)];
+            if (InputSystem.GetKeyDown(Key.Up) && _rows.Count > 0) next = _rows[Math.Max(index - 1, 0)];
+            if (next != null)
+            {
+                if (Shift) _context.Selection.Add(next);
+                else
+                {
+                    _context.Selection.Select(next);
+                    _anchor = next;
+                }
+            }
+
             if (selected == null) return;
 
             if (InputSystem.GetKeyDown(Key.Right) && selected.Transform.Children.Count > 0) _expanded.Add(selected);
@@ -463,18 +579,25 @@ namespace Vertex.Editor.Panels
                 _draggedLetGo = false;
             }
 
-            if (_pressed != null && _dragging == null && Ui.MouseHeld() && Vector2.Distance(Ui.Mouse, _pressedAt) > 5f) _dragging = _pressed;
+            if (_pressed != null && _dragging == null && Ui.MouseHeld() && Vector2.Distance(Ui.Mouse, _pressedAt) > 5f)
+            {
+                // Dragging one of several selected takes them all (what's under them comes along anyway).
+                _dragging = _pressed;
+                _draggingAll = _context.Selection.Count > 1 && _context.Selection.Contains(_pressed) ? InRowOrder(_context.Selection.Tops()) : [_pressed];
+            }
+
             if (_dragging != null) Dragged = _dragging;
             HandleAssetDrop(list);
 
             if (_dragging != null)
             {
                 GameObject dragged = _dragging;
+                int count = _draggingAll.Count;
                 Vector2 mouse = Ui.Mouse;
                 Ui.Overlay(() =>
                 {
                     // What's being dragged follows the mouse.
-                    string text = Ui.Fit(dragged.Name, 180f);
+                    string text = Ui.Fit(count > 1 ? $"{count} objects" : dragged.Name, 180f);
                     var label = new Rect(mouse.X + 14f, mouse.Y + 6f, Ui.TextWidth(text) + 36f, 24f);
                     Ui.Shadow(label, 5f, 10f, 0.6f);
                     Ui.Rect(label, Theme.Popup, 5f);
@@ -482,7 +605,7 @@ namespace Vertex.Editor.Panels
                     Ui.Text(label.CutLeft(26f), text, Theme.Text);
                 });
 
-                if (_dropOnRoot && dragged.Transform.Parent != null)
+                if (_dropOnRoot && _draggingAll.Any(o => o.Transform.Parent != null))
                 {
                     Ui.Rect(new Rect(list.X + 6f, list.Bottom - 3f, list.Width - 12f, 2f), Theme.Accent, 1f);
                 }
@@ -494,18 +617,28 @@ namespace Vertex.Editor.Panels
             {
                 if (_dropTarget != null)
                 {
-                    Drop(_dragging, _dropTarget, _dropZone);
+                    Drop(_draggingAll, _dropTarget, _dropZone);
                 }
-                else if (_dropOnRoot && _dragging.Transform.Parent != null)
+                else if (_dropOnRoot && _draggingAll.Any(o => o.Transform.Parent != null))
                 {
-                    _context.History.Do(new Reparent(_dragging, null));
+                    List<IUndoable> changes = _draggingAll.Where(o => o.Transform.Parent != null).Select(o => (IUndoable)new Reparent(o, null)).ToList();
+                    _context.History.Do(changes.Count == 1 ? changes[0] : new ChangeGroup("Move to Top Level", changes));
                 }
+            }
+            else if (_selectOnRelease && _pressed != null)
+            {
+                // Pressed one of several and let go without dragging: just it, then.
+                _context.Selection.Select(_pressed);
             }
 
             _pressed = null;
             _dragging = null;
+            _draggingAll = [];
+            _selectOnRelease = false;
             _draggedLetGo = Dragged != null;
         }
+
+        private List<GameObject> _draggingAll = [];
 
         /// <summary>A prefab or model dragged here from the assets goes into the scene: under the row it's dropped on, or at the top level.</summary>
         private void HandleAssetDrop(Rect list)
@@ -531,8 +664,35 @@ namespace Vertex.Editor.Panels
             if (under != null) _expanded.Add(under);
         }
 
-        /// <summary>Puts <paramref name="dragged"/> before, after or under <paramref name="target"/>, keeping where it is in the world.</summary>
-        private void Drop(GameObject dragged, GameObject target, DropZone zone)
+        /// <summary>Puts the dragged objects before, after or under <paramref name="target"/>, in order, keeping where they are in the world: one undo.</summary>
+        private void Drop(List<GameObject> dragged, GameObject target, DropZone zone)
+        {
+            if (dragged.Count == 1)
+            {
+                if (Move(dragged[0], target, zone) is { } move) _context.History.Do(move);
+                return;
+            }
+
+            // One at a time, each worked out from where the last left things; after the target, each goes after the last.
+            var changes = new List<IUndoable>();
+            GameObject after = target;
+            foreach (GameObject gameObject in dragged)
+            {
+                if (gameObject == target || IsUnder(target, gameObject)) continue;
+                if (Move(gameObject, zone == DropZone.After ? after : target, zone) is { } move)
+                {
+                    move.Redo();
+                    changes.Add(move);
+                }
+
+                after = gameObject;
+            }
+
+            if (changes.Count > 0) _context.History.Record(new ChangeGroup($"Move {changes.Count} Objects", changes));
+        }
+
+        /// <summary>The change that puts <paramref name="dragged"/> before, after or under <paramref name="target"/>; null if it's there already.</summary>
+        private MoveInHierarchy? Move(GameObject dragged, GameObject target, DropZone zone)
         {
             Transform? parent = zone == DropZone.Inside ? target.Transform : target.Transform.Parent;
             int index;
@@ -549,8 +709,8 @@ namespace Vertex.Editor.Panels
                 if (zone == DropZone.After) index++;
             }
 
-            if (dragged.Transform.Parent == parent && dragged.Transform.SiblingIndex == index) return;
-            _context.History.Do(new MoveInHierarchy(dragged, parent, index));
+            if (dragged.Transform.Parent == parent && dragged.Transform.SiblingIndex == index) return null;
+            return new MoveInHierarchy(dragged, parent, index);
         }
 
         /// <summary>Whether <paramref name="gameObject"/> is <paramref name="ancestor"/> or somewhere under it.</summary>

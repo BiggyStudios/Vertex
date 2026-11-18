@@ -22,7 +22,7 @@ namespace Vertex.Editor.Editing
         private GameLoop? _loop;
         private SceneFile.Snapshot? _snapshot;
         private bool _rebuild;
-        private int _selectedIndex;
+        private List<int> _selectedIndices = [];
         private bool _wasDirty;
 
         public bool Playing => _loop != null;
@@ -47,7 +47,8 @@ namespace Vertex.Editor.Editing
 
             Scene scene = _context.Scene;
             scene.ApplyChanges();
-            _selectedIndex = _context.Selection.Object is { } selected ? scene.GameObjects.ToList().IndexOf(selected) : -1;
+            List<GameObject> all = scene.GameObjects.ToList();
+            _selectedIndices = _context.Selection.Objects.Select(o => all.IndexOf(o)).Where(i => i >= 0).ToList();
             _wasDirty = _context.Dirty;
 
             Game game;
@@ -132,7 +133,7 @@ namespace Vertex.Editor.Editing
 
             _snapshot = null;
             IReadOnlyList<GameObject> objects = _context.Scene.GameObjects;
-            _context.Selection.Select(_selectedIndex >= 0 && _selectedIndex < objects.Count ? objects[_selectedIndex] : null);
+            _context.Selection.Select(_selectedIndices.Where(i => i < objects.Count).Select(i => objects[i]).ToList());
             _context.Notify("Stopped");
         }
     }

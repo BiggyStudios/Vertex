@@ -25,7 +25,7 @@ namespace Vertex.Editor.Gui
         /// as a strip down the left edge, for X, Y and Z. Returns true while the value changes.
         /// </summary>
         public static bool Float(int id, Rect rect, ref float value, float speed = 0f, string format = "0.###", Color? axis = null,
-            float min = float.MinValue, float max = float.MaxValue)
+            float min = float.MinValue, float max = float.MaxValue, bool mixed = false)
         {
             if (Ui.FocusId == id) return Typed(id, rect, ref value, format, min, max, axis);
 
@@ -81,15 +81,16 @@ namespace Vertex.Editor.Gui
 
             Rect textRect = rect.Shrink(8f, 0f);
             if (axis != null) textRect = textRect.CutLeft(3f);
-            Ui.Text(textRect, Format(value, format), active ? Theme.AccentText : Theme.Text);
+            // Different on the objects being edited together: a dash, until it's dragged (which sets them all).
+            Ui.Text(textRect, mixed && !active ? "—" : Format(value, format), active ? Theme.AccentText : mixed ? Theme.TextDim : Theme.Text);
             return changed;
         }
 
         /// <summary>A whole-number box: <see cref="Float"/>, rounded.</summary>
-        public static bool Int(int id, Rect rect, ref int value, float speed = 0.1f, int min = int.MinValue, int max = int.MaxValue)
+        public static bool Int(int id, Rect rect, ref int value, float speed = 0.1f, int min = int.MinValue, int max = int.MaxValue, bool mixed = false)
         {
             float asFloat = value;
-            if (!Float(id, rect, ref asFloat, speed, "0", null, min, max)) return false;
+            if (!Float(id, rect, ref asFloat, speed, "0", null, min, max, mixed)) return false;
 
             int rounded = (int)MathF.Round(asFloat);
             if (rounded == value) return false;
@@ -98,21 +99,22 @@ namespace Vertex.Editor.Gui
         }
 
         /// <summary>Three boxes side by side for X, Y and Z, each with its axis colour. Returns true while any changes.</summary>
-        public static bool Vector3(int id, Rect rect, ref Vector3 value, float speed = 0f, string format = "0.###")
+        /// <param name="mixed">Which boxes differ between the objects being edited together, to show a dash: 1 for X, 2 for Y, 4 for Z.</param>
+        public static bool Vector3(int id, Rect rect, ref Vector3 value, float speed = 0f, string format = "0.###", int mixed = 0)
         {
             float x = value.X, y = value.Y, z = value.Z;
-            bool changed = Float(Ui.Id(id, "x"), rect.Column(0, 3, 4f), ref x, speed, format, Theme.AxisX);
-            changed |= Float(Ui.Id(id, "y"), rect.Column(1, 3, 4f), ref y, speed, format, Theme.AxisY);
-            changed |= Float(Ui.Id(id, "z"), rect.Column(2, 3, 4f), ref z, speed, format, Theme.AxisZ);
+            bool changed = Float(Ui.Id(id, "x"), rect.Column(0, 3, 4f), ref x, speed, format, Theme.AxisX, mixed: (mixed & 1) != 0);
+            changed |= Float(Ui.Id(id, "y"), rect.Column(1, 3, 4f), ref y, speed, format, Theme.AxisY, mixed: (mixed & 2) != 0);
+            changed |= Float(Ui.Id(id, "z"), rect.Column(2, 3, 4f), ref z, speed, format, Theme.AxisZ, mixed: (mixed & 4) != 0);
             if (changed) value = new Vector3(x, y, z);
             return changed;
         }
 
-        public static bool Vector2(int id, Rect rect, ref Vector2 value, float speed = 0f, string format = "0.###")
+        public static bool Vector2(int id, Rect rect, ref Vector2 value, float speed = 0f, string format = "0.###", int mixed = 0)
         {
             float x = value.X, y = value.Y;
-            bool changed = Float(Ui.Id(id, "x"), rect.Column(0, 2, 4f), ref x, speed, format, Theme.AxisX);
-            changed |= Float(Ui.Id(id, "y"), rect.Column(1, 2, 4f), ref y, speed, format, Theme.AxisY);
+            bool changed = Float(Ui.Id(id, "x"), rect.Column(0, 2, 4f), ref x, speed, format, Theme.AxisX, mixed: (mixed & 1) != 0);
+            changed |= Float(Ui.Id(id, "y"), rect.Column(1, 2, 4f), ref y, speed, format, Theme.AxisY, mixed: (mixed & 2) != 0);
             if (changed) value = new Vector2(x, y);
             return changed;
         }

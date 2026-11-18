@@ -69,17 +69,19 @@ namespace Vertex.Editor.Gui
         }
 
         /// <summary>A tick box, in the middle of <paramref name="rect"/>. The tick draws itself on when it's turned on. Returns true if clicked.</summary>
-        public static bool Checkbox(int id, Rect rect, ref bool value, string? tooltip = null)
+        /// <param name="mixed">On for some of the objects being edited together and off for others: shows a dash, and a click turns it on for all.</param>
+        public static bool Checkbox(int id, Rect rect, ref bool value, string? tooltip = null, bool mixed = false)
         {
             Rect box = rect.CentreOf(new Vector2(15f, 15f));
             Interaction interaction = Ui.Interact(id, rect);
-            if (interaction.Clicked) value = !value;
+            if (interaction.Clicked) value = mixed || !value;
 
-            float on = Ui.Smooth(id, value ? 1f : 0f, 20f);
+            float on = Ui.Smooth(id, value && !mixed ? 1f : 0f, 20f);
             Color fill = Color.Lerp(interaction.Hovered ? Theme.ControlHover : Theme.Field, interaction.Hovered ? Theme.AccentHover : Theme.Accent, on);
             Ui.Rect(box, fill, 3.5f);
             if (on < 0.99f) Ui.Outline(box, Theme.BorderStrong.WithAlpha(1f - on), 3.5f);
             Icons.Check(box.Centre, 15f, Color.White, on);
+            if (mixed && !interaction.Clicked) Ui.Rect(new Rect(box.X + 4f, box.Centre.Y - 1f, box.Width - 8f, 2f), Theme.Text, 1f);
 
             Ui.Tooltip(id, tooltip);
             return interaction.Clicked;

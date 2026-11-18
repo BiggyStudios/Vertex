@@ -64,7 +64,8 @@ namespace Vertex.Editor.Panels
             float y = scroll.Top + Theme.Padding + (1f - appear) * 6f;
             float top = y;
 
-            if (_context.Selection.Object is { } selected) y = DrawObject(selected, x, y, width);
+            if (_context.Selection.Count > 1) y = DrawObjects(_context.Selection.Objects, x, y, width);
+            else if (_context.Selection.Object is { } selected) y = DrawObject(selected, x, y, width);
             else if (_context.Selection.Scene) y = DrawScene(x, y, width);
             else if (_context.Selection.Asset is { } asset) y = DrawAsset(asset, x, y, width);
             else DrawNothing(content);
@@ -293,29 +294,170 @@ namespace Vertex.Editor.Panels
             y = DrawComponents(gameObject, uiRect, x, y, width);
 
             y += 4f;
-            return AddComponentButton(gameObject, x, y, width);
+            return AddComponentButton([gameObject], x, y, width);
         }
 
-        private float DrawTransform(Transform transform, float x, float y, float width)
+        // ---------------------------------------------------------------- Several objects
+
+        private static readonly System.Reflection.PropertyInfo _activeProperty = typeof(GameObject).GetProperty(nameof(GameObject.Active))!;
+        private static readonly System.Reflection.PropertyInfo _nameProperty = typeof(GameObject).GetProperty(nameof(GameObject.Name))!;
+
+        /// <summary>
+        /// Several objects at once: the main one's (the last picked) values are shown, and a change goes to them all. Its
+        /// transform, then the components they all have; a value that isn't the same on them all shows a dash.
+        /// </summary>
+        private float DrawObjects(IReadOnlyList<GameObject> objects, float x, float y, float width)
+        {
+            GameObject main = objects[^1];
+            List<GameObject> others = objects.Take(objects.Count - 1).ToList();
+
+            var header = new Rect(x, y, width, 30f);
+            bool active = main.Active;
+            bool mixedActive = others.Any(o => o.Active != active);
+            if (Widgets.Checkbox(Ui.Id("object.active"), header.TakeLeft(24f), ref active, "Switch them all on or off", mixedActive))
+            {
+                SetAll(objects, active ? "Switch On" : "Switch Off", _activeProperty, _ => active);
+            }
+
+            // One name for them all, as it's typed.
+            string name = main.Name;
+            bool sameName = others.All(o => o.Name == name);
+            if (!sameName) name = "";
+            int nameId = Ui.Id("object.name");
+            if (TextInput.Draw(nameId, header.CutLeft(30f), ref name, sameName ? "" : "—", live: true) && name.Trim().Length > 0)
+            {
+                string named = name.Trim();
+                SetAll(objects, "Rename", _nameProperty, _ => named, mergeKey: ("rename", main, objects.Count));
+            }
+
+            _grid.TypingSession(nameId);
+            y += 32f;
+            Ui.Text(new Rect(x, y, width, 18f), $"{objects.Count} objects selected  ·  changes go to them all", Theme.TextFaint, size: Theme.SmallTextSize);
+            y += 26f;
+
+            // Placed by a transform, or (all UI) by a rectangle. A mix of the two has neither in common.
+            List<UIRect?> rects = objects.Select(o => o.GetComponent<UIRect>()).ToList();
+            if (rects.All(r => r == null))
+            {
+                y = Card(main.Transform, "Transform", Icons.Move, x, y, width, removable: false,
+                    body: cy => DrawTransform(main.Transform, x + 12f, cy, width - 24f, others.Select(o => o.Transform).ToList()));
+            }
+            else if (rects.All(r => r != null))
+            {
+                UIRect mainRect = rects[^1]!;
+                List<UIRect> otherRects = rects.Take(rects.Count - 1).Select(r => r!).ToList();
+                y = Card(mainRect, "Rect", Icons.Scale, x, y, width, removable: true, body: cy => DrawUIRect(mainRect, x + 12f, cy, width - 24f, otherRects),
+                    alsoOn: otherRects);
+            }
+            else
+            {
+                y = Note("Some of these are UI, placed by a rectangle, and some aren't: select just one kind to move them together.", x, y, width) + 6f;
+            }
+
+            y = DrawSharedComponents(main, others, x, y, width);
+            y += 4f;
+            return AddComponentButton(objects, x, y, width);
+        }
+
+        /// <summary>The components every one of the objects has, each a card that changes them all. Returns where they end.</summary>
+        private float DrawSharedComponents(GameObject main, List<GameObject> others, float x, float y, float width)
+        {
+            var seen = new Dictionary<Type, int>();
+            int shared = 0;
+            foreach (Component component in main.Components.ToList())
+            {
+                if (component is UIRect) continue;
+
+                // The same kind of component on each of the others: the first if there's one, the second if this is the second...
+                Type type = component.GetType();
+                int nth = seen.GetValueOrDefault(type);
+                seen[type] = nth + 1;
+
+                var matching = new List<Component>(others.Count);
+                foreach (GameObject other in others)
+                {
+                    if (other.Components.Where(c => c.GetType() == type).Skip(nth).FirstOrDefault() is not { } same) break;
+                    matching.Add(same);
+                }
+
+                if (matching.Count < others.Count) continue;
+                shared++;
+                y = Card(component, ComponentCatalog.DisplayName(type), IconFor(component), x, y, width, removable: true,
+                    body: cy => _grid.Draw(component, x + 12f, cy, width - 24f, others: matching), alsoOn: matching);
+            }
+
+            // Components only some have aren't shown: say so.
+            bool hidden = others.Prepend(main).Any(o => o.Components.Count(c => c is not UIRect) != shared);
+            if (hidden) y = Note("Components only some of them have aren't shown: select one on its own to see all of its own.", x, y, width) + 6f;
+            return y;
+        }
+
+        /// <summary>Sets a property on each of <paramref name="targets"/>, as one change to undo.</summary>
+        private void SetAll<T>(IEnumerable<T> targets, string name, System.Reflection.PropertyInfo property, Func<T, object?> value, object? mergeKey = null) where T : notnull
+        {
+            try
+            {
+                List<IUndoable> changes = targets.Select(t => (IUndoable)new SetValue(name, t, property, property.GetValue(t), value(t))).ToList();
+                _context.History.Do(new ChangeGroup(name, changes), mergeKey);
+            }
+            catch (Exception exception)
+            {
+                _context.Notify($"Couldn't change {property.Name}: {(exception.InnerException ?? exception).Message}");
+            }
+        }
+
+        /// <summary>Which of X, Y and Z differ between <paramref name="value"/> and <paramref name="others"/>: 1, 2 and 4.</summary>
+        private static int Differs(Vector3 value, IEnumerable<Vector3> others)
+        {
+            int mixed = 0;
+            foreach (Vector3 other in others) mixed |= (other.X != value.X ? 1 : 0) | (other.Y != value.Y ? 2 : 0) | (other.Z != value.Z ? 4 : 0);
+            return mixed;
+        }
+
+        /// <summary>A transform's position, rotation and scale; with <paramref name="others"/>, a change goes to them too (just the axes changed).</summary>
+        private float DrawTransform(Transform transform, float x, float y, float width, IReadOnlyList<Transform>? others = null)
         {
             int id = Ui.Id(RuntimeHelpers.GetHashCode(transform), "transform");
             var position = typeof(Transform).GetProperty(nameof(Transform.Position))!;
             var rotation = typeof(Transform).GetProperty(nameof(Transform.Rotation))!;
             var scale = typeof(Transform).GetProperty(nameof(Transform.Scale))!;
+            others ??= [];
 
-            PropertyGrid.Row(Ui.Id(id, "p"), x, y, width, "Position", "Where it is, relative to its parent: in metres along X, Y and Z", out Rect field);
-            Vector3 p = transform.Position;
-            if (NumberField.Vector3(Ui.Id(id, "position"), field, ref p)) SetValue.Apply(_context.History, "Move", transform, position, p);
+            void Set(string name, System.Reflection.PropertyInfo property, Func<Transform, object?> value)
+            {
+                if (others.Count == 0) SetValue.Apply(_context.History, name, transform, property, value(transform));
+                else SetAll(others.Prepend(transform), name, property, value, mergeKey: (transform, property, others.Count));
+            }
+
+            int pMixed = Differs(transform.Position, others.Select(t => t.Position));
+            PropertyGrid.Row(Ui.Id(id, "p"), x, y, width, "Position", "Where it is, relative to its parent: in metres along X, Y and Z", out Rect field, pMixed != 0);
+            Vector3 p = transform.Position, pBefore = p;
+            if (NumberField.Vector3(Ui.Id(id, "position"), field, ref p, mixed: pMixed))
+            {
+                Set("Move", position, t => t == transform ? p : PropertyGrid.Blend(pBefore, p, t.Position));
+            }
+
             y += Theme.RowHeight + PropertyGrid.RowGap;
 
-            PropertyGrid.Row(Ui.Id(id, "r"), x, y, width, "Rotation", "How it's turned, in degrees about X (pitch), Y (yaw) and Z (roll)", out field);
-            _grid.RotationField(Ui.Id(id, "rotation"), field, transform, "Rotation", transform.Rotation,
-                next => SetValue.Apply(_context.History, "Rotate", transform, rotation, next));
+            Vector3 angles = _grid.Angles(transform, "Rotation", transform.Rotation);
+            int rMixed = 0;
+            foreach (Transform other in others) rMixed |= PropertyGrid.AnglesDiffer(angles, _grid.Angles(other, "Rotation", other.Rotation));
+            PropertyGrid.Row(Ui.Id(id, "r"), x, y, width, "Rotation", "How it's turned, in degrees about X (pitch), Y (yaw) and Z (roll)", out field, rMixed != 0);
+            if (_grid.RotationField(Ui.Id(id, "rotation"), field, transform, "Rotation", transform.Rotation, others.Select(t => ((object)t, t.Rotation)).ToList(), rMixed) is { } turned)
+            {
+                Set("Rotate", rotation, t => t == transform ? turned[0] : turned[1 + others.ToList().IndexOf(t)]);
+            }
+
             y += Theme.RowHeight + PropertyGrid.RowGap;
 
-            PropertyGrid.Row(Ui.Id(id, "s"), x, y, width, "Scale", "How big it is along each axis: 1 is its own size", out field);
-            Vector3 s = transform.Scale;
-            if (NumberField.Vector3(Ui.Id(id, "scale"), field, ref s)) SetValue.Apply(_context.History, "Scale", transform, scale, s);
+            int sMixed = Differs(transform.Scale, others.Select(t => t.Scale));
+            PropertyGrid.Row(Ui.Id(id, "s"), x, y, width, "Scale", "How big it is along each axis: 1 is its own size", out field, sMixed != 0);
+            Vector3 s = transform.Scale, sBefore = s;
+            if (NumberField.Vector3(Ui.Id(id, "scale"), field, ref s, mixed: sMixed))
+            {
+                Set("Scale", scale, t => t == transform ? s : PropertyGrid.Blend(sBefore, s, t.Scale));
+            }
+
             return y + Theme.RowHeight + PropertyGrid.RowGap;
         }
 
@@ -323,8 +465,9 @@ namespace Vertex.Editor.Panels
         /// A card with a header (arrow, icon, name, and for components an on/off box and a menu) and a body that slides
         /// open and shut. Returns where the next card goes.
         /// </summary>
+        /// <param name="alsoOn">The same component on the other selected objects: switching it on or off, or removing it, does them all.</param>
         private float Card(object owner, string title, Icon icon, float x, float y, float width, bool removable, Func<float, float> body, bool draggable = false,
-            bool lifted = false)
+            bool lifted = false, IReadOnlyList<Component>? alsoOn = null)
         {
             int id = Ui.Id(RuntimeHelpers.GetHashCode(owner), "card");
             bool open = !_folded.TryGetValue(owner, out _);
@@ -364,14 +507,21 @@ namespace Vertex.Editor.Panels
 
             if (owner is Component component)
             {
+                var enabledProperty = typeof(Component).GetProperty(nameof(Component.Enabled))!;
                 bool enabled = component.Enabled;
-                if (Widgets.Checkbox(Ui.Id(id, "enabled"), toggle, ref enabled, enabled ? "On: click to switch it off" : "Off: click to switch it on"))
+                bool mixed = alsoOn != null && alsoOn.Any(c => c.Enabled != enabled);
+                if (Widgets.Checkbox(Ui.Id(id, "enabled"), toggle, ref enabled, enabled ? "On: click to switch it off" : "Off: click to switch it on", mixed))
                 {
-                    SetValue.Apply(_context.History, enabled ? "Enable" : "Disable", component, typeof(Component).GetProperty(nameof(Component.Enabled))!, enabled);
+                    if (alsoOn is { Count: > 0 }) SetAll(alsoOn.Prepend(component), enabled ? "Enable" : "Disable", enabledProperty, _ => enabled);
+                    else SetValue.Apply(_context.History, enabled ? "Enable" : "Disable", component, enabledProperty, enabled);
                 }
 
                 int menuId = Ui.Id(id, "menu");
-                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More")) Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), ComponentMenu(component), flipBy: menuButton.Height + 6f);
+                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More"))
+                {
+                    List<MenuItem> items = alsoOn is { Count: > 0 } ? RemoveFromAllMenu([component, .. alsoOn]) : ComponentMenu(component);
+                    Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), items, flipBy: menuButton.Height + 6f);
+                }
             }
 
             if (openness > 0.001f)
@@ -586,24 +736,27 @@ namespace Vertex.Editor.Panels
         /// A UI rectangle: where it keeps to in its parent (picked from a grid of the usual choices, which keeps it where it
         /// is on screen), then its position and size.
         /// </summary>
-        private float DrawUIRect(UIRect rect, float x, float y, float width)
+        private float DrawUIRect(UIRect rect, float x, float y, float width, IReadOnlyList<UIRect>? others = null)
         {
             int id = Ui.Id(RuntimeHelpers.GetHashCode(rect), "uirect");
-            PropertyGrid.Row(Ui.Id(id, "anchors"), x, y, width, "Keep To", "Which part of its parent it stays put against as the screen changes size", out Rect field);
+            bool mixed = others != null && others.Any(o => o.AnchorMin != rect.AnchorMin || o.AnchorMax != rect.AnchorMax);
+            PropertyGrid.Row(Ui.Id(id, "anchors"), x, y, width, "Keep To", "Which part of its parent it stays put against as the screen changes size", out Rect field, mixed);
 
             int current = Array.FindIndex(_anchorPresets, p => p.Min == rect.AnchorMin && p.Max == rect.AnchorMax);
             string[] names = [.. _anchorPresets.Select(p => p.Name), .. current < 0 ? new[] { "Custom" } : []];
-            if (Widgets.Dropdown(Ui.Id(id, "preset"), field, names, current < 0 ? names.Length - 1 : current) is int picked && picked < _anchorPresets.Length)
+            int shown = mixed ? -1 : current < 0 ? names.Length - 1 : current;
+            if (Widgets.Dropdown(Ui.Id(id, "preset"), field, names, shown) is int picked && picked < _anchorPresets.Length)
             {
-                SetAnchors(rect, _anchorPresets[picked].Min, _anchorPresets[picked].Max);
+                (Vector2 min, Vector2 max) = (_anchorPresets[picked].Min, _anchorPresets[picked].Max);
+                _context.History.Do(new ChangeGroup("Change Anchors", (others ?? []).Prepend(rect).SelectMany(r => AnchorChanges(r, min, max)).ToList()));
             }
 
             y += Theme.RowHeight + PropertyGrid.RowGap;
-            return _grid.Draw(rect, x, y, width);
+            return _grid.Draw(rect, x, y, width, others: others);
         }
 
-        /// <summary>Changes a UI rectangle's anchors (and pivot to match), keeping it where it is on the screen.</summary>
-        private void SetAnchors(UIRect rect, Vector2 min, Vector2 max)
+        /// <summary>The changes to a UI rectangle's anchors (and pivot to match) that keep it where it is on the screen.</summary>
+        private static IEnumerable<IUndoable> AnchorChanges(UIRect rect, Vector2 min, Vector2 max)
         {
             (Vector2 parentPosition, Vector2 parentSize) = UISystem.ParentRect(rect.GameObject);
             Vector2 screenPosition = rect.ScreenPosition, screenSize = rect.ScreenSize;
@@ -613,14 +766,14 @@ namespace Vertex.Editor.Panels
             (Vector2 position, Vector2 size) = after.PlacementFor(screenPosition, screenSize, parentPosition, parentSize);
 
             Type type = typeof(UIRect);
-            _context.History.Do(new ChangeGroup("Change Anchors",
+            return
             [
                 new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.AnchorMin))!, rect.AnchorMin, min),
                 new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.AnchorMax))!, rect.AnchorMax, max),
                 new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Pivot))!, rect.Pivot, pivot),
                 new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Position))!, rect.Position, position),
                 new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Size))!, rect.Size, size)
-            ]));
+            ];
         }
 
         private List<MenuItem> ComponentMenu(Component component)
@@ -639,6 +792,17 @@ namespace Vertex.Editor.Panels
                 }) { Icon = Icons.Trash }
             ];
         }
+
+        /// <summary>The menu of a component the selected objects all have: taking it off them all.</summary>
+        private List<MenuItem> RemoveFromAllMenu(IReadOnlyList<Component> components) =>
+        [
+            new MenuItem($"Remove from All {components.Count}", () =>
+            {
+                string name = ComponentCatalog.DisplayName(components[0].GetType());
+                _context.History.Do(new ChangeGroup($"Remove {name}", components.Select(c => (IUndoable)new RemoveComponent(c.GameObject, c)).ToList()));
+                _context.Notify($"Removed {name} from {components.Count} objects");
+            }) { Icon = Icons.Trash }
+        ];
 
         private void Move(Component component, int by)
         {
@@ -673,7 +837,7 @@ namespace Vertex.Editor.Panels
 
         // ---------------------------------------------------------------- Adding components
 
-        private float AddComponentButton(GameObject gameObject, float x, float y, float width)
+        private float AddComponentButton(IReadOnlyList<GameObject> gameObjects, float x, float y, float width)
         {
             int id = Ui.Id("addComponent");
             var button = new Rect(x + width * 0.15f, y, width * 0.7f, 30f);
@@ -685,11 +849,11 @@ namespace Vertex.Editor.Panels
                 TextInput.Focus(Ui.Id(id, "search"), selectAll: true);
             }
 
-            Popup.Show(id, new Vector2(width, 320f), inner => AddComponentPopup(id, inner, gameObject));
+            Popup.Show(id, new Vector2(width, 320f), inner => AddComponentPopup(id, inner, gameObjects));
             return y + 30f + Theme.Padding;
         }
 
-        private void AddComponentPopup(int id, Rect rect, GameObject gameObject)
+        private void AddComponentPopup(int id, Rect rect, IReadOnlyList<GameObject> gameObjects)
         {
             int searchId = Ui.Id(id, "search");
 
@@ -742,7 +906,7 @@ namespace Vertex.Editor.Panels
 
                 if (interaction.Clicked || enter && i == _highlighted)
                 {
-                    Add(gameObject, type);
+                    Add(gameObjects, type);
                     Popup.Close();
                     Ui.FocusId = 0;
                 }
@@ -780,12 +944,20 @@ namespace Vertex.Editor.Panels
             scroll.End(y - scroll.Top);
         }
 
-        private void Add(GameObject gameObject, ComponentType type)
+        /// <summary>Adds a new component of <paramref name="type"/> to each of the objects, as one change to undo.</summary>
+        private void Add(IReadOnlyList<GameObject> gameObjects, ComponentType type)
         {
-            Component component;
+            var changes = new List<IUndoable>(gameObjects.Count);
             try
             {
-                component = (Component)Activator.CreateInstance(type.Type)!;
+                foreach (GameObject gameObject in gameObjects)
+                {
+                    var component = (Component)Activator.CreateInstance(type.Type)!;
+
+                    // A new mesh renderer shows something straight away.
+                    if (component is MeshRenderer renderer && renderer.Mesh == null) renderer.Mesh = Primitives.Cube;
+                    changes.Add(new AddComponent(gameObject, component));
+                }
             }
             catch (Exception exception)
             {
@@ -793,11 +965,9 @@ namespace Vertex.Editor.Panels
                 return;
             }
 
-            // A new mesh renderer shows something straight away.
-            if (component is MeshRenderer renderer && renderer.Mesh == null) renderer.Mesh = Primitives.Cube;
-
-            _context.History.Do(new AddComponent(gameObject, component));
-            _context.Notify($"Added {type.Name}");
+            if (changes.Count == 1) _context.History.Do(changes[0]);
+            else _context.History.Do(new ChangeGroup($"Add {type.Name}", changes));
+            _context.Notify(changes.Count == 1 ? $"Added {type.Name}" : $"Added {type.Name} to {changes.Count} objects");
         }
     }
 }

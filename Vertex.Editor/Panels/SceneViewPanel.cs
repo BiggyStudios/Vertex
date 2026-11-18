@@ -278,12 +278,25 @@ namespace Vertex.Editor.Panels
                 if (chipPress.Clicked) _gameTab = true;
             }
 
+            // The others selected (not UI) are outlined too, and move with the main one's handles. What's under one of
+            // them moves with it, so isn't moved again.
+            List<Transform> others = [];
+            if (_context.Selection.Count > 1 && selected != null)
+            {
+                foreach (GameObject other in _context.Selection.Tops())
+                {
+                    if (other == selected || other.GetComponent<UIRect>() != null || other.GetComponent<UICanvas>() != null) continue;
+                    DrawSelectionOutline(view, other);
+                    if (!IsUnder(selected, other)) others.Add(other.Transform);
+                }
+            }
+
             if (selected != null) DrawSelectionOutline(view, selected);
 
             GameObject? clickedIcon = DrawObjectIcons(view, hovered && !_looking);
 
             bool mouseFree = hovered && !_looking && !_panning && !_orbiting && !Alt && !DragDrop.Dragging;
-            bool handleTookPress = selected != null && _handles.Draw(selected.Transform, _context.Tool, view, _context.History, _context.Snap, mouseFree);
+            bool handleTookPress = selected != null && _handles.Draw(selected.Transform, _context.Tool, view, _context.History, _context.Snap, mouseFree, others);
 
             // A click (pressed and let go without dragging) selects what's under it.
             if (mouseFree && Ui.MousePressed() && !handleTookPress)
@@ -451,9 +464,18 @@ namespace Vertex.Editor.Panels
         {
             if (_context.Selection.Object is not { } selected || !_context.InScene(selected)) return;
 
-            (Vector3 Min, Vector3 Max)? bounds = Bounds(selected);
-            if (bounds is (Vector3 min, Vector3 max)) Camera.Frame((min + max) * 0.5f, Vector3.Distance(min, max) * 0.5f);
-            else Camera.Frame(selected.Transform.WorldPosition, 1f);
+            // Everything selected, together: what they draw, or where they are if they draw nothing.
+            (Vector3 Min, Vector3 Max)? bounds = null;
+            foreach (GameObject gameObject in _context.Selection.Objects)
+            {
+                Vector3 at = gameObject.Transform.WorldPosition;
+                (Vector3 low, Vector3 high) = Bounds(gameObject) ?? (at, at);
+                bounds = bounds is (Vector3 min, Vector3 max) ? (Vector3.Min(min, low), Vector3.Max(max, high)) : (low, high);
+            }
+
+            (Vector3 lowest, Vector3 highest) = bounds!.Value;
+            float radius = Vector3.Distance(lowest, highest) * 0.5f;
+            Camera.Frame((lowest + highest) * 0.5f, radius > 0.01f ? radius : 1f);
         }
 
         private static (Vector3 Min, Vector3 Max)? Bounds(GameObject gameObject)
@@ -478,23 +500,40 @@ namespace Vertex.Editor.Panels
 
         private void Pick(in ViewProjection view, GameObject? clickedIcon)
         {
-            if (clickedIcon != null)
+            // Ctrl or Shift: add to what's selected, or take out what already is.
+            bool adding = InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight) ||
+                          InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+
+            GameObject? hit = clickedIcon;
+            if (hit == null)
             {
-                _context.Selection.Select(clickedIcon);
-                return;
+                (Vector3 origin, Vector3 direction) = view.Ray(Ui.Mouse);
+                if (Picking.Pick(_context.Scene, origin, direction) is (GameObject picked, _)) hit = picked;
             }
 
-            (Vector3 origin, Vector3 direction) = view.Ray(Ui.Mouse);
-            if (Picking.Pick(_context.Scene, origin, direction) is (GameObject hit, _))
+            if (hit == null)
             {
-                // Clicking a part of what's selected again picks the part; otherwise the top of what was clicked
-                // isn't assumed: the object hit is selected.
-                _context.Selection.Select(hit);
+                if (!adding) _context.Selection.Clear();
+            }
+            else if (adding)
+            {
+                _context.Selection.Toggle(hit);
             }
             else
             {
-                _context.Selection.Clear();
+                _context.Selection.Select(hit);
             }
+        }
+
+        /// <summary>Whether <paramref name="gameObject"/> is somewhere under <paramref name="ancestor"/>.</summary>
+        private static bool IsUnder(GameObject gameObject, GameObject ancestor)
+        {
+            for (Transform? parent = gameObject.Transform.Parent; parent != null; parent = parent.Parent)
+            {
+                if (parent.GameObject == ancestor) return true;
+            }
+
+            return false;
         }
 
         private static void DrawSelectionOutline(ViewProjection view, GameObject selected)
@@ -543,7 +582,7 @@ namespace Vertex.Editor.Panels
                 Vector3 position = gameObject.Transform.WorldPosition;
                 if (view.ToScreen(position) is not Vector2 at) continue;
 
-                bool selected = _context.Selection.Object == gameObject;
+                bool selected = _context.Selection.Contains(gameObject);
                 bool hovered = mouseFree && Vector2.Distance(at, Ui.Mouse) < 13f;
                 if (hovered) under = gameObject;
 

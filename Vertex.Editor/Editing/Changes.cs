@@ -236,10 +236,31 @@ namespace Vertex.Editor.Editing
         }
     }
 
-    /// <summary>Several changes as one: undone in reverse order.</summary>
-    public sealed class ChangeGroup(string name, IReadOnlyList<IUndoable> changes) : IUndoable
+    /// <summary>
+    /// Several changes as one: undone in reverse order. A group soaks up the next group like it (the same changes to the
+    /// same things, as dragging a value on several objects at once makes each frame), so a drag is one undo.
+    /// </summary>
+    public sealed class ChangeGroup(string name, IReadOnlyList<IUndoable> changes) : IUndoable, IMergeable
     {
         public string Name => name;
+
+        public bool Merge(IUndoable next)
+        {
+            if (next is not ChangeGroup other || other.Changes.Count != changes.Count) return false;
+            for (int i = 0; i < changes.Count; i++)
+            {
+                if (changes[i] is not IMergeable || changes[i].GetType() != other.Changes[i].GetType()) return false;
+            }
+
+            foreach ((IUndoable change, IUndoable later) in changes.Zip(other.Changes))
+            {
+                if (!((IMergeable)change).Merge(later)) return false;
+            }
+
+            return true;
+        }
+
+        public IReadOnlyList<IUndoable> Changes => changes;
 
         public void Redo()
         {
