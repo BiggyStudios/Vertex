@@ -298,6 +298,12 @@ namespace Vertex.UI
 
         private static int VisibleLines() => Font == null ? 10 : (int)(Canvas.Height * 0.45f / Canvas.LineHeight(Font, _fontSize)) - 2;
 
+        private static readonly Color _warningColor = new(1f, 0.82f, 0.4f);
+
+        /// <summary>A message from the <see cref="Log"/>, coloured by how serious it is.</summary>
+        internal static void AddLog(LogEntry entry) =>
+            AddLine(entry.Message, entry.Level switch { LogLevel.Warning => _warningColor, LogLevel.Error => _errorColor, _ => _textColor });
+
         private static void AddLine(string text, Color color)
         {
             lock (_linesLock)

@@ -191,7 +191,7 @@ namespace Vertex.Rendering.Vulkan
                     PfnUserCallback = new PfnDebugUtilsMessengerCallbackEXT(_debugCallback)
                 };
                 debugUtils.CreateDebugUtilsMessenger(Instance, &messengerInfo, null, out _messenger);
-                Console.WriteLine("[Vulkan] Validation is on.");
+                Log.Info("Vulkan validation is on.");
             }
 
             if (!Vk.TryGetInstanceExtension(Instance, out KhrSurface))
@@ -399,8 +399,8 @@ namespace Vertex.Rendering.Vulkan
         private static uint OnDebugMessage(DebugUtilsMessageSeverityFlagsEXT severity, DebugUtilsMessageTypeFlagsEXT type,
             DebugUtilsMessengerCallbackDataEXT* data, void* userData)
         {
-            string level = severity >= DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt ? "error" : "warning";
-            Console.WriteLine($"[Vulkan {level}] {SilkMarshal.PtrToString((nint)data->PMessage)}");
+            bool error = severity >= DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt;
+            Log.Write(error ? LogLevel.Error : LogLevel.Warning, $"Vulkan: {SilkMarshal.PtrToString((nint)data->PMessage)}");
             return Vk.False;
         }
 

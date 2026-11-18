@@ -32,6 +32,7 @@ namespace Vertex
         /// <param name="backend">The graphics API backend to render with. Defaults to <see cref="RenderBackends.CreateDefault"/>: Vulkan where it can, otherwise OpenGL.</param>
         public VertexWindow(int sizeX, int sizeY, Game game, string title = "Window", IRenderBackend? backend = null)
         {
+            Terminal.Attach();
             _loop = new GameLoop(game);
             Renderer = new Renderer(backend ?? RenderBackends.CreateDefault());
 

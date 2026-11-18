@@ -218,7 +218,7 @@ namespace Vertex.Rendering
                 {
                     string fullPath = Path.Combine(_directory, path.Replace('\\', Path.DirectorySeparatorChar));
                     if (System.IO.File.Exists(fullPath)) texture = Texture.Load(fullPath);
-                    else Console.WriteLine($"[Vertex] Model texture not found: {fullPath}");
+                    else Log.Warning($"Model texture not found: {fullPath}");
                 }
 
                 _textures[path] = texture;

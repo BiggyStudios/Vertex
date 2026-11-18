@@ -119,7 +119,7 @@ namespace Vertex.Networking
                 _startedPending = true
             };
 
-            Console.WriteLine($"[Vertex] Hosting \"{room.Name}\" on UDP port {port}.");
+            Log.Info($"Hosting \"{room.Name}\" on UDP port {port}.");
             return transport;
         }
 
@@ -137,7 +137,7 @@ namespace Vertex.Networking
             transport.SendPacket(transport._hostEndPoint!, Packet.Join, JoinRequest.Write(transport._password));
             transport._lastJoinSent = transport.Now;
 
-            Console.WriteLine($"[Vertex] Joining {ip}:{port}...");
+            Log.Info($"Joining {ip}:{port}...");
             return transport;
         }
 
@@ -390,7 +390,7 @@ namespace Vertex.Networking
 
                     // In: no more asking, even once the room ends.
                     _lastJoinSent = -1;
-                    Console.WriteLine($"[Vertex] Joined \"{RoomName}\" as {GetName(LocalPeer)}.");
+                    Log.Info($"Joined \"{RoomName}\" as {GetName(LocalPeer)}.");
                     SessionStarted?.Invoke();
 
                     AddPeer(_hostId);
@@ -404,7 +404,7 @@ namespace Vertex.Networking
                     if (InSession || _lastJoinSent < 0 || body.Length < 1) return;
 
                     _lastJoinSent = -1;
-                    Console.WriteLine($"[Vertex] The host refused: {(JoinError)body[0]}.");
+                    Log.Warning($"The host refused: {(JoinError)body[0]}.");
                     JoinFailed?.Invoke((JoinError)body[0]);
                     break;
 
@@ -423,14 +423,14 @@ namespace Vertex.Networking
                     break;
 
                 case Packet.Leave:
-                    Console.WriteLine("[Vertex] The host closed the session.");
+                    Log.Warning("The host closed the session.");
                     EndSession();
                     break;
 
                 case Packet.Kicked:
                     if (!InSession) return;
 
-                    Console.WriteLine("[Vertex] The host kicked us.");
+                    Log.Warning("The host kicked us.");
                     int seconds = body.Length >= 2 ? BinaryPrimitives.ReadUInt16LittleEndian(body) : ushort.MaxValue;
                     Kicked?.Invoke(seconds == ushort.MaxValue ? null : TimeSpan.FromSeconds(seconds));
                     EndSession();
@@ -463,7 +463,7 @@ namespace Vertex.Networking
 
                 if (Now > _joinGiveUpAfter)
                 {
-                    Console.WriteLine("[Vertex] Couldn't reach the host.");
+                    Log.Warning("Couldn't reach the host.");
                     _lastJoinSent = -1;
                     JoinFailed?.Invoke(JoinError.NoAnswer);
                 }
@@ -484,7 +484,7 @@ namespace Vertex.Networking
 
             if (Now - _lastHeard[_hostId] > _timeout)
             {
-                Console.WriteLine("[Vertex] Lost connection to the host.");
+                Log.Warning("Lost connection to the host.");
                 EndSession();
             }
         }

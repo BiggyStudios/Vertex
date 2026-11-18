@@ -514,6 +514,7 @@ namespace Vertex.Serialization
 
                 // Values last, once every component they might refer to exists.
                 foreach ((Component component, JsonElement values) in componentValues) ReadValues(values, component);
+                foreach (string problem in Problems) Log.Warning(problem);
                 return created;
             }
 

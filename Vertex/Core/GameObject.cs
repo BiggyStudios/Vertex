@@ -197,7 +197,7 @@ namespace Vertex
                 }
                 catch (Exception exception)
                 {
-                    Console.Error.WriteLine($"[Vertex] {component.GetType().Name}.OnDestroy on {Name} failed: {exception.Message}");
+                    Log.Error($"{component.GetType().Name}.OnDestroy on {Name} failed: {exception.Message}", exception);
                 }
             }
 
@@ -207,7 +207,7 @@ namespace Vertex
             }
             catch (Exception exception)
             {
-                Console.Error.WriteLine($"[Vertex] OnDestroy on {Name} failed: {exception.Message}");
+                Log.Error($"OnDestroy on {Name} failed: {exception.Message}", exception);
             }
 
             Transform.Parent = null;

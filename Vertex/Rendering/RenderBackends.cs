@@ -19,7 +19,7 @@ namespace Vertex.Rendering
 
             if (VulkanRenderBackend.IsSupported(out string reason)) return new VulkanRenderBackend();
 
-            Console.WriteLine($"[Vertex] Vulkan isn't available here ({reason}), so rendering with OpenGL.");
+            Log.Warning($"Vulkan isn't available here ({reason}), so rendering with OpenGL.");
             return new GLRenderBackend();
         }
 

@@ -168,7 +168,7 @@ namespace Vertex.Networking
             _hosting = room ?? new RoomSettings($"{GetName(LocalPeer)}'s room");
             _password = Encoding.UTF8.GetBytes(_hosting.Password);
             _lobbyCreated.Set(SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, Math.Clamp(_hosting.MaxPlayers, 1, 250)));
-            Console.WriteLine("[Vertex] Creating a Steam lobby...");
+            Log.Info("Creating a Steam lobby...");
         }
 
         /// <summary>
@@ -183,7 +183,7 @@ namespace Vertex.Networking
             JoinTarget = _expectedLobby = lobbyId;
             _password = Encoding.UTF8.GetBytes(password);
             SteamMatchmaking.JoinLobby(new CSteamID(lobbyId));
-            Console.WriteLine("[Vertex] Joining a Steam lobby...");
+            Log.Info("Joining a Steam lobby...");
         }
 
         /// <summary>Lists this game's rooms from anywhere in the world, full ones included: see <see cref="RoomsFound"/>.</summary>
@@ -191,7 +191,7 @@ namespace Vertex.Networking
         {
             _quickJoin = false;
             RequestLobbies();
-            Console.WriteLine("[Vertex] Looking for Steam lobbies...");
+            Log.Info("Looking for Steam lobbies...");
         }
 
         /// <summary>Joins the first room of this game that has space and no password, from anywhere in the world.</summary>
@@ -199,7 +199,7 @@ namespace Vertex.Networking
         {
             _quickJoin = true;
             RequestLobbies();
-            Console.WriteLine("[Vertex] Looking for a Steam lobby...");
+            Log.Info("Looking for a Steam lobby...");
         }
 
         private void RequestLobbies()
@@ -321,7 +321,7 @@ namespace Vertex.Networking
             {
                 if (Now - _joinStarted > _joinGiveUpAfter)
                 {
-                    Console.WriteLine("[Vertex] The lobby's owner never answered.");
+                    Log.Warning("The lobby's owner never answered.");
                     LeaveLobby();
                     JoinFailed?.Invoke(JoinError.NoAnswer);
                 }
@@ -351,7 +351,7 @@ namespace Vertex.Networking
                     // Whatever was typed for a room with no password isn't its password, should the lobby pass to us.
                     _admitted = true;
                     if (SteamMatchmaking.GetLobbyData(_lobby, _lockedKey) != "1") _password = [];
-                    Console.WriteLine($"[Vertex] In lobby {_lobby.m_SteamID} as {GetName(LocalPeer)}.");
+                    Log.Info($"In lobby {_lobby.m_SteamID} as {GetName(LocalPeer)}.");
                     SessionStarted?.Invoke();
 
                     AddPeer(from);
@@ -365,7 +365,7 @@ namespace Vertex.Networking
                     if (_admitted || _lobby == CSteamID.Nil || from != Owner || body.Length < 1) return;
 
                     var error = (JoinError)body[0];
-                    Console.WriteLine($"[Vertex] The lobby's owner refused: {error}.");
+                    Log.Warning($"The lobby's owner refused: {error}.");
                     LeaveLobby();
                     JoinFailed?.Invoke(error);
                     break;
@@ -381,7 +381,7 @@ namespace Vertex.Networking
                 case Packet.Kicked:
                     if (!_admitted || from != Owner) return;
 
-                    Console.WriteLine("[Vertex] The lobby's owner kicked us.");
+                    Log.Warning("The lobby's owner kicked us.");
                     int seconds = body.Length >= 2 ? BinaryPrimitives.ReadUInt16LittleEndian(body) : ushort.MaxValue;
                     Kicked?.Invoke(seconds == ushort.MaxValue ? null : TimeSpan.FromSeconds(seconds));
                     LeaveLobby();
@@ -458,7 +458,7 @@ namespace Vertex.Networking
                 if (!_creating) return;
 
                 _creating = false;
-                Console.WriteLine($"[Vertex] Couldn't create a Steam lobby: {result.m_eResult}");
+                Log.Warning($"Couldn't create a Steam lobby: {result.m_eResult}");
                 JoinFailed?.Invoke(JoinError.NoAnswer);
                 return;
             }
@@ -476,7 +476,7 @@ namespace Vertex.Networking
             SteamMatchmaking.SetLobbyData(lobby, _nameKey, room.Name);
             SteamMatchmaking.SetLobbyData(lobby, _lockedKey, room.HasPassword ? "1" : "0");
             SteamMatchmaking.SetLobbyData(lobby, _versionKey, Network.GameVersion);
-            Console.WriteLine("[Vertex] Lobby created. Invite friends from the Steam overlay (Shift+Tab).");
+            Log.Info("Lobby created. Invite friends from the Steam overlay (Shift+Tab).");
         }
 
         private void OnLobbyListReceived(LobbyMatchList_t result, bool ioFailure)
@@ -509,7 +509,7 @@ namespace Vertex.Networking
                 return;
             }
 
-            Console.WriteLine("[Vertex] No lobbies found. Host one instead.");
+            Log.Warning("No lobbies found. Host one instead.");
         }
 
         private void OnLobbyEntered(LobbyEnter_t entered)
@@ -524,7 +524,7 @@ namespace Vertex.Networking
 
                 _expectedLobby = 0;
                 var response = (EChatRoomEnterResponse)entered.m_EChatRoomEnterResponse;
-                Console.WriteLine($"[Vertex] Couldn't join the lobby: {response}");
+                Log.Warning($"Couldn't join the lobby: {response}");
                 JoinFailed?.Invoke(response == EChatRoomEnterResponse.k_EChatRoomEnterResponseFull ? JoinError.Full : JoinError.NoAnswer);
                 return;
             }
@@ -545,7 +545,7 @@ namespace Vertex.Networking
             if (created)
             {
                 _admitted = true;
-                Console.WriteLine($"[Vertex] In lobby {_lobby.m_SteamID} as {GetName(LocalPeer)}.");
+                Log.Info($"In lobby {_lobby.m_SteamID} as {GetName(LocalPeer)}.");
                 SessionStarted?.Invoke();
                 return;
             }

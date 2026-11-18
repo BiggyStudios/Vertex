@@ -183,7 +183,7 @@ namespace Vertex.Rendering.Vulkan
                 _context.Transition(commands, shadows, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
             });
 
-            Console.WriteLine($"[Vertex] Rendering with Vulkan on {_context.DeviceName}.");
+            Log.Info($"Rendering with Vulkan on {_context.DeviceName}.");
         }
 
         private void CreateLayouts()

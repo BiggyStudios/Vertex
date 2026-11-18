@@ -151,7 +151,7 @@ namespace Vertex.Physics
             SyncBodies(deltaTime);
 
             PhysicsUpdateError error = _system.Update(deltaTime, 1, _jobSystem);
-            if (error != PhysicsUpdateError.None) Console.WriteLine($"[Vertex] Physics step failed: {error}");
+            if (error != PhysicsUpdateError.None) Log.Warning($"Physics step failed: {error}");
 
             ReadBack();
             SendContacts();

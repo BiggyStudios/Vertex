@@ -50,7 +50,7 @@ namespace Vertex.Audio
             }
             catch (Exception exception)
             {
-                Console.WriteLine($"[Vertex] No audio: {exception.Message}");
+                Log.Warning($"No audio: {exception.Message}");
             }
         }
 

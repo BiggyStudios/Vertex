@@ -102,7 +102,7 @@ namespace Vertex.Rendering.OpenGL
         public void Initialise(IWindow window)
         {
             _gl = window.CreateOpenGL();
-            Console.WriteLine($"[Vertex] Rendering with OpenGL on {_gl.GetStringS(StringName.Renderer)}.");
+            Log.Info($"Rendering with OpenGL on {_gl.GetStringS(StringName.Renderer)}.");
 
             _gl.Enable(EnableCap.DepthTest);
             _gl.Enable(EnableCap.CullFace);
