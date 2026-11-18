@@ -17,6 +17,7 @@ namespace Vertex
         private static readonly Dictionary<string, Prefab> _prefabs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Font> _fonts = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, AudioClip> _sounds = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, Graphs.Graph> _graphs = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The texture in <paramref name="path"/>, loaded the first time it's asked for.</summary>
         public static Texture LoadTexture(string path) => Load(_textures, path, Texture.Load);
@@ -40,6 +41,12 @@ namespace Vertex
 
         /// <summary>The sound in a .wav file, loaded the first time it's asked for.</summary>
         public static AudioClip LoadSound(string path) => Load(_sounds, path, AudioClip.Load);
+
+        /// <summary>
+        /// The graph in a graph file (a .vscript visual script), loaded the first time it's asked for. Everything using it
+        /// shares it, so a change made in an editor reaches scripts already running.
+        /// </summary>
+        public static Graphs.Graph LoadGraph(string path) => Load(_graphs, path, Graphs.Graph.Load);
 
         private static T Load<T>(Dictionary<string, T> loaded, string path, Func<string, T> load)
         {
@@ -86,11 +93,31 @@ namespace Vertex
                     // Kept as it was.
                 }
             }
+            else if (_graphs.TryGetValue(full, out Graphs.Graph? graph) && File.Exists(full))
+            {
+                try
+                {
+                    // Not when it's what was just saved from here (an editor saving as it goes).
+                    string json = File.ReadAllText(full);
+                    if (json != graph.SavedJson)
+                    {
+                        graph.ReadJson(json);
+                        graph.SavedJson = json;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Half-written, perhaps: kept as it was.
+                }
+            }
             else
             {
                 Forget(full);
             }
         }
+
+        /// <summary>The graphs loaded so far: for an editor, which saves them when they're changed.</summary>
+        internal static IEnumerable<Graphs.Graph> LoadedGraphs => _graphs.Values;
 
         /// <summary>Forgets a loaded file, so it's read again next time: after it's been changed on disk, moved or deleted.</summary>
         public static void Forget(string path)
@@ -101,6 +128,7 @@ namespace Vertex
             _prefabs.Remove(full);
             _fonts.Remove(full);
             _sounds.Remove(full);
+            _graphs.Remove(full);
         }
     }
 }

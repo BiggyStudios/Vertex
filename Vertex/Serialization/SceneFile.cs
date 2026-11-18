@@ -293,6 +293,10 @@ namespace Vertex.Serialization
                         WriteReference(json, "font", font.Source);
                         return true;
 
+                    case Graphs.Graph { Source: { } graphFile }:
+                        WriteReference(json, "graph", graphFile);
+                        return true;
+
                     case Audio.AudioClip clip:
                         if (clip.Source == null) return false;
                         WriteReference(json, "sound", clip.Source);
@@ -579,6 +583,7 @@ namespace Vertex.Serialization
                 else if (element.TryGetProperty("prefab", out JsonElement prefab)) value = LoadFile(prefab.GetString()!, "Prefab", Assets.LoadPrefab);
                 else if (element.TryGetProperty("font", out JsonElement font)) value = LoadFile(font.GetString()!, "Font", Assets.LoadFont);
                 else if (element.TryGetProperty("sound", out JsonElement sound)) value = LoadFile(sound.GetString()!, "Sound", Assets.LoadSound);
+                else if (element.TryGetProperty("graph", out JsonElement graph)) value = LoadFile(graph.GetString()!, "Graph", Assets.LoadGraph);
                 else if (element.TryGetProperty("component", out JsonElement index))
                 {
                     if (!_objects.TryGetValue(element.GetProperty("object").GetInt32(), out GameObject? owner)) return false;
