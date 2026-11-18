@@ -66,22 +66,29 @@ namespace Vertex.Editor.Editing
 
         private static readonly JsonSerializerOptions _options = new() { WriteIndented = true };
 
+        // Only the editor's own preferences (from Load) are written back to the file: ones made in code, as tests do,
+        // never overwrite what someone has set.
+        private bool _fromFile;
+
         public static Preferences Load()
         {
+            Preferences preferences = new();
             try
             {
-                if (File.Exists(FilePath)) return JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FilePath), _options) ?? new Preferences();
+                if (File.Exists(FilePath)) preferences = JsonSerializer.Deserialize<Preferences>(File.ReadAllText(FilePath), _options) ?? new Preferences();
             }
             catch (Exception)
             {
                 // Unreadable: start again from the defaults.
             }
 
-            return new Preferences();
+            preferences._fromFile = true;
+            return preferences;
         }
 
         public void Save()
         {
+            if (!_fromFile) return;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
