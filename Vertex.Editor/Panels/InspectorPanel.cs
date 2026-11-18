@@ -266,10 +266,14 @@ namespace Vertex.Editor.Panels
             }
 
             string name = gameObject.Name;
-            if (TextInput.Draw(Ui.Id("object.name"), header.CutLeft(30f), ref name) && name.Trim().Length > 0)
+            // Renamed as it's typed, so the outliner keeps up; one undo for the lot.
+            int nameId = Ui.Id("object.name");
+            if (TextInput.Draw(nameId, header.CutLeft(30f), ref name, live: true) && name.Trim().Length > 0)
             {
                 SetValue.Apply(_context.History, "Rename", gameObject, typeof(GameObject).GetProperty(nameof(GameObject.Name))!, name.Trim());
             }
+
+            _grid.TypingSession(nameId);
 
             y += 30f + 12f;
 

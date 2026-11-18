@@ -50,6 +50,38 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Text_typed_into_the_inspector_changes_as_it_is_typed_and_undoes_in_one_go()
+        {
+            var context = new EditorContext();
+            Vertex.UI.UIText label = new GameObject("Title").AddComponent<Vertex.UI.UIText>();
+            label.Text = "";
+            var grid = new PropertyGrid(context);
+            void Draw() => grid.Draw(label, 0f, 0f, 400f);
+
+            int id = Ui.Id(RuntimeHelpers.GetHashCode(label), "Text");
+            UiFrame(Draw);
+            TextInput.Focus(id);
+            UiFrame(Draw);
+
+            // Each letter shows in the scene straight away, without pressing Enter.
+            foreach (string sofar in new[] { "P", "Pl", "Pla", "Play" })
+            {
+                InputSystem.TypeCharacter(sofar[^1]);
+                UiFrame(Draw);
+                Assert.Equal(sofar, label.Text);
+            }
+
+            InputSystem.PressKey(Key.Enter);
+            UiFrame(Draw);
+            InputSystem.ReleaseKey(Key.Enter);
+            UiFrame(Draw);
+
+            context.Undo();
+            Assert.Equal("", label.Text);
+            Assert.False(context.History.CanUndo);
+        }
+
+        [Fact]
         public void Play_runs_the_scene_and_stop_puts_it_back()
         {
             var context = new EditorContext();

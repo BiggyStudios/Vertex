@@ -125,8 +125,10 @@ namespace Vertex.Editor.Inspection
 
                 case MemberKind.Text:
                 {
+                    // Changes as it's typed, so the scene (a UI text in the game view) shows it at once; one undo for the lot.
                     string text = (string?)value ?? "";
-                    if (TextInput.Draw(id, field, ref text)) Set(target, member, text);
+                    if (TextInput.Draw(id, field, ref text, live: true)) Set(target, member, text);
+                    TypingSession(id);
                     break;
                 }
 
@@ -476,6 +478,22 @@ namespace Vertex.Editor.Inspection
             }
 
             return y + 22f + RowGap;
+        }
+
+        private int _typingIn;
+
+        /// <summary>
+        /// Keeps track of a text box being typed in, whose changes join up into one undo; when typing stops (Enter, Escape,
+        /// or clicking away) the next change starts a new one.
+        /// </summary>
+        public void TypingSession(int id)
+        {
+            if (Ui.FocusId == id) _typingIn = id;
+            else if (_typingIn == id)
+            {
+                _typingIn = 0;
+                _history.EndMerge();
+            }
         }
 
         /// <summary>Sets the value with undo, then lets <paramref name="target"/>'s owner know if it needs to.</summary>
