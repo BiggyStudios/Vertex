@@ -158,7 +158,7 @@ namespace Vertex.Rendering
             else Stats.GpuPassList.Clear();
         }
 
-        /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
+        /// <summary>A light, into the frame's lists of lights (the first directional one that casts shadows gets them).</summary>
         private void AddLight(Light light)
         {
             if (!light.Enabled) return;
@@ -175,6 +175,7 @@ namespace Vertex.Rendering
             }
         }
 
+        /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
         private void Collect(Scene scene, Camera? camera, int width, int height, RenderTexture? target)
         {
             _frame.Clear();

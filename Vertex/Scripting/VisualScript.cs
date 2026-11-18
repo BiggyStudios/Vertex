@@ -98,6 +98,18 @@ namespace Vertex.Scripting
 
         protected internal override void OnTriggerEnter(Collider other) => Fire("Trigger", ("Other", other.GameObject));
 
+        /// <summary>
+        /// Starts On Event nodes called <paramref name="name"/>, with <paramref name="value"/>, in the visual scripts on
+        /// <paramref name="to"/>, or in every visual script in the scene if it's null: C# telling visual scripts something
+        /// happened, as their Send Event node does. <c>VisualScript.SendEvent("Door Opened", door)</c>.
+        /// </summary>
+        public static void SendEvent(string name, object? value = null, GameObject? to = null)
+        {
+            var outputs = new (string, object?)[] { ("Name", name), ("Value", value) };
+            IEnumerable<VisualScript> scripts = to != null ? to.GetComponents<VisualScript>() : Scene.Active.FindComponents<VisualScript>();
+            foreach (VisualScript script in scripts.ToList()) script.Fire("Custom", outputs);
+        }
+
         /// <summary>Starts the script's nodes for an event, if it's running.</summary>
         public void Fire(string name, params (string Port, object? Value)[] outputs)
         {

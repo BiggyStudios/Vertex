@@ -277,5 +277,24 @@ namespace Vertex.Tests
             Assert.Equal(7f, tunedCopy.GetVariable("Speed"));
             loaded.Unload();
         }
+
+        [Fact]
+        public void Csharp_can_start_a_visual_scripts_on_event_nodes()
+        {
+            Graph graph = NewGraph();
+            GraphNode heard = graph.AddNode("Events/On Event", Vector2.Zero);
+            heard.Values["Name"] = "Door Opened";
+            GraphNode print = graph.AddNode("Actions/Print", Vector2.Zero);
+            Assert.True(graph.Link(heard.Id, "Then", print.Id, "In"));
+            Assert.True(graph.Link(heard.Id, "Value", print.Id, "Value"));
+            GameObject listener = Run(graph);
+
+            VisualScript.SendEvent("Door Opened", "front door");
+            VisualScript.SendEvent("Something else", "ignored");
+            VisualScript.SendEvent("Door Opened", "back door", to: listener);
+            VisualScript.SendEvent("Door Opened", "not here", to: new GameObject("Elsewhere"));
+
+            Assert.Equal(["front door", "back door"], _logged.Where(e => e.Level == LogLevel.Info).Select(e => e.Message));
+        }
     }
 }

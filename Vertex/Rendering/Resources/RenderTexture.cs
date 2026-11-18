@@ -3,7 +3,7 @@ namespace Vertex.Rendering
     /// <summary>
     /// A texture a <see cref="Camera"/> draws into instead of the screen: set it as the camera's
     /// <see cref="Camera.Target"/>. Use it like any other texture: on a material (a security monitor, a mirror) or
-    /// drawn with <see cref="UI.Canvas.DrawImage"/> (a minimap, or an editor's view of the scene).
+    /// drawn with <see cref="UI.Canvas.DrawImage(Texture?, System.Numerics.Vector2, System.Numerics.Vector2, Color)"/> (a minimap, or an editor's view of the scene).
     /// <para>
     /// A camera shouldn't see a surface showing its own render texture: what it would show is the picture it's in the
     /// middle of drawing.

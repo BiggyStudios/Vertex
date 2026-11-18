@@ -107,7 +107,7 @@ namespace Vertex.UI
             _clips.Add(clip);
         }
 
-        /// <summary>Goes back to drawing as before <see cref="BeginView"/>.</summary>
+        /// <summary>Goes back to drawing as before <c>BeginView</c>.</summary>
         internal static void EndView()
         {
             if (_views.Count == 0) return;
