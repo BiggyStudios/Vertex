@@ -24,6 +24,10 @@ namespace Vertex.Editor.Panels
 
         private bool _looking, _panning, _orbiting;
         private bool _pickPending;
+        private bool _boxSelecting;
+
+        // What the selection box touches, so lights' and cameras' icons can light up too.
+        private readonly HashSet<GameObject> _inBox = new();
         private Vector2 _pressedAt;
         private float _speedChangedAt = -10f;
 
@@ -305,13 +309,35 @@ namespace Vertex.Editor.Panels
                 _pressedAt = Ui.Mouse;
             }
 
+            // Dragged instead: a box, and everything it touches is selected when it's let go (shown outlined meanwhile).
+            if (_pickPending && Ui.MouseHeld() && Vector2.Distance(_pressedAt, Ui.Mouse) >= 5f) _boxSelecting = true;
+            if (_boxSelecting)
+            {
+                Ui.ActiveId = id;
+                Rect box = BoxFrom(_pressedAt, Ui.Mouse, viewport);
+                List<GameObject> inBox = InBox(view, box);
+                foreach (GameObject gameObject in inBox) DrawSelectionOutline(view, gameObject);
+                _inBox.Clear();
+                _inBox.UnionWith(inBox);
+
+                Ui.Rect(box, Theme.Accent.WithAlpha(0.14f));
+                Ui.Outline(box, Theme.Accent.WithAlpha(0.9f), 0f, 1f);
+
+                if (Ui.MouseReleased()) SelectBox(inBox);
+            }
+
             if (_pickPending && Ui.MouseReleased())
             {
                 _pickPending = false;
-                if (Vector2.Distance(_pressedAt, Ui.Mouse) < 5f) Pick(view, clickedIcon);
+                if (!_boxSelecting && Vector2.Distance(_pressedAt, Ui.Mouse) < 5f) Pick(view, clickedIcon);
             }
 
-            if (!Ui.MouseHeld() && !Ui.MouseReleased()) _pickPending = false;
+            if (!Ui.MouseHeld())
+            {
+                _boxSelecting = false;
+                _inBox.Clear();
+                if (!Ui.MouseReleased()) _pickPending = false;
+            }
 
             HandleDrop(view, viewport);
             Ui.PopClip();
@@ -525,6 +551,92 @@ namespace Vertex.Editor.Panels
             }
         }
 
+        /// <summary>The box between two corners, kept inside the view.</summary>
+        private static Rect BoxFrom(Vector2 a, Vector2 b, Rect viewport)
+        {
+            Vector2 min = Vector2.Clamp(Vector2.Min(a, b), viewport.Position, viewport.Position + viewport.Size);
+            Vector2 max = Vector2.Clamp(Vector2.Max(a, b), viewport.Position, viewport.Position + viewport.Size);
+            return new Rect(min.X, min.Y, max.X - min.X, max.Y - min.Y);
+        }
+
+        /// <summary>
+        /// The objects a selection box touches, in the scene's order: what they draw overlapping it (like a desktop's
+        /// icons), and lights and cameras by their icons. UI isn't in the 3D world, so never is.
+        /// </summary>
+        private List<GameObject> InBox(in ViewProjection view, Rect box)
+        {
+            var found = new List<GameObject>();
+            if (box.Width < 1f || box.Height < 1f) return found;
+
+            foreach (GameObject gameObject in _context.Scene.GameObjects)
+            {
+                if (!gameObject.ActiveInHierarchy || gameObject.GetComponent<UIRect>() != null || gameObject.GetComponent<UICanvas>() != null) continue;
+
+                // Something drawn all round the box (the floor it's dragged over) is the background, like a desktop's: left out.
+                bool touched = false;
+                if (gameObject.GetComponent<MeshRenderer>() is { Mesh: { } mesh } && ScreenBounds(view, mesh, gameObject.Transform.WorldMatrix) is { } drawn)
+                {
+                    bool around = drawn.X <= box.X && drawn.Y <= box.Y && drawn.Right >= box.Right && drawn.Bottom >= box.Bottom;
+                    touched = drawn.Overlaps(box) && !around;
+                }
+
+                if (!touched && (gameObject.GetComponent<Light>() != null || gameObject.GetComponent<Camera>() != null) &&
+                    view.ToScreen(gameObject.Transform.WorldPosition) is Vector2 icon)
+                {
+                    touched = box.Grow(12f).Contains(icon);
+                }
+
+                if (touched) found.Add(gameObject);
+            }
+
+            return found;
+        }
+
+        /// <summary>
+        /// The rectangle on screen a mesh's bounds cover; null if they're all behind the camera. Bounds reaching behind
+        /// the camera (a floor stretching away under it) could cover any of the view, so count as covering all of it.
+        /// </summary>
+        private static Rect? ScreenBounds(in ViewProjection view, Mesh mesh, Matrix4x4 world)
+        {
+            Culling.WorldBounds(mesh, world, out Vector3 centre, out Vector3 extents);
+            Vector2 min = new(float.MaxValue), max = new(float.MinValue);
+            int inFront = 0;
+            for (int i = 0; i < 8; i++)
+            {
+                var corner = centre + new Vector3(i % 2 == 0 ? -extents.X : extents.X, i / 2 % 2 == 0 ? -extents.Y : extents.Y, i / 4 == 0 ? -extents.Z : extents.Z);
+                if (view.ToScreen(corner) is not Vector2 at) continue;
+                min = Vector2.Min(min, at);
+                max = Vector2.Max(max, at);
+                inFront++;
+            }
+
+            if (inFront == 0) return null;
+            if (inFront < 8) return view.Viewport.Grow(100000f);
+            return new Rect(min.X, min.Y, max.X - min.X, max.Y - min.Y);
+        }
+
+        /// <summary>Selects what a box touched; with Ctrl or Shift, as well as what's already selected (which stays the main one).</summary>
+        private void SelectBox(List<GameObject> inBox)
+        {
+            bool adding = InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight) ||
+                          InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+            if (!adding)
+            {
+                _context.Selection.Select(inBox);
+                return;
+            }
+
+            GameObject? main = _context.Selection.Object;
+            List<GameObject> all = _context.Selection.Objects.Concat(inBox).Distinct().ToList();
+            if (main != null)
+            {
+                all.Remove(main);
+                all.Add(main);
+            }
+
+            _context.Selection.Select(all);
+        }
+
         /// <summary>Whether <paramref name="gameObject"/> is somewhere under <paramref name="ancestor"/>.</summary>
         private static bool IsUnder(GameObject gameObject, GameObject ancestor)
         {
@@ -582,7 +694,7 @@ namespace Vertex.Editor.Panels
                 Vector3 position = gameObject.Transform.WorldPosition;
                 if (view.ToScreen(position) is not Vector2 at) continue;
 
-                bool selected = _context.Selection.Contains(gameObject);
+                bool selected = _context.Selection.Contains(gameObject) || _inBox.Contains(gameObject);
                 bool hovered = mouseFree && Vector2.Distance(at, Ui.Mouse) < 13f;
                 if (hovered) under = gameObject;
 

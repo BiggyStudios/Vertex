@@ -226,6 +226,57 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Dragging_a_box_in_the_scene_view_selects_what_it_touches()
+        {
+            var app = new EditorApp();
+            static void Cube(GameObject g) => g.AddComponent<MeshRenderer>().Mesh = Primitives.Cube;
+            GameObject left = app.Context.Create("Left", g => { Cube(g); g.Transform.Position = new Vector3(-1f, 1f, 0f); });
+            GameObject right = app.Context.Create("Right", g => { Cube(g); g.Transform.Position = new Vector3(1f, 1f, 0f); });
+            GameObject far = app.Context.Create("Far Away", g => { Cube(g); g.Transform.Position = new Vector3(0f, 1f, 400f); });
+            GameObject floor = app.Context.Create("Floor", g =>
+            {
+                g.AddComponent<MeshRenderer>().Mesh = Primitives.Plane;
+                g.Transform.Scale = new Vector3(200f, 1f, 200f);
+            });
+            app.Context.Selection.Clear();
+            app.SceneView.Camera.Settle();
+            Frame(app, 2);
+
+            // From one side of the middle of the view to the other, past both cubes (the camera looks at the middle).
+            InputSystem.MoveMouse(new Vector2(500f, 140f));
+            Frame(app);
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app);
+            for (int i = 1; i <= 6; i++)
+            {
+                InputSystem.MoveMouse(new Vector2(500f + i * 120f, 140f + i * 70f));
+                Frame(app);
+            }
+
+            Assert.Empty(app.Context.Selection.Objects);
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app);
+
+            Assert.Contains(left, app.Context.Selection.Objects);
+            Assert.Contains(right, app.Context.Selection.Objects);
+            Assert.DoesNotContain(far, app.Context.Selection.Objects);
+
+            // The floor the box was dragged over is the background, like a desktop's.
+            Assert.DoesNotContain(floor, app.Context.Selection.Objects);
+
+            // A box over nothing, without Ctrl or Shift, selects nothing.
+            InputSystem.MoveMouse(new Vector2(520f, 150f));
+            Frame(app);
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app);
+            InputSystem.MoveMouse(new Vector2(560f, 170f));
+            Frame(app);
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app);
+            Assert.Empty(app.Context.Selection.Objects);
+        }
+
+        [Fact]
         public void Deleting_and_duplicating_act_on_everything_selected()
         {
             var context = new EditorContext();
