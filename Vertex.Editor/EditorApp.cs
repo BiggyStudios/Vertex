@@ -50,6 +50,22 @@ namespace Vertex.Editor
         /// <summary>The screen's scaling (1.25 at 125%), set by the window; the editor sizes itself by it.</summary>
         public float DisplayScale { get; set; } = 1f;
 
+        /// <summary>How many pixels tall the screen the window is on is, set by the window: for <see cref="Preferences.AutoSize"/>. 0 if unknown.</summary>
+        public float ScreenHeight { get; set; }
+
+        /// <summary>
+        /// How much bigger to make everything on a big, sharp screen the system doesn't scale up itself: a 1440-pixel-tall
+        /// screen (1440p or ultrawide) at 100% gets 125%, a 4K one 150%. A screen the system already scales is left alone.
+        /// </summary>
+        public static float AutoScale(float displayScale, float screenHeight)
+        {
+            if (displayScale > 1.05f || screenHeight <= 0f) return 1f;
+            return screenHeight >= 2000f ? 1.5f : screenHeight >= 1400f ? 1.25f : 1f;
+        }
+
+        /// <summary>Pixels per UI unit for the editor: the screen's scaling, the automatic size, and the size chosen.</summary>
+        public float InterfaceScale => DisplayScale * (Context.Preferences.AutoSize ? AutoScale(DisplayScale, ScreenHeight) : 1f) * Context.Preferences.UiScale;
+
         /// <summary>Set by the window while it's being resized by an edge: the editor's controls leave the mouse alone.</summary>
         public bool InputBlocked { get; set; }
 
@@ -85,6 +101,25 @@ namespace Vertex.Editor
                 _notes.Add((text, Ui.Time));
                 if (_notes.Count > 3) _notes.RemoveAt(0);
             };
+
+            // The editor's own file browser offers the project and recent projects' folders first.
+            FilePicker.Places = () =>
+            {
+                var places = new List<(string, string)>();
+                if (Context.Project is { } project)
+                {
+                    places.Add((project.Name, project.Directory));
+                    places.Add(("Assets", project.AssetsDirectory));
+                }
+
+                foreach (string recent in Context.Preferences.RecentProjects.Take(4))
+                {
+                    string? folder = Path.GetDirectoryName(recent);
+                    if (folder != null && Directory.Exists(folder)) places.Add((Path.GetFileNameWithoutExtension(recent), folder));
+                }
+
+                return places;
+            };
         }
 
         /// <summary>The pictures of the scene to draw this frame, before the window's 2D layer.</summary>
@@ -96,7 +131,7 @@ namespace Vertex.Editor
             Preferences preferences = Context.Preferences;
 
             // The editor's own size; a game's UI in the game view sizes itself (see Canvas.BeginView).
-            Canvas.FixedScale = DisplayScale * preferences.UiScale;
+            Canvas.FixedScale = InterfaceScale;
 
             // While the game has the keyboard and mouse, the editor's controls don't see them (see PlayMode).
             _sceneView.RouteInput();
@@ -353,6 +388,12 @@ namespace Vertex.Editor
                         new MenuItem("Assets", () => ShowAssets = !ShowAssets) { Checked = ShowAssets },
                         MenuItem.Separator,
                         new MenuItem("Grid", () => Context.Preferences.ShowGrid = !Context.Preferences.ShowGrid) { Checked = Context.Preferences.ShowGrid },
+                        MenuItem.Separator,
+                        new MenuItem("Bigger Interface", () => ChangeSize(+0.1f)) { Shortcut = "Ctrl+=" },
+                        new MenuItem("Smaller Interface", () => ChangeSize(-0.1f)) { Shortcut = "Ctrl+-" },
+                        new MenuItem("Normal Interface Size", () => ChangeSize(0f)) { Shortcut = "Ctrl+0" },
+                        new MenuItem("Size to Fit the Screen", () => Context.Preferences.AutoSize = !Context.Preferences.AutoSize) { Checked = Context.Preferences.AutoSize },
+                        MenuItem.Separator,
                         new MenuItem("Reset Layout", ResetLayout)
                     ];
 
@@ -363,6 +404,14 @@ namespace Vertex.Editor
                         new MenuItem("About Vertex", () => Dialog.Message("About Vertex", "Vertex Editor\nA game engine in C#, drawn with Vulkan or OpenGL."))
                     ];
             }
+        }
+
+        /// <summary>Makes everything bigger or smaller by <paramref name="by"/> (0 puts it back to normal), and says how big it is now.</summary>
+        private void ChangeSize(float by)
+        {
+            Preferences preferences = Context.Preferences;
+            preferences.UiScale = by == 0f ? 1f : Math.Clamp(MathF.Round((preferences.UiScale + by) * 10f) / 10f, 0.6f, 2f);
+            Context.Notify($"Interface size {MathF.Round(InterfaceScale / DisplayScale * 100f)}%");
         }
 
         private void ResetLayout()
@@ -376,10 +425,8 @@ namespace Vertex.Editor
 
         public static void OpenProjectDialog(EditorContext context)
         {
-            string? path = NativeDialogs.OpenFile("Open Project: a .vertexproject, or a game's .csproj", null,
-                ("Vertex projects and games", "*.vertexproject;*.csproj"));
-            if (path != null) context.OpenProject(path);
-            else if (!NativeDialogs.Available) EditorContext.AskForPath("Open Project", "", context.OpenProject);
+            FilePicker.Open("Open Project: a .vertexproject, or a game's .csproj", context.Project?.Directory,
+                ("Vertex projects and games", "*.vertexproject;*.csproj"), context.OpenProject);
         }
 
         private void OpenSceneDialog()
@@ -387,9 +434,7 @@ namespace Vertex.Editor
             ConfirmDiscard(() =>
             {
                 string? folder = Context.Project != null ? Path.Combine(Context.Project.AssetsDirectory, "Scenes") : null;
-                string? path = NativeDialogs.OpenFile("Open Scene", folder, ("Scenes", "*.scene"));
-                if (path != null) Context.OpenScene(path);
-                else if (!NativeDialogs.Available) EditorContext.AskForPath("Open Scene", folder ?? "", Context.OpenScene);
+                FilePicker.Open("Open Scene", folder, ("Scenes", "*.scene"), Context.OpenScene);
             });
         }
 
@@ -405,7 +450,7 @@ namespace Vertex.Editor
             Dialog.Ask("Unsaved changes", $"Save the changes to {Context.SceneName} first?",
                 ("Save", () =>
                 {
-                    if (Context.SaveScene()) then();
+                    if (Context.SaveScene(saved: then)) then();
                 }),
                 ("Don't Save", then),
                 ("Cancel", () => { }));
@@ -514,6 +559,9 @@ namespace Vertex.Editor
                 if (InputSystem.GetKeyDown(Key.N)) ConfirmDiscard(Context.NewScene);
                 if (InputSystem.GetKeyDown(Key.D) && selected != null) Context.Duplicate(selected);
                 if (InputSystem.GetKeyDown(Key.R)) Context.BuildGame();
+                if (InputSystem.GetKeyDown(Key.Equal) || InputSystem.GetKeyDown(Key.KeypadAdd)) ChangeSize(+0.1f);
+                if (InputSystem.GetKeyDown(Key.Minus) || InputSystem.GetKeyDown(Key.KeypadSubtract)) ChangeSize(-0.1f);
+                if (InputSystem.GetKeyDown(Key.Number0) || InputSystem.GetKeyDown(Key.Keypad0)) ChangeSize(0f);
                 if (InputSystem.GetKeyDown(Key.P))
                 {
                     if (shift && Context.Play.Playing) Context.Play.Paused = !Context.Play.Paused;

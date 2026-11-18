@@ -7,6 +7,7 @@ using Vertex.Editor.Inspection;
 using Vertex.Input;
 using Vertex.Physics;
 using Vertex.Rendering;
+using Vertex.UI;
 
 namespace Vertex.Editor.Panels
 {
@@ -52,6 +53,7 @@ namespace Vertex.Editor.Panels
             float appear = Ui.EaseOut((Ui.Time - _selectedAt) / 0.2f);
             int scrollId = Ui.Id("inspector.scroll");
             var scroll = ScrollView.Begin(scrollId, content);
+            _scrollTop = scroll.Top;
             Ui.Opacity = appear;
 
             float x = content.X + Theme.Padding;
@@ -141,6 +143,41 @@ namespace Vertex.Editor.Panels
                     y += 40f;
                     break;
 
+                case AssetKind.Sound:
+                    y = SoundPreview.Draw(asset.Path, x, y, width);
+                    break;
+
+                case AssetKind.Material:
+                {
+                    Material material;
+                    try
+                    {
+                        material = Assets.LoadMaterial(asset.Path);
+                    }
+                    catch (Exception exception)
+                    {
+                        Ui.Text(new Rect(x, y, width, 20f), $"Can't be read: {exception.Message}", Theme.Danger, size: Theme.SmallTextSize);
+                        return y + 26f;
+                    }
+
+                    var ball = new Rect(x + width * 0.5f - 60f, y, 120f, 120f);
+                    AssetsPanel.DrawPicture(asset, ball);
+                    y += 130f;
+                    y = Note("Shared by everything that uses it: changes are saved to the file as you make them.", x, y, width) + 8f;
+                    y = _grid.Draw(material, x, y, width);
+                    break;
+                }
+
+                case AssetKind.Prefab:
+                    if (Widgets.Button(Ui.Id("asset.addPrefab"), new Rect(x, y, width, 30f), "Add to Scene", ButtonStyle.Primary)) _context.AddPrefab(asset.Path, _context.SpawnPoint);
+                    y += 40f;
+                    y = Note("Drag it into the scene for more copies. To change it, change a copy, then Apply in that copy's inspector: every copy updates.", x, y, width);
+                    break;
+
+                case AssetKind.Script:
+                    y = DrawScript(asset, x, y, width);
+                    break;
+
                 case AssetKind.Model:
                     if (Widgets.Button(Ui.Id("asset.add"), new Rect(x, y, width, 30f), "Add to Scene", ButtonStyle.Primary)) AssetsPanel.AddModel(_context, asset.Path, _context.SpawnPoint);
                     y += 40f;
@@ -148,6 +185,69 @@ namespace Vertex.Editor.Panels
             }
 
             return y;
+        }
+
+        /// <summary>A small faint note, wrapped onto as many lines as it takes. Returns where it ends.</summary>
+        private static float Note(string text, float x, float y, float width)
+        {
+            foreach (string line in Ui.Wrap(text, width, Theme.SmallTextSize))
+            {
+                Ui.Text(new Rect(x, y, width, 17f), line, Theme.TextFaint, size: Theme.SmallTextSize);
+                y += 17f;
+            }
+
+            return y + 4f;
+        }
+
+        private readonly Dictionary<string, (DateTime Written, string[] Lines)> _scripts = new();
+
+        /// <summary>A script: open it in the code editor, and the start of it to read.</summary>
+        private float DrawScript(AssetEntry asset, float x, float y, float width)
+        {
+            if (Widgets.Button(Ui.Id("asset.openScript"), new Rect(x, y, width, 30f), "Open in Code Editor", ButtonStyle.Primary))
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(asset.Path) { UseShellExecute = true });
+                }
+                catch (Exception exception)
+                {
+                    _context.Notify($"Couldn't open {asset.Name}: {exception.Message}");
+                }
+            }
+
+            y += 38f;
+            y = Note("After changing code, rebuild it (Ctrl+R) for the editor to see it.", x, y, width) + 6f;
+
+            DateTime written = File.Exists(asset.Path) ? File.GetLastWriteTimeUtc(asset.Path) : default;
+            if (!_scripts.TryGetValue(asset.Path, out var script) || script.Written != written)
+            {
+                string[] lines;
+                try
+                {
+                    lines = File.ReadLines(asset.Path).Take(80).Select(line => line.Replace("\t", "    ")).ToArray();
+                }
+                catch (Exception)
+                {
+                    lines = ["(can't be read)"];
+                }
+
+                script = (written, lines);
+                _scripts[asset.Path] = script;
+            }
+
+            const float lineHeight = 16f;
+            var code = new Rect(x, y, width, script.Lines.Length * lineHeight + 16f);
+            Ui.Rect(code, Theme.Field, 6f);
+            float lineY = code.Y + 8f;
+            foreach (string line in script.Lines)
+            {
+                Ui.Text(new Rect(code.X + 10f, lineY, code.Width - 20f, lineHeight), line, line.TrimStart().StartsWith("//") ? Theme.TextFaint : Theme.TextDim,
+                    size: Theme.SmallTextSize);
+                lineY += lineHeight;
+            }
+
+            return code.Bottom + 10f;
         }
 
         // ---------------------------------------------------------------- An object
@@ -170,14 +270,20 @@ namespace Vertex.Editor.Panels
 
             y += 30f + 12f;
 
-            y = Card(gameObject.Transform, "Transform", Icons.Move, x, y, width, removable: false, body: cy => DrawTransform(gameObject.Transform, x + 12f, cy, width - 24f));
+            if (gameObject.Prefab is { } prefab) y = PrefabBar(gameObject, prefab, x, y, width);
 
-            // Through a copy: removing one from its menu changes the list.
-            foreach (Component component in gameObject.Components.ToArray())
+            // A piece of UI is placed by its rectangle, not its transform: that comes first instead.
+            UIRect? uiRect = gameObject.GetComponent<UIRect>();
+            if (uiRect != null)
             {
-                y = Card(component, ComponentCatalog.DisplayName(component.GetType()), IconFor(component), x, y, width, removable: true,
-                    body: cy => _grid.Draw(component, x + 12f, cy, width - 24f));
+                y = Card(uiRect, "Rect", Icons.Scale, x, y, width, removable: true, body: cy => DrawUIRect(uiRect, x + 12f, cy, width - 24f));
             }
+            else
+            {
+                y = Card(gameObject.Transform, "Transform", Icons.Move, x, y, width, removable: false, body: cy => DrawTransform(gameObject.Transform, x + 12f, cy, width - 24f));
+            }
+
+            y = DrawComponents(gameObject, uiRect, x, y, width);
 
             y += 4f;
             return AddComponentButton(gameObject, x, y, width);
@@ -210,7 +316,8 @@ namespace Vertex.Editor.Panels
         /// A card with a header (arrow, icon, name, and for components an on/off box and a menu) and a body that slides
         /// open and shut. Returns where the next card goes.
         /// </summary>
-        private float Card(object owner, string title, Icon icon, float x, float y, float width, bool removable, Func<float, float> body)
+        private float Card(object owner, string title, Icon icon, float x, float y, float width, bool removable, Func<float, float> body, bool draggable = false,
+            bool lifted = false)
         {
             int id = Ui.Id(RuntimeHelpers.GetHashCode(owner), "card");
             bool open = !_folded.TryGetValue(owner, out _);
@@ -219,8 +326,11 @@ namespace Vertex.Editor.Panels
             float shownBody = bodyHeight * openness;
 
             var card = new Rect(x - 4f, y, width + 8f, _cardHeader + shownBody);
-            Ui.Rect(card, Theme.PanelRaised, 6f);
-            Ui.Outline(card, Theme.Border, 6f);
+
+            // Picked up to move: it floats over the rest, with a shadow.
+            if (lifted) Ui.Shadow(card, 6f, 22f, 0.9f);
+            Ui.Rect(card, lifted ? Theme.ControlHover : Theme.PanelRaised, 6f);
+            Ui.Outline(card, lifted ? Theme.Accent.WithAlpha(0.6f) : Theme.Border, 6f);
 
             // The header: clicking it folds the card, except over the box and the menu.
             var header = new Rect(card.X, card.Y, card.Width, _cardHeader);
@@ -229,7 +339,17 @@ namespace Vertex.Editor.Panels
             Rect titleRect = removable ? header.CutRight(58f) : header;
 
             bool nowOpen = Widgets.Foldout(id, titleRect.Shrink(2f, 3f), title, open, icon: icon);
-            if (nowOpen != open)
+
+            // Its header can be dragged to move it up or down among the others; letting go after a drag isn't a click.
+            if (draggable)
+            {
+                if (Ui.ActiveId == id && Ui.MousePressed()) PressCard(owner, y);
+                bool overHeader = titleRect.Contains(Ui.Mouse) && Ui.HotId == id;
+                float grip = Ui.Smooth(Ui.Id(id, "grip"), overHeader || lifted ? 1f : 0f, 18f);
+                if (grip > 0.01f) DrawGrip(new Vector2(titleRect.Right - 10f, titleRect.Centre.Y), Theme.TextFaint.WithAlpha(grip));
+            }
+
+            if (nowOpen != open && _cardDropFrame != Ui.Frame)
             {
                 if (nowOpen) _folded.Remove(owner);
                 else _folded.AddOrUpdate(owner, owner);
@@ -244,7 +364,7 @@ namespace Vertex.Editor.Panels
                 }
 
                 int menuId = Ui.Id(id, "menu");
-                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More")) Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), ComponentMenu(component));
+                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More")) Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), ComponentMenu(component), flipBy: menuButton.Height + 6f);
             }
 
             if (openness > 0.001f)
@@ -258,6 +378,242 @@ namespace Vertex.Editor.Panels
             }
 
             return y + card.Height + _cardGap;
+        }
+
+        // ---------------------------------------------------------------- Moving components by dragging
+
+        // A component card pressed on, where, and how far down its header the mouse was; and the one being dragged.
+        private object? _pressedCard;
+        private Vector2 _pressedAt;
+        private float _grabbedAt;
+        private Component? _dragging;
+        private int _dropIndex;
+        private int _cardDropFrame = -1;
+
+        // Cards slide to their places while a card is dragged, and for a moment after it's let go.
+        private float _slideUntil;
+
+        private void PressCard(object owner, float cardY)
+        {
+            _pressedCard = owner;
+            _pressedAt = Ui.Mouse;
+            _grabbedAt = Ui.Mouse.Y - cardY;
+        }
+
+        private static void DrawGrip(Vector2 centre, Color color)
+        {
+            for (int row = -1; row <= 1; row++)
+            {
+                for (int column = 0; column < 2; column++) Ui.Circle(centre + new Vector2((column - 0.5f) * 5f, row * 5f), 1.2f, color);
+            }
+        }
+
+        /// <summary>
+        /// The object's components as cards, under its transform. A card's header can be dragged up or down: the others
+        /// slide apart to make room where it would go, and it settles into place when let go.
+        /// </summary>
+        private float DrawComponents(GameObject gameObject, UIRect? fixedFirst, float x, float y, float width)
+        {
+            // Through a copy: removing one from its menu changes the list. The UI rectangle is shown above, not here.
+            List<Component> components = gameObject.Components.Where(c => c != fixedFirst).ToList();
+            float scrollTop = _scrollTop;
+
+            // A press that moves far enough becomes a drag; letting go drops it.
+            if (_pressedCard is Component pressed && _dragging == null && Ui.MouseHeld() && Vector2.Distance(Ui.Mouse, _pressedAt) > 6f && components.Contains(pressed))
+            {
+                _dragging = pressed;
+                Popup.Close();
+            }
+
+            if (!Ui.MouseHeld()) _pressedCard = null;
+            if (_dragging != null && !components.Contains(_dragging)) _dragging = null;
+
+            if (_dragging is { } dropped && !Ui.MouseHeld())
+            {
+                // Where it's let go from, so it eases from there into its new place.
+                Ui.Snap(SlideKey(dropped), Ui.Mouse.Y - _grabbedAt - scrollTop);
+                _dragging = null;
+                _cardDropFrame = Ui.Frame;
+                _slideUntil = Ui.Time + 0.6f;
+
+                int from = gameObject.Components.ToList().IndexOf(dropped);
+                int to = _dropIndex + (fixedFirst != null && gameObject.Components.ToList().IndexOf(fixedFirst) <= _dropIndex ? 1 : 0);
+                if (from >= 0 && to != from) MoveTo(dropped, to);
+                components = gameObject.Components.Where(c => c != fixedFirst).ToList();
+            }
+
+            float Height(Component component) => Ui.Recall(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "full"), _cardHeader + _cardGap);
+
+            // Where each card goes: in order, with a gap where the dragged one would land.
+            var targets = new List<(Component Component, float Y)>();
+            float at = y;
+            if (_dragging is { } held)
+            {
+                float heldHeight = Height(held);
+                float heldCentre = Ui.Mouse.Y - _grabbedAt + heldHeight * 0.5f;
+                List<Component> others = components.Where(c => c != held).ToList();
+
+                _dropIndex = others.Count;
+                float scan = y;
+                for (int i = 0; i < others.Count; i++)
+                {
+                    float height = Height(others[i]);
+                    if (scan + height * 0.5f > heldCentre)
+                    {
+                        _dropIndex = i;
+                        break;
+                    }
+
+                    scan += height;
+                }
+
+                for (int i = 0; i < others.Count; i++)
+                {
+                    if (i == _dropIndex) at += heldHeight;
+                    targets.Add((others[i], at));
+                    at += Height(others[i]);
+                }
+
+                if (_dropIndex == others.Count) at += heldHeight;
+            }
+            else
+            {
+                foreach (Component component in components)
+                {
+                    targets.Add((component, at));
+                    at += Height(component);
+                }
+            }
+
+            // Each card eases to its place (measured from the top of the scrolled list, so scrolling doesn't lag).
+            bool slide = _dragging != null || Ui.Time < _slideUntil;
+            foreach ((Component component, float target) in targets)
+            {
+                int key = SlideKey(component);
+                float shown = slide ? Ui.Smooth(key, target - scrollTop, 18f, target - scrollTop) + scrollTop : target;
+                if (!slide) Ui.Snap(key, target - scrollTop);
+
+                float end = Card(component, ComponentCatalog.DisplayName(component.GetType()), IconFor(component), x, shown, width, removable: true,
+                    body: cy => _grid.Draw(component, x + 12f, cy, width - 24f), draggable: true);
+                Ui.Remember(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "full"), end - shown);
+            }
+
+            // The dragged card last, over the rest, following the mouse.
+            if (_dragging is { } dragged)
+            {
+                float top = Ui.Mouse.Y - _grabbedAt;
+                Ui.Cursor = Vertex.Input.CursorShape.Hand;
+                float end = Card(dragged, ComponentCatalog.DisplayName(dragged.GetType()), IconFor(dragged), x, top, width, removable: true,
+                    body: cy => _grid.Draw(dragged, x + 12f, cy, width - 24f), draggable: true, lifted: true);
+                Ui.Remember(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(dragged), "card"), "full"), end - top);
+            }
+
+            return at;
+        }
+
+        private static int SlideKey(Component component) => Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "slide");
+
+        // Where the inspector's scrolled contents start this frame, for the cards' sliding.
+        private float _scrollTop;
+
+        private void MoveTo(Component component, int to)
+        {
+            GameObject gameObject = component.GameObject;
+            int from = gameObject.Components.ToList().IndexOf(component);
+            to = Math.Clamp(to, 0, gameObject.Components.Count - 1);
+            if (from == to) return;
+
+            _context.History.Do(new ChangeGroup($"Move {ComponentCatalog.DisplayName(component.GetType())}",
+            [
+                new RemoveComponent(gameObject, component),
+                new AddComponentAt(gameObject, component, to)
+            ]));
+        }
+
+        // ---------------------------------------------------------------- Prefab copies
+
+        /// <summary>A bar over a prefab copy: which prefab, and buttons to save its changes to it or throw them away.</summary>
+        private float PrefabBar(GameObject gameObject, Prefab prefab, float x, float y, float width)
+        {
+            var bar = new Rect(x - 4f, y, width + 8f, 34f);
+            Ui.Rect(bar, Theme.Hex(0x6FA8FF).WithAlpha(0.12f), 6f);
+            Ui.Outline(bar, Theme.Hex(0x6FA8FF).WithAlpha(0.3f), 6f);
+            Icons.Prefab(new Vector2(bar.X + 16f, bar.Centre.Y), 14f, Theme.Hex(0x6FA8FF));
+
+            Rect buttons = bar.Shrink(5f).TakeRight(MathF.Min(196f, bar.Width * 0.62f));
+            Rect apply = buttons.Column(2, 3, 4f), revert = buttons.Column(1, 3, 4f), select = buttons.Column(0, 3, 4f);
+            Ui.Text(new Rect(bar.X + 30f, bar.Y, buttons.X - bar.X - 34f, bar.Height), prefab.Name, Theme.Hex(0x8FBCFF));
+
+            if (Widgets.Button(Ui.Id("prefab.select"), select, "Select", ButtonStyle.Subtle, $"Show {prefab.Name}.prefab in the assets") &&
+                _context.Assets != null && File.Exists(prefab.Source))
+            {
+                _context.Selection.SelectAsset(new AssetEntry(prefab.Source, AssetKind.Prefab));
+            }
+
+            if (Widgets.Button(Ui.Id("prefab.revert"), revert, "Revert", ButtonStyle.Subtle, "Throw away this copy's changes: make it again from the prefab"))
+            {
+                _context.RevertPrefab(gameObject);
+            }
+
+            if (Widgets.Button(Ui.Id("prefab.apply"), apply, "Apply", ButtonStyle.Primary, "Save this copy's changes to the prefab, and update every other copy"))
+            {
+                _context.ApplyPrefab(gameObject);
+            }
+
+            return y + bar.Height + 10f;
+        }
+
+        // ---------------------------------------------------------------- UI rectangles
+
+        private static readonly (string Name, Vector2 Min, Vector2 Max)[] _anchorPresets =
+        [
+            ("Top Left", new(0f, 0f), new(0f, 0f)), ("Top", new(0.5f, 0f), new(0.5f, 0f)), ("Top Right", new(1f, 0f), new(1f, 0f)),
+            ("Left", new(0f, 0.5f), new(0f, 0.5f)), ("Middle", new(0.5f), new(0.5f)), ("Right", new(1f, 0.5f), new(1f, 0.5f)),
+            ("Bottom Left", new(0f, 1f), new(0f, 1f)), ("Bottom", new(0.5f, 1f), new(0.5f, 1f)), ("Bottom Right", new(1f, 1f), new(1f, 1f)),
+            ("Stretch Across Top", new(0f, 0f), new(1f, 0f)), ("Stretch Across Middle", new(0f, 0.5f), new(1f, 0.5f)), ("Stretch Across Bottom", new(0f, 1f), new(1f, 1f)),
+            ("Stretch Down Left", new(0f, 0f), new(0f, 1f)), ("Stretch Down Middle", new(0.5f, 0f), new(0.5f, 1f)), ("Stretch Down Right", new(1f, 0f), new(1f, 1f)),
+            ("Fill", new(0f, 0f), new(1f, 1f))
+        ];
+
+        /// <summary>
+        /// A UI rectangle: where it keeps to in its parent (picked from a grid of the usual choices, which keeps it where it
+        /// is on screen), then its position and size.
+        /// </summary>
+        private float DrawUIRect(UIRect rect, float x, float y, float width)
+        {
+            int id = Ui.Id(RuntimeHelpers.GetHashCode(rect), "uirect");
+            PropertyGrid.Row(Ui.Id(id, "anchors"), x, y, width, "Keep To", "Which part of its parent it stays put against as the screen changes size", out Rect field);
+
+            int current = Array.FindIndex(_anchorPresets, p => p.Min == rect.AnchorMin && p.Max == rect.AnchorMax);
+            string[] names = [.. _anchorPresets.Select(p => p.Name), .. current < 0 ? new[] { "Custom" } : []];
+            if (Widgets.Dropdown(Ui.Id(id, "preset"), field, names, current < 0 ? names.Length - 1 : current) is int picked && picked < _anchorPresets.Length)
+            {
+                SetAnchors(rect, _anchorPresets[picked].Min, _anchorPresets[picked].Max);
+            }
+
+            y += Theme.RowHeight + PropertyGrid.RowGap;
+            return _grid.Draw(rect, x, y, width);
+        }
+
+        /// <summary>Changes a UI rectangle's anchors (and pivot to match), keeping it where it is on the screen.</summary>
+        private void SetAnchors(UIRect rect, Vector2 min, Vector2 max)
+        {
+            (Vector2 parentPosition, Vector2 parentSize) = UISystem.ParentRect(rect.GameObject);
+            Vector2 screenPosition = rect.ScreenPosition, screenSize = rect.ScreenSize;
+            Vector2 pivot = new(min.X == max.X ? min.X : 0.5f, min.Y == max.Y ? min.Y : 0.5f);
+
+            var after = new UIRect { AnchorMin = min, AnchorMax = max, Pivot = pivot };
+            (Vector2 position, Vector2 size) = after.PlacementFor(screenPosition, screenSize, parentPosition, parentSize);
+
+            Type type = typeof(UIRect);
+            _context.History.Do(new ChangeGroup("Change Anchors",
+            [
+                new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.AnchorMin))!, rect.AnchorMin, min),
+                new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.AnchorMax))!, rect.AnchorMax, max),
+                new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Pivot))!, rect.Pivot, pivot),
+                new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Position))!, rect.Position, position),
+                new SetValue("Anchors", rect, type.GetProperty(nameof(UIRect.Size))!, rect.Size, size)
+            ]));
         }
 
         private List<MenuItem> ComponentMenu(Component component)

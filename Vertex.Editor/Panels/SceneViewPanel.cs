@@ -59,6 +59,8 @@ namespace Vertex.Editor.Panels
             // The camera lives in a scene of the editor's own, which is never run or drawn by itself.
             Camera = new EditorCamera(new Scene());
             Camera.FlySpeed = context.Preferences.FlySpeed;
+            _uiEditing = new UIEditing(context);
+            CreateMenu.MadeUI += ShowGame;
         }
 
         /// <summary>
@@ -166,10 +168,25 @@ namespace Vertex.Editor.Panels
                 Canvas.DrawImage(_gameTexture, viewport.Position, viewport.Size, Vector2.Zero, Vector2.One, Color.White);
             }
 
-            // Clicking the picture gives the game the mouse (see RouteInput); the editor's controls leave it alone.
-            Ui.Block(Ui.Id("gameView"), viewport);
-            if (_context.Play.Playing) StepGame(viewport, visible: true);
+            // Playing: clicking the picture gives the game the mouse (see RouteInput), and the editor's controls leave it
+            // alone. Otherwise the scene's UI is shown, to arrange.
+            if (_context.Play.Playing)
+            {
+                Ui.Block(Ui.Id("gameView"), viewport);
+                StepGame(viewport, visible: true);
+            }
+            else
+            {
+                if (Ui.MousePressed()) _gameFocused = viewport.Contains(Ui.Mouse);
+                _uiEditing.Draw(viewport, _gameFocused);
+            }
         }
+
+        private readonly UIEditing _uiEditing;
+        private bool _gameFocused;
+
+        /// <summary>Shows the game's picture, where UI is arranged: after a piece of UI is made.</summary>
+        public void ShowGame() => _gameTab = true;
 
         /// <summary>Runs the game's frame, with its 2D layer drawn into the game's picture as if that were the whole screen.</summary>
         private void StepGame(Rect viewport, bool visible)
@@ -234,6 +251,21 @@ namespace Vertex.Editor.Panels
 
             GameObject? selected = _context.Selection.Object;
             if (selected != null && !_context.InScene(selected)) selected = null;
+
+            // UI isn't in the 3D world: it's arranged on the game's screen.
+            if (selected != null && (selected.GetComponent<UIRect>() != null || selected.GetComponent<UICanvas>() != null))
+            {
+                selected = null;
+                const string text = "UI is arranged on the game's screen: open the Game tab";
+                float width = Ui.TextWidth(text) + 28f;
+                var chip = new Rect(viewport.Centre.X - width * 0.5f, viewport.Bottom - 44f, width, 28f);
+                int chipId = Ui.Id("sceneView.uiHint");
+                Interaction chipPress = Ui.Interact(chipId, chip);
+                Ui.Rect(chip, chipPress.Hovered ? Theme.AccentHover : Theme.Accent, 14f);
+                Ui.Text(chip, text, Color.White, align: 0.5f);
+                if (chipPress.Clicked) _gameTab = true;
+            }
+
             if (selected != null) DrawSelectionOutline(view, selected);
 
             GameObject? clickedIcon = DrawObjectIcons(view, hovered && !_looking);
@@ -282,13 +314,23 @@ namespace Vertex.Editor.Panels
                     _context.Selection.Select(target);
                 }
             }
-            else if (asset.Kind == AssetKind.Model && DragDrop.Dropped)
+            else if (asset.Kind == AssetKind.Material && hit is (GameObject surface, _) && surface.GetComponent<MeshRenderer>() is { } painted)
+            {
+                DrawSelectionOutline(view, surface);
+                if (DragDrop.Dropped)
+                {
+                    SetValue.Apply(_context.History, "Set Material", painted, typeof(MeshRenderer).GetProperty(nameof(MeshRenderer.Material))!, Assets.LoadMaterial(asset.Path));
+                    _context.Selection.Select(surface);
+                }
+            }
+            else if (asset.Kind is AssetKind.Model or AssetKind.Prefab && DragDrop.Dropped)
             {
                 // On whatever's under the mouse, or on the ground, or in front of the camera.
                 Vector3 at = hit is (_, float distance) ? origin + direction * distance
                     : TransformHandles.PlaneHit(Vector3.Zero, Vector3.UnitY, origin, direction) is Vector3 ground && Vector3.Distance(ground, origin) < 500f ? ground
                     : origin + direction * 10f;
-                AssetsPanel.AddModel(_context, asset.Path, at);
+                if (asset.Kind == AssetKind.Prefab) _context.AddPrefab(asset.Path, at);
+                else AssetsPanel.AddModel(_context, asset.Path, at);
             }
             else if (asset.Kind == AssetKind.Scene && DragDrop.Dropped)
             {

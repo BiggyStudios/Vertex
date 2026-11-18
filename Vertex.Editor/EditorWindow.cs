@@ -40,6 +40,7 @@ namespace Vertex.Editor
         private bool _closeConfirmed;
 
         private const int _edge = 6;
+        private int _screenCheck;
 
         public EditorWindow()
         {
@@ -78,6 +79,7 @@ namespace Vertex.Editor
         private void OnLoad()
         {
             _renderer.Initialise(_window);
+            AllowResizing();
             _ = new SilkInput(_window);
             Sound.Initialise();
             Theme.LoadFonts();
@@ -102,6 +104,14 @@ namespace Vertex.Editor
             {
                 InputSystem.EndFrame();
                 return;
+            }
+
+            // The screen the window's on, now and then: it may have been moved to another.
+            if (_screenCheck-- <= 0)
+            {
+                _screenCheck = 30;
+                _app.DisplayScale = DisplayScale();
+                _app.ScreenHeight = ScreenHeight();
             }
 
             Time.Advance(deltaTime);
@@ -278,6 +288,47 @@ namespace Vertex.Editor
 
             RectangleInt work = info.Work;
             return (new Vector2D<int>(work.Left, work.Top), new Vector2D<int>(work.Right - work.Left, work.Bottom - work.Top));
+        }
+
+        /// <summary>
+        /// Silk.NET makes a window without a border fixed-size too. On Windows that changes nothing (the editor resizes it
+        /// itself), but on Linux a fixed-size window reads as a dialog, which tiling window managers (Hyprland, Sway, i3)
+        /// float instead of tiling, and which can't be maximised. So it's made resizable again.
+        /// </summary>
+        private unsafe void AllowResizing()
+        {
+            if (OperatingSystem.IsWindows()) return;
+
+            try
+            {
+                if (_window.Native?.Glfw is nint handle)
+                {
+                    GlfwProvider.GLFW.Value.SetWindowAttrib((WindowHandle*)handle, WindowAttributeSetter.Resizable, true);
+                }
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[Vertex] Couldn't make the window resizable: {exception.Message}");
+            }
+        }
+
+        /// <summary>How many pixels tall the screen the window is on is; 0 if it can't be found out.</summary>
+        private float ScreenHeight()
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows() && _window.Native?.Win32 is { } win32)
+                {
+                    var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+                    if (GetMonitorInfo(MonitorFromWindow(win32.Hwnd, 2), ref info)) return info.Monitor.Bottom - info.Monitor.Top;
+                }
+
+                return _window.Monitor?.VideoMode.Resolution?.Y ?? 0f;
+            }
+            catch (Exception)
+            {
+                return 0f;
+            }
         }
 
         private unsafe float DisplayScale()

@@ -26,9 +26,12 @@ namespace Vertex.Editor.Editing
     /// </summary>
     public sealed class Preferences
     {
-        [Tooltip("How big the editor's text and controls are, on top of the screen's own scaling.")]
-        [Range(0.75f, 2f)]
+        [Tooltip("How big the editor's text and controls are, on top of the screen's own scaling. Ctrl+= and Ctrl+- change it too.")]
+        [Range(0.6f, 2f)]
         public float UiScale { get; set; } = 1f;
+
+        [Tooltip("Makes everything bigger on big, sharp screens the system doesn't scale up itself (a 1440p, ultrawide or 4K monitor at 100%)")]
+        public bool AutoSize { get; set; } = true;
 
         [Tooltip("How quickly the scene view's camera eases to where it's going: higher is snappier.")]
         [Range(4f, 40f)]

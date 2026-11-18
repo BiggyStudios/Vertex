@@ -91,6 +91,30 @@ namespace Vertex.Editor.Gui
             Ui.Line(centre, Corner(5), color, 1.2f);
         }
 
+        /// <summary>A solid cube seen from a corner: a prefab, an object saved to be copied.</summary>
+        public static void Prefab(Vector2 centre, float size, Color color)
+        {
+            float r = size * 0.38f;
+            Vector2 Corner(int i)
+            {
+                float a = (i * 60f - 90f) * MathF.PI / 180f;
+                return centre + new Vector2(MathF.Cos(a), MathF.Sin(a)) * r;
+            }
+
+            // Three faces, lit differently, so it reads as solid.
+            Vertex.UI.Canvas.DrawQuad(Corner(0), Corner(1), centre, Corner(5), Ui.Fade(color));
+            Vertex.UI.Canvas.DrawQuad(centre, Corner(1), Corner(2), Corner(3), Ui.Fade(color * 0.75f));
+            Vertex.UI.Canvas.DrawQuad(Corner(5), centre, Corner(3), Corner(4), Ui.Fade(color * 0.55f));
+        }
+
+        /// <summary>A window with a title bar: a piece of UI.</summary>
+        public static void UI(Vector2 centre, float size, Color color)
+        {
+            var frame = new Rect(centre.X - size * 0.36f, centre.Y - size * 0.3f, size * 0.72f, size * 0.6f);
+            Ui.Outline(frame, color, 2f, 1.2f);
+            Ui.Line(new Vector2(frame.X, frame.Y + size * 0.18f), new Vector2(frame.Right, frame.Y + size * 0.18f), color, 1.2f);
+        }
+
         /// <summary>A sun: a light.</summary>
         public static void Light(Vector2 centre, float size, Color color)
         {
@@ -303,6 +327,6 @@ namespace Vertex.Editor.Gui
         }
 
         // A ring, thin enough for an icon.
-        private static void Ring(Vector2 centre, float radius, Color color) => Vertex.UI.Canvas.DrawCircleOutline(centre, radius, Ui.Fade(color), 1.3f);
+        public static void Ring(Vector2 centre, float radius, Color color) => Vertex.UI.Canvas.DrawCircleOutline(centre, radius, Ui.Fade(color), 1.3f);
     }
 }

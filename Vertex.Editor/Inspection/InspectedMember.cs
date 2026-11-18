@@ -19,8 +19,11 @@ namespace Vertex.Editor.Inspection
         Enum,
         Mesh,
 
-        /// <summary>A texture: shown, but not yet pickable.</summary>
+        /// <summary>A texture: a slot showing it, to pick one of the project's or drop one in.</summary>
         Texture,
+
+        /// <summary>Another file of the project's (a prefab, a font, a sound): a slot like a texture's.</summary>
+        Asset,
 
         /// <summary>A settings object of its own (a material): its values are shown under it.</summary>
         Nested,
@@ -135,6 +138,7 @@ namespace Vertex.Editor.Inspection
             if (type.IsEnum) return MemberKind.Enum;
             if (type == typeof(Mesh)) return MemberKind.Mesh;
             if (typeof(Texture).IsAssignableFrom(type)) return MemberKind.Texture;
+            if (type == typeof(Prefab) || type == typeof(Vertex.UI.Font) || type == typeof(Vertex.Audio.AudioClip)) return MemberKind.Asset;
             if (typeof(GameObject).IsAssignableFrom(type) || typeof(Component).IsAssignableFrom(type)) return MemberKind.Reference;
 
             // A settings object: a class of the engine's or the game's with values of its own to show.

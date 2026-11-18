@@ -178,7 +178,8 @@ namespace Vertex.Editor.Inspection
                     break;
 
                 case MemberKind.Texture:
-                    TextureField(id, field, target, member, value as Texture);
+                case MemberKind.Asset:
+                    AssetMember(id, field, target, member, value);
                     break;
 
                 case MemberKind.Reference:
@@ -209,39 +210,83 @@ namespace Vertex.Editor.Inspection
             if (Widgets.Dropdown(id, field, names, selected) is int picked && picked != selected) Set(target, member, meshes[picked]);
         }
 
-        /// <summary>
-        /// A texture slot: a small picture of it and its name. Click to pick one of the project's textures, or drag one
-        /// onto it from the assets.
-        /// </summary>
-        private void TextureField(int id, Rect field, object target, InspectedMember member, Texture? texture)
+        /// <summary>The kind of project file a value of <paramref name="type"/> comes from, and how one's loaded; null if it isn't one.</summary>
+        public static (AssetKind Kind, Func<string, object> Load)? AssetKindOf(Type type)
         {
-            bool canPick = member.CanWrite && member.Type.IsAssignableFrom(typeof(Texture)) && _context?.Assets != null;
+            if (typeof(Texture).IsAssignableFrom(type)) return (AssetKind.Texture, Assets.LoadTexture);
+            if (type == typeof(Material)) return (AssetKind.Material, Assets.LoadMaterial);
+            if (type == typeof(Prefab)) return (AssetKind.Prefab, Assets.LoadPrefab);
+            if (type == typeof(Vertex.UI.Font)) return (AssetKind.Font, Assets.LoadFont);
+            if (type == typeof(Vertex.Audio.AudioClip)) return (AssetKind.Sound, Assets.LoadSound);
+            return null;
+        }
+
+        /// <summary>The file an asset was loaded from, or null if it wasn't (made in code).</summary>
+        public static string? SourceOf(object? value) => value switch
+        {
+            Texture texture => texture.Source,
+            Material material => material.Source,
+            Prefab prefab => prefab.Source,
+            Vertex.UI.Font font => font.Source,
+            Vertex.Audio.AudioClip clip => clip.Source,
+            _ => null
+        };
+
+        private void AssetMember(int id, Rect field, object target, InspectedMember member, object? value)
+        {
+            if (AssetKindOf(member.Type) is not { } kind) return;
+            AssetField(id, field, kind.Kind, value, member.CanWrite, path =>
+            {
+                try
+                {
+                    Set(target, member, path != null ? kind.Load(path) : null);
+                }
+                catch (Exception exception)
+                {
+                    _notify($"Couldn't load {Path.GetFileName(path)}: {exception.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// A slot for one of the project's files: a small picture of it and its name. Click to pick one from a list, or
+        /// drag one onto it from the assets. <paramref name="set"/> gets the chosen file's path, or null for none.
+        /// </summary>
+        public void AssetField(int id, Rect field, AssetKind kind, object? value, bool canWrite, Action<string?> set, string? noneLabel = null)
+        {
+            bool canPick = canWrite && _context?.Assets != null;
             Interaction interaction = Ui.Interact(id, field);
 
             // Something dragged from the assets lights the slot up, and lands in it when let go.
-            bool dropping = canPick && DragDrop.Dragging && DragDrop.Payload is AssetEntry { Kind: AssetKind.Texture } && field.Contains(Ui.Mouse);
-            if (dropping && DragDrop.Dropped && DragDrop.Payload is AssetEntry dropped) Set(target, member, Assets.LoadTexture(dropped.Path));
+            bool dropping = canPick && DragDrop.Dragging && DragDrop.Payload is AssetEntry entry && entry.Kind == kind && field.Contains(Ui.Mouse);
+            if (dropping && DragDrop.Dropped && DragDrop.Payload is AssetEntry dropped) set(dropped.Path);
 
             Color background = Ui.Smooth(id, interaction.Hovered && canPick ? Theme.Control : Theme.Field, 24f);
             Ui.Rect(field, background, Theme.ControlRadius);
             Ui.Outline(field, dropping ? Theme.Accent : Popup.IsOpen(id) ? Theme.Accent.WithAlpha(0.7f) : Theme.Border, Theme.ControlRadius, dropping ? 1.5f : 1f);
 
             var swatch = new Rect(field.X + 3f, field.Y + 3f, field.Height - 6f, field.Height - 6f);
-            if (texture != null)
+            string? source = SourceOf(value);
+            if (value is Texture texture)
             {
-                Texture shown = texture.Source is { } source && Thumbnails.Get(source) is { } thumbnail ? thumbnail : texture;
+                Texture shown = source != null && Thumbnails.Get(source) is { } thumbnail ? thumbnail : texture;
                 if (texture is not RenderTexture) Vertex.UI.Canvas.DrawImage(shown, swatch.Position, swatch.Size, Vector2.Zero, Vector2.One, Ui.Fade(Color.White), 3f);
+            }
+            else if (value != null)
+            {
+                Panels.AssetsPanel.DrawPicture(new AssetEntry(source ?? "", kind), swatch.Grow(2f), small: true);
             }
             else
             {
                 Ui.Rect(swatch, Theme.Background, 3f);
             }
 
-            string name = texture == null ? "None"
-                : texture.Source is { } path ? Path.GetFileNameWithoutExtension(path)
-                : texture is RenderTexture ? $"Render texture  {texture.Width} × {texture.Height}"
-                : $"Made in code  {texture.Width} × {texture.Height}";
-            Ui.Text(new Rect(swatch.Right + 8f, field.Y, field.Right - swatch.Right - 16f, field.Height), name, texture == null ? Theme.TextFaint : Theme.Text);
+            string name = value == null ? noneLabel ?? "None"
+                : source != null ? Path.GetFileNameWithoutExtension(source)
+                : value is RenderTexture render ? $"Render texture  {render.Width} × {render.Height}"
+                : value is Texture made ? $"Made in code  {made.Width} × {made.Height}"
+                : "Made in code";
+            Ui.Text(new Rect(swatch.Right + 8f, field.Y, field.Right - swatch.Right - 16f, field.Height), name, value == null ? Theme.TextFaint : Theme.Text);
 
             if (!canPick) return;
             if (interaction.Clicked && !Popup.IsOpen(id))
@@ -251,18 +296,27 @@ namespace Vertex.Editor.Inspection
                 TextInput.Focus(Ui.Id(id, "search"), selectAll: true);
             }
 
-            Popup.Show(id, new Vector2(MathF.Max(field.Width, 300f), 330f), inner => TexturePicker(id, inner, target, member, texture));
+            Popup.Show(id, new Vector2(MathF.Max(field.Width, 300f), 330f), inner => AssetPicker(id, inner, kind, source, value == null, set, noneLabel));
         }
 
         private string _pickerSearch = "";
 
-        private void TexturePicker(int id, Rect rect, object target, InspectedMember member, Texture? current)
+        private void AssetPicker(int id, Rect rect, AssetKind kind, string? current, bool currentIsNone, Action<string?> set, string? noneLabel)
         {
-            TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search textures", live: true, icon: Icons.Search);
+            string what = kind switch
+            {
+                AssetKind.Texture => "textures",
+                AssetKind.Material => "materials",
+                AssetKind.Prefab => "prefabs",
+                AssetKind.Font => "fonts",
+                AssetKind.Sound => "sounds",
+                _ => "files"
+            };
+            TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);
 
             string search = _pickerSearch.Trim();
             var choices = new List<AssetEntry?> { null };
-            choices.AddRange(_context!.Assets!.All(AssetKind.Texture).Where(entry => search.Length == 0 || entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase)));
+            choices.AddRange(_context!.Assets!.All(kind).Where(entry => search.Length == 0 || entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase)));
 
             Rect list = rect.CutTop(34f);
             int scrollId = Ui.Id(id, "pickerScroll");
@@ -279,7 +333,7 @@ namespace Vertex.Editor.Inspection
 
                 int itemId = Ui.Id(id, entry?.Path ?? "none");
                 Interaction interaction = Ui.Interact(itemId, box);
-                bool isCurrent = entry == null ? current == null : current?.Source != null && string.Equals(Path.GetFullPath(entry.Path), current.Source, StringComparison.OrdinalIgnoreCase);
+                bool isCurrent = entry == null ? currentIsNone : current != null && string.Equals(Path.GetFullPath(entry.Path), current, StringComparison.OrdinalIgnoreCase);
                 if (isCurrent) Ui.Rect(box, Theme.Selection, 5f);
                 else if (interaction.Hovered) Ui.Rect(box, Theme.Hover.WithAlpha(1.6f), 5f);
 
@@ -291,14 +345,19 @@ namespace Vertex.Editor.Inspection
                     Ui.Line(picture.Shrink(14f).Position, picture.Shrink(14f).Position + picture.Shrink(14f).Size, Theme.TextFaint, 1.5f);
                 }
 
-                Ui.Text(new Rect(box.X, picture.Bottom, box.Width, 18f), entry?.NameWithoutExtension ?? "None", Theme.TextDim, align: 0.5f, size: Theme.SmallTextSize);
+                Ui.Text(new Rect(box.X, picture.Bottom, box.Width, 18f), entry?.NameWithoutExtension ?? noneLabel ?? "None", Theme.TextDim, align: 0.5f, size: Theme.SmallTextSize);
 
                 if (interaction.Clicked)
                 {
-                    Set(target, member, entry != null ? Assets.LoadTexture(entry.Path) : null);
                     Popup.Close();
                     Ui.FocusId = 0;
+                    set(entry?.Path);
                 }
+            }
+
+            if (choices.Count == 1)
+            {
+                Ui.Text(new Rect(list.X, scroll.Top + cell + 6f, list.Width, 20f), $"No {what} in the project yet", Theme.TextFaint, align: 0.5f, size: Theme.SmallTextSize);
             }
 
             scroll.End(MathF.Ceiling(choices.Count / (float)columns) * cell);
@@ -353,13 +412,70 @@ namespace Vertex.Editor.Inspection
             Ui.PushClip(new Rect(x - 4f, y, width + 8f, shownHeight));
             float start = y;
 
-            // A line down the left groups the rows under their heading.
-            float end = Draw(value, x + 14f, y, width - 14f, depth + 1);
+            // A line down the left groups the rows under their heading. A material says first which file it is, if any.
+            float end = value is Material material && member.CanWrite ? MaterialFile(id, owner, member, material, x + 14f, y, width - 14f) : y;
+            end = Draw(value, x + 14f, end, width - 14f, depth + 1);
             Ui.Rect(new Rect(x + 4f, start, 1f, MathF.Max(end - start - RowGap, 0f)), Theme.Border);
             Ui.PopClip();
 
             Ui.Remember(heightKey, end - start);
             return y + shownHeight;
+        }
+
+        /// <summary>
+        /// Which .material file a material is, if it's one: a slot to swap it for another (or none, for one of its own),
+        /// and the way between the two: saving one's own as a file, or making a shared one this object's own.
+        /// </summary>
+        private float MaterialFile(int id, object owner, InspectedMember member, Material material, float x, float y, float width)
+        {
+            Row(Ui.Id(id, "file"), x, y, width, "File", "A .material file shared with everything else that uses it, or this object's own material", out Rect field);
+            AssetField(Ui.Id(id, "fileSlot"), field, AssetKind.Material, material.Source != null ? material : null, canWrite: true, path =>
+            {
+                try
+                {
+                    // Back to one of its own: a copy of the file's, to carry on from.
+                    Set(owner, member, path != null ? Assets.LoadMaterial(path) : material.Copy());
+                }
+                catch (Exception exception)
+                {
+                    _notify($"Couldn't load {Path.GetFileName(path)}: {exception.Message}");
+                }
+            }, noneLabel: "This object's own");
+            y += Theme.RowHeight + RowGap;
+
+            float labelWidth = LabelWidth(width);
+            var note = new Rect(x + labelWidth, y, width - labelWidth, 22f);
+            if (material.Source != null)
+            {
+                if (Widgets.Button(Ui.Id(id, "unique"), note.TakeLeft(MathF.Min(note.Width, 150f)), "Make Unique", ButtonStyle.Subtle,
+                        "Give this object a copy of its own, so changing it leaves the others alone")) Set(owner, member, material.Copy());
+                y += 22f + RowGap;
+                Ui.Text(new Rect(x, y, width, 16f), $"Changes here change everything using {Path.GetFileName(material.Source)}", Theme.TextFaint, size: Theme.SmallTextSize);
+                return y + 20f + RowGap;
+            }
+
+            if (_context?.Assets is { } assets && Widgets.Button(Ui.Id(id, "saveAs"), note.TakeLeft(MathF.Min(note.Width, 150f)), "Save as File", ButtonStyle.Subtle,
+                    "Save it to a .material file in the project, to use on other objects too"))
+            {
+                string folder = Path.Combine(assets.Root, "Materials");
+                Directory.CreateDirectory(folder);
+                string name = owner is Component component ? component.GameObject.Name : "Material";
+                string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), ".material");
+                try
+                {
+                    var saved = material.Copy();
+                    File.WriteAllText(path, Vertex.Serialization.SceneFile.SaveMaterial(saved, _context.AssetFolders));
+                    Set(owner, member, Assets.LoadMaterial(path));
+                    assets.Refresh();
+                    _notify($"Saved {Path.GetFileName(path)}");
+                }
+                catch (Exception exception)
+                {
+                    _notify($"Couldn't save the material: {exception.Message}");
+                }
+            }
+
+            return y + 22f + RowGap;
         }
 
         /// <summary>Sets the value with undo, then lets <paramref name="target"/>'s owner know if it needs to.</summary>

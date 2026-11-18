@@ -8,6 +8,9 @@ namespace Vertex.Editor.Editing
         Scene,
         Sound,
         Font,
+        Material,
+        Prefab,
+        Script,
         Other
     }
 
@@ -135,6 +138,9 @@ namespace Vertex.Editor.Editing
             ".scene" => AssetKind.Scene,
             ".wav" or ".ogg" or ".mp3" => AssetKind.Sound,
             ".ttf" or ".otf" => AssetKind.Font,
+            ".material" => AssetKind.Material,
+            ".prefab" => AssetKind.Prefab,
+            ".cs" => AssetKind.Script,
             _ => AssetKind.Other
         };
 

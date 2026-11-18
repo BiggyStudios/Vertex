@@ -256,8 +256,11 @@ namespace Vertex.Editor
             Notify($"Opened {SceneName}");
         }
 
-        /// <summary>Saves the scene to its file, asking where first if it hasn't one (or with <paramref name="saveAs"/>). False if not saved.</summary>
-        public bool SaveScene(bool saveAs = false)
+        /// <summary>
+        /// Saves the scene to its file, asking where first if it hasn't one (or with <paramref name="saveAs"/>). True if
+        /// it was saved straight away; if it had to ask, <paramref name="saved"/> runs once it's been saved.
+        /// </summary>
+        public bool SaveScene(bool saveAs = false, Action? saved = null)
         {
             if (Play.Playing)
             {
@@ -265,20 +268,15 @@ namespace Vertex.Editor
                 return false;
             }
 
-            string? path = ScenePath;
-            if (path == null || saveAs)
-            {
-                string folder = Project != null ? Path.Combine(Project.AssetsDirectory, "Scenes") : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                Directory.CreateDirectory(folder);
-                path = NativeDialogs.SaveFile("Save Scene", folder, SceneName + ".scene", ("Scenes", "*.scene"));
-                if (path == null)
-                {
-                    if (!NativeDialogs.Available) AskForPath("Save Scene As", Path.Combine(folder, SceneName + ".scene"), chosen => SaveSceneTo(chosen));
-                    return false;
-                }
-            }
+            if (ScenePath != null && !saveAs) return SaveSceneTo(ScenePath);
 
-            return SaveSceneTo(path);
+            string folder = Project != null ? Path.Combine(Project.AssetsDirectory, "Scenes") : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            Directory.CreateDirectory(folder);
+            FilePicker.Save("Save Scene", folder, SceneName + ".scene", ("Scenes", "*.scene"), path =>
+            {
+                if (SaveSceneTo(path)) saved?.Invoke();
+            });
+            return false;
         }
 
         private bool SaveSceneTo(string path)
@@ -300,21 +298,6 @@ namespace Vertex.Editor
             Assets?.Refresh();
             Notify($"Saved {SceneName}");
             return true;
-        }
-
-        /// <summary>For systems without file dialogs: asks for a path in a dialog of the editor's own.</summary>
-        public static void AskForPath(string title, string initial, Action<string> chosen)
-        {
-            string path = initial;
-            Dialog.Show(title, new Vector2(560f, 140f), rect =>
-            {
-                TextInput.Draw(Ui.Id("path.input"), rect.TakeTop(30f), ref path, "Full path", live: true);
-                if (Widgets.Button(Ui.Id("path.ok"), rect.TakeBottom(30f).TakeRight(100f), "OK", ButtonStyle.Primary) || InputSystem.GetKeyDown(Key.Enter))
-                {
-                    Dialog.Close();
-                    chosen(path.Trim().Trim('"'));
-                }
-            });
         }
 
         // ---------------------------------------------------------------- Projects
@@ -343,6 +326,7 @@ namespace Vertex.Editor
             Assets?.Dispose();
             Assets = new AssetDatabase(project.AssetsDirectory);
             Application.BaseDirectory = project.Directory;
+            Application.AssetFolders = AssetFolders;
 
             if (project.GameProjectFile is { } gameProject && File.Exists(gameProject))
             {
@@ -350,7 +334,18 @@ namespace Vertex.Editor
                 _untitledName = project.Name;
                 BuildGame();
             }
-            else if (project.Settings.StartupScene.Length > 0 && File.Exists(Path.Combine(project.AssetsDirectory, project.Settings.StartupScene)))
+            else
+            {
+                OpenStartupScene();
+            }
+
+            Notify($"Opened {project.Name}");
+        }
+
+        /// <summary>Opens the project's startup scene if it has one, otherwise a new scene.</summary>
+        private void OpenStartupScene()
+        {
+            if (Project is { } project && project.Settings.StartupScene.Length > 0 && File.Exists(Path.Combine(project.AssetsDirectory, project.Settings.StartupScene)))
             {
                 OpenScene(Path.Combine(project.AssetsDirectory, project.Settings.StartupScene));
             }
@@ -358,22 +353,20 @@ namespace Vertex.Editor
             {
                 NewScene();
             }
-
-            Notify($"Opened {project.Name}");
         }
 
         /// <summary>Makes a project in a new folder: asks where, then opens it.</summary>
         public void NewProject()
         {
-            string? path = NativeDialogs.SaveFile("New Project: where should it go?", null, "My Game" + Project.Extension, ("Vertex projects", "*" + Project.Extension));
-            if (path == null) return;
-
-            // Each project gets a folder of its own, named after it.
-            string name = Path.GetFileNameWithoutExtension(path);
-            string folder = Path.Combine(Path.GetDirectoryName(path)!, name);
-            Directory.CreateDirectory(folder);
-            Project.Create(Path.Combine(folder, name + Project.Extension), name);
-            OpenProject(Path.Combine(folder, name + Project.Extension));
+            FilePicker.Save("New Project: where should it go?", null, "My Game" + Project.Extension, ("Vertex projects", "*" + Project.Extension), path =>
+            {
+                // Each project gets a folder of its own, named after it.
+                string name = Path.GetFileNameWithoutExtension(path);
+                string folder = Path.Combine(Path.GetDirectoryName(path)!, name);
+                Directory.CreateDirectory(folder);
+                Project.Create(Path.Combine(folder, name + Project.Extension), name);
+                OpenProject(Path.Combine(folder, name + Project.Extension));
+            });
         }
 
         /// <summary>Builds the project's game code again and reloads it: after changing the code.</summary>
@@ -394,9 +387,10 @@ namespace Vertex.Editor
             Game = null;
         }
 
-        /// <summary>Picks up background work that's finished. Called once a frame.</summary>
+        /// <summary>Picks up background work that's finished, and saves materials that have been changed. Called once a frame.</summary>
         public void Update()
         {
+            SaveChangedMaterials();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;
@@ -404,7 +398,16 @@ namespace Vertex.Editor
             (bool built, string output, string? assemblyPath) = build.Result;
             if (!built || assemblyPath == null)
             {
-                Dialog.Message("The game didn't build", output.Trim().Length > 0 ? output.Trim() : "dotnet build failed with no output.");
+                // The project is still open (its scenes and assets work), just without the game's scripts.
+                OpenStartupScene();
+                List<string> errors = GameCode.Errors(output);
+                string name = Path.GetFileNameWithoutExtension(_buildingProject) ?? "The game";
+                string summary = errors.Count == 0
+                    ? $"dotnet build failed:\n\n{(output.Trim().Length > 0 ? output.Trim() : "(no output)")}"
+                    : $"{errors.Count} error{(errors.Count == 1 ? "" : "s")} in {name}'s code. The project is open, but its scripts aren't " +
+                      $"until it builds: fix the code, then Rebuild Game Code in the File menu (Ctrl+R).\n\n{string.Join("\n", errors.Take(60))}" +
+                      (errors.Count > 60 ? $"\n…and {errors.Count - 60} more (Copy has them all)" : "");
+                Dialog.Message($"{name} didn't build", summary, copyText: output.Trim(), width: 720f);
                 return;
             }
 
@@ -416,6 +419,7 @@ namespace Vertex.Editor
 
                 // The game finds its files (Assets, steam_appid.txt) where it was built, as if run from there.
                 Application.BaseDirectory = Game.OutputDirectory;
+                Application.AssetFolders = AssetFolders;
                 Directory.SetCurrentDirectory(Game.OutputDirectory);
             }
             catch (Exception exception)
@@ -457,6 +461,179 @@ namespace Vertex.Editor
             ScenePath = null;
             History.Clear();
             MarkSaved();
+        }
+
+        // ---------------------------------------------------------------- Materials
+
+        private int _materialsCheckedAt = -1;
+        private readonly Dictionary<string, string> _materialsWritten = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Writes .material files whose materials have been changed (in the inspector, or by undo), once the change is
+        /// done: they're shared, so their files are kept up to date rather than saved with the scene.
+        /// </summary>
+        private void SaveChangedMaterials()
+        {
+            if (History.Version == _materialsCheckedAt || InputSystem.GetMouseButton(MouseButton.Left)) return;
+            _materialsCheckedAt = History.Version;
+
+            foreach (Material material in Assets_LoadedMaterials())
+            {
+                if (material.Source is not { } path || !File.Exists(path)) continue;
+                try
+                {
+                    string json = SceneFile.SaveMaterial(material, AssetFolders);
+                    if (!_materialsWritten.TryGetValue(path, out string? written)) written = File.ReadAllText(path);
+                    if (written == json) continue;
+
+                    File.WriteAllText(path, json);
+                    _materialsWritten[path] = json;
+                    Thumbnails.Forget(path);
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't save {Path.GetFileName(path)}: {exception.Message}");
+                }
+            }
+        }
+
+        private static IEnumerable<Material> Assets_LoadedMaterials() => Vertex.Assets.LoadedMaterials.ToList();
+
+        /// <summary>Makes a new .material file with default settings, and returns where.</summary>
+        public string CreateMaterial(string folder, string name = "New Material")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), ".material");
+            File.WriteAllText(path, SceneFile.SaveMaterial(new Material(), AssetFolders));
+            Assets?.Refresh();
+            return path;
+        }
+
+        // ---------------------------------------------------------------- Prefabs
+
+        /// <summary>
+        /// Saves <paramref name="gameObject"/> and what's under it as a new prefab in <paramref name="folder"/>, which it
+        /// becomes a copy of. Returns the prefab, or null if it couldn't be saved.
+        /// </summary>
+        public Prefab? CreatePrefab(GameObject gameObject, string folder)
+        {
+            try
+            {
+                string path = Panels.AssetsPanel.Unique(Path.Combine(folder, SafeFileName(gameObject.Name)), ".prefab");
+                Prefab prefab = Prefab.Save(gameObject, path, AssetFolders);
+                Assets?.Refresh();
+                Notify($"Made the prefab {prefab.Name}: drag it into the scene for more");
+                return prefab;
+            }
+            catch (Exception exception)
+            {
+                Notify($"Couldn't make a prefab of {gameObject.Name}: {exception.Message}");
+                return null;
+            }
+        }
+
+        private static string SafeFileName(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name.Trim().Length > 0 ? name.Trim() : "Prefab";
+        }
+
+        /// <summary>A copy of the prefab in <paramref name="path"/> at <paramref name="position"/>, as one undoable change, selected.</summary>
+        public GameObject? AddPrefab(string path, Vector3 position, Transform? parent = null)
+        {
+            try
+            {
+                Prefab prefab = Vertex.Assets.LoadPrefab(path);
+                GameObject copy = prefab.Instantiate(Scene, AssetFolders);
+                copy.Transform.Parent = parent;
+                if (parent == null) copy.Transform.Position = position;
+                Scene.ApplyChanges();
+                History.Record(new CreateObject(copy, $"Add {prefab.Name}"));
+                Selection.Select(copy);
+                return copy;
+            }
+            catch (Exception exception)
+            {
+                Notify($"Couldn't add {Path.GetFileNameWithoutExtension(path)}: {exception.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Saves a prefab copy's changes into its prefab, then makes every other copy in the scene again from it (each
+        /// keeping its own place, name and parent). The scene's side can be undone; the file stays saved.
+        /// </summary>
+        public void ApplyPrefab(GameObject copy)
+        {
+            if (copy.Prefab is not { } prefab) return;
+
+            try
+            {
+                Prefab.Save(copy, prefab.Source, AssetFolders);
+            }
+            catch (Exception exception)
+            {
+                Dialog.Message("Couldn't save the prefab", exception.Message);
+                return;
+            }
+
+            var changes = new List<IUndoable>();
+            foreach (GameObject other in Scene.GameObjects.ToList())
+            {
+                if (other.Prefab != prefab || other == copy || IsUnder(other, copy)) continue;
+                changes.AddRange(Remake(other, prefab));
+            }
+
+            if (changes.Count > 0) History.Record(new ChangeGroup($"Apply {prefab.Name}", changes));
+            Notify(changes.Count > 0 ? $"Saved {prefab.Name} and updated {changes.Count / 2} other cop{(changes.Count == 2 ? "y" : "ies")}" : $"Saved {prefab.Name}");
+        }
+
+        /// <summary>Makes a prefab copy again from its prefab, dropping its changes (but keeping its place, name and parent).</summary>
+        public void RevertPrefab(GameObject copy)
+        {
+            if (copy.Prefab is not { } prefab) return;
+
+            try
+            {
+                Vertex.Assets.Reload(prefab.Source);
+                List<IUndoable> changes = Remake(copy, prefab);
+                History.Record(new ChangeGroup($"Revert {copy.Name}", changes));
+                if (changes.Count > 0 && changes[0] is CreateObject made) Selection.Select(made.GameObject);
+            }
+            catch (Exception exception)
+            {
+                Notify($"Couldn't revert {copy.Name}: {exception.Message}");
+            }
+        }
+
+        /// <summary>Swaps a copy for a fresh one from the prefab, in the same place. Returns the two changes that did it, already done.</summary>
+        private List<IUndoable> Remake(GameObject old, Prefab prefab)
+        {
+            GameObject fresh = prefab.Instantiate(Scene, AssetFolders);
+            fresh.Name = old.Name;
+            fresh.Active = old.Active;
+            fresh.Transform.Parent = old.Transform.Parent;
+            fresh.Transform.Position = old.Transform.Position;
+            fresh.Transform.Rotation = old.Transform.Rotation;
+            fresh.Transform.Scale = old.Transform.Scale;
+            Scene.ApplyChanges();
+            fresh.Transform.SiblingIndex = old.Transform.SiblingIndex;
+
+            var create = new CreateObject(fresh);
+            var delete = new DeleteObject(old);
+            delete.Redo();
+            if (Selection.Object == old) Selection.Select(fresh);
+            return [create, delete];
+        }
+
+        private static bool IsUnder(GameObject gameObject, GameObject ancestor)
+        {
+            for (Transform? parent = gameObject.Transform.Parent; parent != null; parent = parent.Parent)
+            {
+                if (parent.GameObject == ancestor) return true;
+            }
+
+            return false;
         }
     }
 }

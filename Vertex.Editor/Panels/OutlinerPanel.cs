@@ -199,23 +199,21 @@ namespace Vertex.Editor.Panels
             float indent = depth * _indent;
             bool hasChildren = gameObject.Transform.Children.Count > 0;
 
-            // The arrow, which opens and closes without selecting.
-            var arrow = new Rect(row.X + indent, row.Y, 18f, row.Height);
-            if (showArrow && hasChildren)
-            {
-                Interaction arrowInteraction = Ui.Interact(Ui.Id(id, "arrow"), arrow);
-                if (arrowInteraction.Pressed) Toggle(gameObject);
-            }
+            // The arrow opens and closes without selecting. It's part of the row (a control of its own under the row
+            // would never get the mouse: the row, drawn after, is on top), so a press on it is told apart by where it is.
+            var arrow = new Rect(row.X + indent, row.Y, 20f, row.Height);
+            bool onArrow = showArrow && hasChildren && arrow.Contains(Ui.Mouse);
 
             Interaction interaction = Ui.Interact(Ui.Id(id, "row"), row, rightClick: true);
-            if (interaction.Pressed)
+            if (interaction.Pressed && onArrow) Toggle(gameObject);
+            else if (interaction.Pressed)
             {
                 _context.Selection.Select(gameObject);
                 _pressed = gameObject;
                 _pressedAt = Ui.Mouse;
             }
 
-            if (interaction.DoubleClicked) BeginRename(gameObject);
+            if (interaction.DoubleClicked && !onArrow) BeginRename(gameObject);
             if (interaction.RightClicked)
             {
                 _context.Selection.Select(gameObject);
@@ -245,18 +243,21 @@ namespace Vertex.Editor.Panels
                 }
             }
 
+            // A copy of a prefab is blue, like the prefab in the assets.
             bool active = gameObject.ActiveInHierarchy;
-            Color textColor = selected ? Color.White : active ? Theme.Text : Theme.TextFaint;
-            Color iconColor = selected ? Color.White : active ? Theme.TextDim : Theme.TextFaint;
+            bool prefab = gameObject.Prefab != null;
+            Color textColor = selected ? Color.White : !active ? Theme.TextFaint : prefab ? Theme.Hex(0x8FBCFF) : Theme.Text;
+            Color iconColor = selected ? Color.White : !active ? Theme.TextFaint : prefab ? Theme.Hex(0x6FA8FF) : Theme.TextDim;
 
             if (showArrow && hasChildren)
             {
                 float turn = Ui.Smooth(Ui.Id(id, "turn"), _expanded.Contains(gameObject) ? 90f : 0f, 22f);
-                Icons.Chevron(arrow.Centre, 13f, iconColor, turn);
+                if (onArrow && interaction.Hovered && _dragging == null) Ui.Rect(arrow.Shrink(2f, 3f), selected ? Color.White.WithAlpha(0.15f) : Theme.Hover.WithAlpha(2.5f), 4f);
+                Icons.Chevron(arrow.Centre, 13f, onArrow && interaction.Hovered && !selected ? Theme.Text : iconColor, turn);
             }
 
             float iconX = row.X + indent + 18f;
-            IconFor(gameObject)(new Vector2(iconX + 8f, row.Centre.Y), 15f, iconColor);
+            (prefab ? Icons.Prefab : IconFor(gameObject))(new Vector2(iconX + 8f, row.Centre.Y), prefab ? 13f : 15f, iconColor);
 
             var nameRect = new Rect(iconX + 22f, row.Y, row.Right - iconX - 24f, row.Height);
             if (_renaming == gameObject) DrawRename(nameRect);
@@ -306,6 +307,8 @@ namespace Vertex.Editor.Panels
 
         public static Icon IconFor(GameObject gameObject)
         {
+            if (gameObject.GetComponent<Vertex.UI.UIRect>() != null || gameObject.GetComponent<Vertex.UI.UICanvas>() != null) return Icons.UI;
+
             foreach (Component component in gameObject.Components)
             {
                 if (component is Camera) return Icons.Camera;
@@ -357,6 +360,23 @@ namespace Vertex.Editor.Panels
                 items.Add(new MenuItem("Move to Top Level", () => _context.History.Do(new Reparent(gameObject, null))));
             }
 
+            if (gameObject.Transform.Children.Count > 0)
+            {
+                items.Add(new MenuItem("Expand All", () => SetOpen(gameObject, true)));
+                items.Add(new MenuItem("Collapse All", () => SetOpen(gameObject, false)));
+            }
+
+            if (_context.Assets is { } assets)
+            {
+                items.Add(MenuItem.Separator);
+                items.Add(new MenuItem("Make Prefab", () => _context.CreatePrefab(gameObject, Path.Combine(assets.Root, "Prefabs"))) { Icon = Icons.Prefab });
+                if (gameObject.Prefab != null)
+                {
+                    items.Add(new MenuItem("Apply to Prefab", () => _context.ApplyPrefab(gameObject)));
+                    items.Add(new MenuItem("Revert to Prefab", () => _context.RevertPrefab(gameObject)));
+                }
+            }
+
             items.Add(MenuItem.Separator);
             items.Add(new MenuItem("Create Empty Child", () =>
             {
@@ -385,9 +405,21 @@ namespace Vertex.Editor.Panels
             if (InputSystem.GetKeyDown(Key.F2)) BeginRename(selected);
         }
 
+        /// <summary>Opens or shuts an object's children; with Alt held, everything under it too.</summary>
         private void Toggle(GameObject gameObject)
         {
-            if (!_expanded.Remove(gameObject)) _expanded.Add(gameObject);
+            bool open = !_expanded.Contains(gameObject);
+            if (InputSystem.GetKey(Key.AltLeft) || InputSystem.GetKey(Key.AltRight)) SetOpen(gameObject, open);
+            else if (open) _expanded.Add(gameObject);
+            else _expanded.Remove(gameObject);
+        }
+
+        private void SetOpen(GameObject gameObject, bool open)
+        {
+            if (gameObject.Transform.Children.Count == 0) return;
+            if (open) _expanded.Add(gameObject);
+            else _expanded.Remove(gameObject);
+            foreach (Transform child in gameObject.Transform.Children) SetOpen(child.GameObject, open);
         }
 
         /// <summary>When something new is selected (in the scene view, say), opens its parents and scrolls it into view.</summary>
@@ -408,9 +440,25 @@ namespace Vertex.Editor.Panels
 
         // ---------------------------------------------------------------- Dragging
 
+        /// <summary>
+        /// The object being dragged out of the outliner, for other panels to take (the assets make a prefab of it). Still
+        /// set on the frame it's let go, so whoever it's dropped on sees it whichever order panels are drawn in.
+        /// </summary>
+        public static GameObject? Dragged { get; private set; }
+
+        private bool _draggedLetGo;
+
         private void UpdateDrag(Rect list)
         {
+            if (_draggedLetGo)
+            {
+                Dragged = null;
+                _draggedLetGo = false;
+            }
+
             if (_pressed != null && _dragging == null && Ui.MouseHeld() && Vector2.Distance(Ui.Mouse, _pressedAt) > 5f) _dragging = _pressed;
+            if (_dragging != null) Dragged = _dragging;
+            HandleAssetDrop(list);
 
             if (_dragging != null)
             {
@@ -449,6 +497,31 @@ namespace Vertex.Editor.Panels
 
             _pressed = null;
             _dragging = null;
+            _draggedLetGo = Dragged != null;
+        }
+
+        /// <summary>A prefab or model dragged here from the assets goes into the scene: under the row it's dropped on, or at the top level.</summary>
+        private void HandleAssetDrop(Rect list)
+        {
+            if (!DragDrop.Dragging || DragDrop.Payload is not AssetEntry { Kind: AssetKind.Prefab or AssetKind.Model } asset || !list.Contains(Ui.Mouse)) return;
+
+            GameObject? under = null;
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                if (Ui.HotId == Ui.Id(RuntimeHelpers.GetHashCode(_rows[i]), "row")) under = _rows[i];
+            }
+
+            Ui.Outline(list.Shrink(2f), Theme.Accent.WithAlpha(0.7f), 6f, 1.5f);
+            if (!DragDrop.Dropped) return;
+
+            if (asset.Kind == AssetKind.Prefab) _context.AddPrefab(asset.Path, _context.SpawnPoint, under?.Transform);
+            else if (AssetsPanel.AddModel(_context, asset.Path, _context.SpawnPoint) is { } model && under != null)
+            {
+                model.Transform.Parent = under.Transform;
+                model.Transform.Position = Vector3.Zero;
+            }
+
+            if (under != null) _expanded.Add(under);
         }
 
         /// <summary>Puts <paramref name="dragged"/> before, after or under <paramref name="target"/>, keeping where it is in the world.</summary>

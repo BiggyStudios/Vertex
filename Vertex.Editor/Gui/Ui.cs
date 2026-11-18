@@ -387,6 +387,44 @@ namespace Vertex.Editor.Gui
             return low == 0 ? "" : string.Concat(text.AsSpan(0, low).TrimEnd(), "…");
         }
 
+        /// <summary>
+        /// <paramref name="text"/> broken into lines no wider than <paramref name="width"/>: between words where it can be,
+        /// and inside a word (a long path) where it can't.
+        /// </summary>
+        public static List<string> Wrap(string text, float width, float size = Theme.TextSize, bool bold = false)
+        {
+            var lines = new List<string>();
+            foreach (string paragraph in text.Replace("\r", "").Split('\n'))
+            {
+                string line = "";
+                foreach (string word in paragraph.Split(' '))
+                {
+                    string candidate = line.Length == 0 ? word : line + " " + word;
+                    if (TextWidth(candidate, size, bold) <= width)
+                    {
+                        line = candidate;
+                        continue;
+                    }
+
+                    if (line.Length > 0) lines.Add(line);
+                    line = word;
+
+                    // A word wider than the whole line is cut wherever it has to be.
+                    while (line.Length > 1 && TextWidth(line, size, bold) > width)
+                    {
+                        int fits = line.Length - 1;
+                        while (fits > 1 && TextWidth(line[..fits], size, bold) > width) fits--;
+                        lines.Add(line[..fits]);
+                        line = line[fits..];
+                    }
+                }
+
+                lines.Add(line);
+            }
+
+            return lines;
+        }
+
         public static void PushClip(Rect rect) => Canvas.PushClip(rect.Position, rect.Size);
         public static void PopClip() => Canvas.PopClip();
 

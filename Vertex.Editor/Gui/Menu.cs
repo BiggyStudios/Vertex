@@ -37,6 +37,11 @@ namespace Vertex.Editor.Gui
         private static Vector2 _position;
         private static float _minWidth;
         private static float _openedAt;
+        private static int _openedFrame;
+
+        // How far up to move the menu when it doesn't fit below where it was opened: over the dropdown it hangs from,
+        // or just above the mouse for a right-click menu.
+        private static float _flipBy;
         private static float _closedAt = -1f;
         private static int _highlighted = -1;
         private static int _choiceOwner;
@@ -51,13 +56,15 @@ namespace Vertex.Editor.Gui
         public static bool IsOpen(int owner) => IsAnyOpen && _owner == owner;
 
         /// <summary>Opens a menu at <paramref name="position"/> (its top-left), for the control <paramref name="owner"/>.</summary>
-        public static void Open(int owner, Vector2 position, IReadOnlyList<MenuItem> items, float minWidth = 0f)
+        public static void Open(int owner, Vector2 position, IReadOnlyList<MenuItem> items, float minWidth = 0f, float flipBy = 0f)
         {
             _items = items;
             _owner = owner;
             _position = position;
             _minWidth = minWidth;
             _openedAt = Ui.Time;
+            _openedFrame = Ui.Frame;
+            _flipBy = flipBy;
             _closedAt = -1f;
             _highlighted = -1;
 
@@ -70,7 +77,7 @@ namespace Vertex.Editor.Gui
 
         /// <summary>Opens a menu just under <paramref name="anchor"/>, at least as wide: for a dropdown.</summary>
         public static void OpenBelow(int owner, Rect anchor, IReadOnlyList<MenuItem> items) =>
-            Open(owner, new Vector2(anchor.X, anchor.Bottom + 3f), items, anchor.Width);
+            Open(owner, new Vector2(anchor.X, anchor.Bottom + 3f), items, anchor.Width, flipBy: anchor.Height + 6f);
 
         public static void Close()
         {
@@ -119,7 +126,7 @@ namespace Vertex.Editor.Gui
             width = MathF.Max(width, 150f);
             Vector2 position = _position;
             if (position.X + width > Canvas.Width - 6f) position.X = MathF.Max(Canvas.Width - 6f - width, 6f);
-            if (position.Y + height > Canvas.Height - 6f) position.Y = MathF.Max(position.Y - height - 30f, 6f);
+            if (position.Y + height > Canvas.Height - 6f) position.Y = MathF.Max(position.Y - height - _flipBy, 6f);
 
             var rect = new Rect(position.X, position.Y + (1f - shown) * -6f, width, height);
             Ui.Opacity = shown;
@@ -129,7 +136,9 @@ namespace Vertex.Editor.Gui
             {
                 // Everything outside is covered by an invisible blocker, so a click outside only closes the menu.
                 Interaction outside = Ui.Interact(Ui.Id(menuId, "outside"), new Rect(0f, 0f, Canvas.Width, Canvas.Height));
-                if (outside.Pressed || Ui.MousePressed(MouseButton.Right) && !rect.Contains(Ui.Mouse) || InputSystem.GetKeyDown(Key.Escape))
+                // Not on the frame it opened: the right-click that opened it would count as one outside it.
+                bool justOpened = _openedFrame == Ui.Frame;
+                if (!justOpened && (outside.Pressed || Ui.MousePressed(MouseButton.Right) && !rect.Contains(Ui.Mouse)) || InputSystem.GetKeyDown(Key.Escape))
                 {
                     InputSystem.Consume(Key.Escape);
                     Close();

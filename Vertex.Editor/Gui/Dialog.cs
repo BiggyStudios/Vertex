@@ -29,25 +29,37 @@ namespace Vertex.Editor.Gui
         }
 
         /// <summary>A message with an OK button, and Copy for long ones (build errors).</summary>
-        public static void Message(string title, string message)
+        public static void Message(string title, string message, string? copyText = null, float width = 560f)
         {
-            string[] lines = message.Replace("\r", "").Split('\n', StringSplitOptions.TrimEntries);
-            float height = MathF.Min(120f + lines.Length * 18f, 520f);
-            Show(title, new Vector2(560f, height), rect =>
+            const float lineHeight = 18f;
+            float textWidth = width - 36f - 12f;
+            List<string> lines = Ui.Wrap(message.Trim(), textWidth);
+            float height = MathF.Min(120f + lines.Count * lineHeight, 560f);
+            Show(title, new Vector2(width, height), rect =>
             {
                 var scroll = ScrollView.Begin(Ui.Id("dialog.message"), rect.CutBottom(40f));
                 float y = scroll.Top;
                 foreach (string line in lines)
                 {
-                    Ui.Text(new Rect(rect.X, y, rect.Width - 10f, 18f), line, Theme.Text);
-                    y += 18f;
+                    // A blank line between paragraphs is half height.
+                    if (line.Length == 0)
+                    {
+                        y += lineHeight * 0.5f;
+                        continue;
+                    }
+
+                    Ui.Text(new Rect(rect.X, y, rect.Width - 10f, lineHeight), line, Theme.Text);
+                    y += lineHeight;
                 }
 
                 scroll.End(y - scroll.Top);
 
                 Rect buttons = rect.TakeBottom(30f);
                 if (Widgets.Button(Ui.Id("dialog.ok"), buttons.TakeRight(90f), "OK", ButtonStyle.Primary)) Close();
-                if (lines.Length > 3 && Widgets.Button(Ui.Id("dialog.copy"), buttons.CutRight(98f).TakeRight(90f), "Copy")) InputSystem.ClipboardText = message;
+                if ((lines.Count > 3 || copyText != null) && Widgets.Button(Ui.Id("dialog.copy"), buttons.CutRight(98f).TakeRight(90f), "Copy"))
+                {
+                    InputSystem.ClipboardText = copyText ?? message;
+                }
             });
         }
 
