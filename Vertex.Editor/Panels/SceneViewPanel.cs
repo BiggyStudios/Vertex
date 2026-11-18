@@ -43,6 +43,9 @@ namespace Vertex.Editor.Panels
         /// <summary>Whether the right mouse is held to look and fly, so WASD belong to the camera, not shortcuts.</summary>
         public bool Looking => _looking;
 
+        /// <summary>Whether the camera has the mouse (looking, panning or orbiting), with the cursor hidden and held.</summary>
+        public bool MovingCamera => _looking || _panning || _orbiting;
+
         /// <summary>The pictures for the renderer to draw this frame: the scene view's, or the game's while its tab shows.</summary>
         public RenderView[] Views
         {
@@ -371,7 +374,7 @@ namespace Vertex.Editor.Panels
                 if (!Ui.MouseHeld(MouseButton.Right))
                 {
                     _looking = false;
-                    InputSystem.CursorLocked = false;
+                    if (!_panning && !_orbiting) InputSystem.CursorLocked = false;
                     Camera.EndLook();
                 }
                 else
@@ -394,11 +397,21 @@ namespace Vertex.Editor.Panels
                 }
             }
 
-            // Middle mouse: pan.
-            if (hovered && Ui.MousePressed(MouseButton.Middle)) _panning = true;
+            // Middle mouse: pan. Like looking, the cursor is hidden and held (it comes back where it was): the drag can
+            // go on past the screen's edge, and the system isn't busy moving a pointer about, which costs frames.
+            if (hovered && Ui.MousePressed(MouseButton.Middle) && !_looking && !_orbiting)
+            {
+                _panning = true;
+                InputSystem.CursorLocked = true;
+            }
+
             if (_panning)
             {
-                if (!Ui.MouseHeld(MouseButton.Middle)) _panning = false;
+                if (!Ui.MouseHeld(MouseButton.Middle))
+                {
+                    _panning = false;
+                    if (!_looking) InputSystem.CursorLocked = false;
+                }
                 else
                 {
                     Ui.ActiveId = id;
@@ -406,11 +419,20 @@ namespace Vertex.Editor.Panels
                 }
             }
 
-            // Alt and left mouse: orbit.
-            if (hovered && Alt && Ui.MousePressed()) _orbiting = true;
+            // Alt and left mouse: orbit, the same way.
+            if (hovered && Alt && Ui.MousePressed() && !_looking && !_panning)
+            {
+                _orbiting = true;
+                InputSystem.CursorLocked = true;
+            }
+
             if (_orbiting)
             {
-                if (!Ui.MouseHeld()) _orbiting = false;
+                if (!Ui.MouseHeld())
+                {
+                    _orbiting = false;
+                    if (!_looking) InputSystem.CursorLocked = false;
+                }
                 else
                 {
                     Ui.ActiveId = id;

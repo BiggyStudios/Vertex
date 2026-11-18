@@ -106,6 +106,32 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Panning_holds_the_cursor_like_looking_around_and_lets_it_go_after()
+        {
+            var app = new EditorApp();
+            InputSystem.MoveMouse(new Vector2(ScreenWidth * 0.5f, ScreenHeight * 0.4f));
+            Frame(app, 2);
+            Vector3 pivot = app.SceneView.Camera.Pivot;
+
+            InputSystem.PressButton(MouseButton.Middle);
+            Frame(app);
+            Assert.True(InputSystem.CursorLocked);
+
+            for (int i = 1; i <= 5; i++)
+            {
+                InputSystem.MoveMouse(new Vector2(ScreenWidth * 0.5f + i * 20f, ScreenHeight * 0.4f));
+                Frame(app);
+                Assert.True(InputSystem.CursorLocked);
+            }
+
+            Assert.NotEqual(pivot, app.SceneView.Camera.Pivot);
+
+            InputSystem.ReleaseButton(MouseButton.Middle);
+            Frame(app);
+            Assert.False(InputSystem.CursorLocked);
+        }
+
+        [Fact]
         public void Play_runs_the_scene_and_stop_puts_it_back()
         {
             var context = new EditorContext();

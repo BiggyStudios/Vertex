@@ -170,7 +170,7 @@ namespace Vertex.Editor
             DrawNotes(screen);
 
             // A drag that locked the cursor (a number box) can end anywhere: make sure it comes back.
-            if (InputSystem.CursorLocked && !Context.Play.Playing && !Ui.MouseHeld() && !Ui.MouseHeld(MouseButton.Right) && !_sceneView.Looking)
+            if (InputSystem.CursorLocked && !Context.Play.Playing && !Ui.MouseHeld() && !Ui.MouseHeld(MouseButton.Right) && !_sceneView.MovingCamera)
             {
                 InputSystem.CursorLocked = false;
             }
