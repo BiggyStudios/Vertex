@@ -204,6 +204,47 @@ namespace Vertex.Editor.Gui
             InputSystem.CursorShape = Cursor;
         }
 
+        // ---------------------------------------------------------------- Zoomed views
+
+        private readonly record struct View(Rect Rect, Vector2 Offset, float Zoom, Vector2 Mouse, Vector2 MouseDelta);
+        private static readonly Stack<View> _views = new();
+
+        /// <summary>
+        /// Draws into <paramref name="rect"/> magnified by <paramref name="zoom"/>, scrolled so <paramref name="offset"/> is at
+        /// its top-left, until <see cref="PopView"/>: a canvas to pan and zoom (a node graph). Inside, positions, sizes and
+        /// <see cref="Mouse"/> are in the canvas's own units, and controls work as anywhere else. Menus, popups and
+        /// tooltips opened inside still appear in the right place, unmagnified.
+        /// </summary>
+        public static void PushView(Rect rect, Vector2 offset, float zoom)
+        {
+            _views.Push(new View(rect, offset, zoom, Mouse, MouseDelta));
+            Canvas.BeginView(rect.Position, rect.Size, offset, zoom);
+            Mouse = Canvas.MousePosition;
+            MouseDelta /= zoom;
+        }
+
+        public static void PopView()
+        {
+            if (_views.Count == 0) return;
+            View view = _views.Pop();
+            Canvas.EndView();
+            Mouse = view.Mouse;
+            MouseDelta = view.MouseDelta;
+        }
+
+        /// <summary>Where a point inside the current zoomed view (see <see cref="PushView"/>) is outside it, in ordinary UI units.</summary>
+        public static Vector2 ToScreen(Vector2 point)
+        {
+            foreach (View view in _views) point = view.Rect.Position + (point - view.Offset) * view.Zoom;
+            return point;
+        }
+
+        public static Rect ToScreen(Rect rect)
+        {
+            Vector2 min = ToScreen(rect.Position), max = ToScreen(rect.Position + rect.Size);
+            return new Rect(min.X, min.Y, max.X - min.X, max.Y - min.Y);
+        }
+
         /// <summary>Runs <paramref name="draw"/> at the end of the frame, on top of everything: for popups and drag previews.</summary>
         public static void Overlay(Action draw) => _overlays.Add(draw);
 
@@ -453,7 +494,7 @@ namespace Vertex.Editor.Gui
             }
 
             _tooltipText = text;
-            _tooltipAt = Mouse;
+            _tooltipAt = ToScreen(Mouse);
         }
 
         private static void DrawTooltip()

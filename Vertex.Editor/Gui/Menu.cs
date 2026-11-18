@@ -76,7 +76,8 @@ namespace Vertex.Editor.Gui
         {
             _items = items;
             _owner = owner;
-            _position = position;
+            // Opened from inside a zoomed view (a node graph): placed where that is on screen.
+            _position = Ui.ToScreen(position);
             _minWidth = minWidth;
             _openedAt = Ui.Time;
             _openedFrame = Ui.Frame;
@@ -410,7 +411,7 @@ namespace Vertex.Editor.Gui
         public static void Open(int id, Rect anchor)
         {
             _openId = id;
-            _anchor = anchor;
+            _anchor = Ui.ToScreen(anchor);
             _openedAt = Ui.Time;
             _shownFrame = Ui.Frame;
         }

@@ -535,6 +535,7 @@ namespace Vertex.Editor
         {
             ConsoleLog.Update();
             SaveChangedMaterials();
+            SaveChangedGraphs();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;
@@ -646,6 +647,48 @@ namespace Vertex.Editor
         }
 
         private static IEnumerable<Material> Assets_LoadedMaterials() => Vertex.Assets.LoadedMaterials.ToList();
+
+        // ---------------------------------------------------------------- Graphs
+
+        /// <summary>Raised to open a graph file (a .vscript) for editing, for the scene view to show it in a tab.</summary>
+        public event Action<string>? GraphOpenRequested;
+
+        public void OpenGraph(string path) => GraphOpenRequested?.Invoke(Path.GetFullPath(path));
+
+        /// <summary>Makes a new visual script in <paramref name="folder"/>, to start from (something said on start), and returns where.</summary>
+        public string CreateVisualScript(string folder, string name = "New Visual Script")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), ".vscript");
+            Vertex.Scripting.ScriptNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
+        private int _graphsCheckedAt = -1;
+
+        /// <summary>
+        /// Writes graph files whose graphs have been changed (in a graph tab, or by undo), once the change is done (not in
+        /// the middle of a drag): they're files of their own, kept up to date as they're edited.
+        /// </summary>
+        private void SaveChangedGraphs()
+        {
+            if (History.Version == _graphsCheckedAt || InputSystem.GetMouseButton(MouseButton.Left)) return;
+            _graphsCheckedAt = History.Version;
+
+            foreach (Vertex.Graphs.Graph graph in Vertex.Assets.LoadedGraphs.ToList())
+            {
+                if (graph.Source is not { } path || !File.Exists(path)) continue;
+                try
+                {
+                    graph.SaveIfChanged();
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't save {Path.GetFileName(path)}: {exception.Message}");
+                }
+            }
+        }
 
         /// <summary>Makes a new .material file with default settings, and returns where.</summary>
         public string CreateMaterial(string folder, string name = "New Material")

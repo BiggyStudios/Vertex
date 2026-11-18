@@ -264,6 +264,7 @@ namespace Vertex.Editor.Inspection
             if (type == typeof(Prefab)) return (AssetKind.Prefab, Assets.LoadPrefab);
             if (type == typeof(Vertex.UI.Font)) return (AssetKind.Font, Assets.LoadFont);
             if (type == typeof(Vertex.Audio.AudioClip)) return (AssetKind.Sound, Assets.LoadSound);
+            if (type == typeof(Vertex.Graphs.Graph)) return (AssetKind.VisualScript, Assets.LoadGraph);
             return null;
         }
 
@@ -275,6 +276,7 @@ namespace Vertex.Editor.Inspection
             Prefab prefab => prefab.Source,
             Vertex.UI.Font font => font.Source,
             Vertex.Audio.AudioClip clip => clip.Source,
+            Vertex.Graphs.Graph graph => graph.Source,
             _ => null
         };
 
@@ -361,6 +363,7 @@ namespace Vertex.Editor.Inspection
                 AssetKind.Prefab => "prefabs",
                 AssetKind.Font => "fonts",
                 AssetKind.Sound => "sounds",
+                AssetKind.VisualScript => "visual scripts",
                 _ => "files"
             };
             TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);

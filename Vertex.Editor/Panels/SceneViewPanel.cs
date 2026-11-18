@@ -1,6 +1,7 @@
 using System.Numerics;
 
 using Vertex.Editor.Editing;
+using Vertex.Editor.Graphs;
 using Vertex.Editor.Gui;
 using Vertex.Editor.Inspection;
 using Vertex.Editor.SceneEditing;
@@ -36,6 +37,12 @@ namespace Vertex.Editor.Panels
         private bool _wasPlaying;
         private bool _gameTabBeforePlay;
 
+        // Graphs open in tabs of their own after Scene and Game, and the one showing (null: the scene or the game).
+        private readonly List<GraphDocument> _graphs = new();
+        private GraphDocument? _graph;
+        private GraphDocument? _graphBeforePlay;
+        private readonly GraphView _graphView;
+
         // Where the game's picture was last frame, in UI units, to tell clicks in it from clicks elsewhere.
         private Rect _gameRect;
         private bool _gameRectShown;
@@ -55,6 +62,7 @@ namespace Vertex.Editor.Panels
         {
             get
             {
+                if (_graph != null) return [];
                 if (_gameTab) return _gameTexture != null && Vertex.Rendering.Camera.Main is { } main ? [new RenderView(main, _gameTexture)] : [];
                 return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid)] : [];
             }
@@ -69,6 +77,8 @@ namespace Vertex.Editor.Panels
             Camera.FlySpeed = context.Preferences.FlySpeed;
             _uiEditing = new UIEditing(context);
             CreateMenu.MadeUI += ShowGame;
+            _graphView = new GraphView(context);
+            context.GraphOpenRequested += OpenGraph;
         }
 
         /// <summary>
@@ -95,7 +105,7 @@ namespace Vertex.Editor.Panels
             }
 
             bool pressed = InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButtonDown(MouseButton.Right);
-            bool inGame = _gameTab && _gameRectShown && _gameRect.Contains(Canvas.MousePosition);
+            bool inGame = _gameTab && _graph == null && _gameRectShown && _gameRect.Contains(Canvas.MousePosition);
             if (pressed && !InputSystem.CursorLocked)
             {
                 if (play.GameFocused && !inGame) play.GameFocused = false;
@@ -111,10 +121,16 @@ namespace Vertex.Editor.Panels
             if (play.Playing && !_wasPlaying)
             {
                 _gameTabBeforePlay = _gameTab;
+                _graphBeforePlay = _graph;
+                _graph = null;
                 _gameTab = true;
             }
 
-            if (!play.Playing && _wasPlaying) _gameTab = _gameTabBeforePlay;
+            if (!play.Playing && _wasPlaying)
+            {
+                _gameTab = _gameTabBeforePlay;
+                if (_graphBeforePlay != null && _graphs.Contains(_graphBeforePlay)) _graph = _graphBeforePlay;
+            }
             _wasPlaying = play.Playing;
 
             Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);
@@ -122,11 +138,12 @@ namespace Vertex.Editor.Panels
             Rect viewport = rect.CutTop(_tabsHeight).Shrink(1f);
             Ui.Rect(viewport, Theme.Background);
 
-            if (_gameTab) DrawGame(viewport);
+            if (_graph != null) _graphView.Draw(viewport, _graph);
+            else if (_gameTab) DrawGame(viewport);
             else DrawScene(viewport);
 
             // The game runs every frame while playing, whichever tab shows; with the scene showing, its UI goes nowhere.
-            if (play.Playing && !_gameTab) StepGame(viewport, visible: false);
+            if (play.Playing && (_graph != null || !_gameTab)) StepGame(viewport, visible: false);
 
             Color outline = play.Playing ? Theme.Accent.WithAlpha(0.75f) : Theme.Border;
             Ui.Outline(rect, outline, Theme.PanelRadius, play.Playing ? 1.5f : 1f);
@@ -143,15 +160,49 @@ namespace Vertex.Editor.Panels
                 var tab = new Rect(x, tabs.Y + 5f, width, tabs.Height - 10f);
                 int id = Ui.Id("viewTab." + name);
                 Interaction interaction = Ui.Interact(id, tab);
-                if (interaction.Clicked) _gameTab = game;
+                if (interaction.Clicked)
+                {
+                    _gameTab = game;
+                    _graph = null;
+                }
 
-                bool on = _gameTab == game;
+                bool on = _graph == null && _gameTab == game;
                 Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
                 if (game) Icons.Play(new Vector2(tab.X + 15f, tab.Centre.Y), 13f, on ? Theme.AccentText : Theme.TextFaint);
                 else Icons.Cube(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? Theme.AccentText : Theme.TextFaint);
                 Ui.Text(tab.CutLeft(28f), name, on ? Theme.Text : Theme.TextDim);
                 x += width + 4f;
             }
+
+            // Open graphs: click to show, the cross (or a middle click) to close.
+            GraphDocument? closing = null;
+            foreach (GraphDocument doc in _graphs)
+            {
+                string name = Ui.Fit(doc.Title, 160f);
+                float width = Ui.TextWidth(name) + 60f;
+                var tab = new Rect(x, tabs.Y + 5f, width, tabs.Height - 10f);
+                int id = Ui.Id(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(doc), "graphTab");
+                Interaction interaction = Ui.Interact(id, tab);
+                Rect close = tab.TakeRight(24f).Shrink(3f);
+                bool overClose = close.Contains(Ui.Mouse);
+                if (interaction.Clicked && !overClose) _graph = doc;
+                if (interaction.Clicked && overClose || interaction.Hovered && Ui.MousePressed(MouseButton.Middle)) closing = doc;
+
+                bool on = _graph == doc;
+                Ui.Rect(tab, Ui.Smooth(id, on ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Control.WithAlpha(0f), 22f), 6f);
+                Icons.Graph(new Vector2(tab.X + 15f, tab.Centre.Y), 14f, on ? Theme.Hex(0x5FC9B5) : Theme.TextFaint);
+                Ui.Text(tab.CutLeft(28f).CutRight(24f), name, on ? Theme.Text : Theme.TextDim);
+                if (on || interaction.Hovered)
+                {
+                    if (overClose) Ui.Rect(close, Theme.Hover.WithAlpha(2f), 4f);
+                    Icons.Close(close.Centre, 10f, overClose ? Theme.Text : Theme.TextFaint);
+                }
+
+                Ui.Tooltip(id, doc.Path);
+                x += width + 4f;
+            }
+
+            if (closing != null) CloseGraph(closing);
 
             if (_context.Play.Playing)
             {
@@ -199,10 +250,56 @@ namespace Vertex.Editor.Panels
         private bool _gameFocused;
 
         /// <summary>Shows the game's picture, where UI is arranged: after a piece of UI is made.</summary>
-        public void ShowGame() => _gameTab = true;
+        public void ShowGame()
+        {
+            _gameTab = true;
+            _graph = null;
+        }
 
         /// <summary>Whether the game's picture is showing, rather than the scene view.</summary>
-        public bool ShowingGame => _gameTab;
+        public bool ShowingGame => _gameTab && _graph == null;
+
+        /// <summary>Opens a graph file in a tab of its own (or shows the tab it's open in already).</summary>
+        public void OpenGraph(string path)
+        {
+            GraphDocument? doc = _graphs.FirstOrDefault(d => string.Equals(d.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (doc == null)
+            {
+                try
+                {
+                    doc = new GraphDocument(Assets.LoadGraph(path), path);
+                }
+                catch (Exception exception)
+                {
+                    _context.Notify($"Couldn't open {Path.GetFileName(path)}: {exception.Message}");
+                    return;
+                }
+
+                _graphs.Add(doc);
+            }
+
+            _graph = doc;
+
+            // Shown while the game runs: the editor has the mouse, to edit it.
+            if (_context.Play.GameFocused)
+            {
+                _context.Play.GameFocused = false;
+                InputSystem.CursorLocked = false;
+            }
+        }
+
+        public void CloseGraph(GraphDocument doc)
+        {
+            int index = _graphs.IndexOf(doc);
+            if (index < 0) return;
+            _graphs.RemoveAt(index);
+            if (_graph == doc) _graph = _graphs.Count > 0 ? _graphs[Math.Min(index, _graphs.Count - 1)] : null;
+        }
+
+        /// <summary>The graph showing in its tab, if one is.</summary>
+        public GraphDocument? ShowingGraph => _graph;
+
+        public IReadOnlyList<GraphDocument> OpenGraphs => _graphs;
 
         /// <summary>Runs the game's frame, with its 2D layer drawn into the game's picture as if that were the whole screen.</summary>
         private void StepGame(Rect viewport, bool visible)

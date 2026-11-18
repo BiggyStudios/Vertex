@@ -11,6 +11,9 @@ namespace Vertex.Editor.Editing
         Material,
         Prefab,
         Script,
+
+        /// <summary>A .vscript file: a visual script, made of nodes.</summary>
+        VisualScript,
         Other
     }
 
@@ -141,6 +144,7 @@ namespace Vertex.Editor.Editing
             ".material" => AssetKind.Material,
             ".prefab" => AssetKind.Prefab,
             ".cs" => AssetKind.Script,
+            ".vscript" => AssetKind.VisualScript,
             _ => AssetKind.Other
         };
 

@@ -92,6 +92,28 @@ namespace Vertex.Editor.Gui
         }
 
         /// <summary>A solid cube seen from a corner: a prefab, an object saved to be copied.</summary>
+        /// <summary>Two nodes joined by a wire: a visual script, or any node graph.</summary>
+        public static void Graph(Vector2 centre, float size, Color color)
+        {
+            float box = size * 0.26f;
+            var left = new Vector2(centre.X - size * 0.3f, centre.Y - size * 0.16f);
+            var right = new Vector2(centre.X + size * 0.3f, centre.Y + size * 0.16f);
+            Ui.Rect(new Rect(left.X - box * 0.5f, left.Y - box * 0.5f, box, box), color, box * 0.25f);
+            Ui.Rect(new Rect(right.X - box * 0.5f, right.Y - box * 0.5f, box, box), color, box * 0.25f);
+
+            // An S of a wire from one to the other.
+            Vector2 from = left + new Vector2(box * 0.5f, 0f), to = right - new Vector2(box * 0.5f, 0f);
+            Span<Vector2> points = stackalloc Vector2[9];
+            for (int i = 0; i < points.Length; i++)
+            {
+                float t = i / (points.Length - 1f);
+                float s = t * t * (3f - 2f * t);
+                points[i] = new Vector2(from.X + (to.X - from.X) * t, from.Y + (to.Y - from.Y) * s);
+            }
+
+            Vertex.UI.Canvas.DrawPolyline(points, MathF.Max(size * 0.09f, 1.3f), Ui.Fade(color));
+        }
+
         public static void Prefab(Vector2 centre, float size, Color color)
         {
             float r = size * 0.38f;

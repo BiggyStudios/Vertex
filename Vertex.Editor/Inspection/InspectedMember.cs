@@ -138,7 +138,7 @@ namespace Vertex.Editor.Inspection
             if (type.IsEnum) return MemberKind.Enum;
             if (type == typeof(Mesh)) return MemberKind.Mesh;
             if (typeof(Texture).IsAssignableFrom(type)) return MemberKind.Texture;
-            if (type == typeof(Prefab) || type == typeof(Vertex.UI.Font) || type == typeof(Vertex.Audio.AudioClip)) return MemberKind.Asset;
+            if (type == typeof(Prefab) || type == typeof(Vertex.UI.Font) || type == typeof(Vertex.Audio.AudioClip) || type == typeof(Vertex.Graphs.Graph)) return MemberKind.Asset;
             if (typeof(GameObject).IsAssignableFrom(type) || typeof(Component).IsAssignableFrom(type)) return MemberKind.Reference;
 
             // A settings object: a class of the engine's or the game's with values of its own to show.

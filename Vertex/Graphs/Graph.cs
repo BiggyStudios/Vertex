@@ -248,6 +248,10 @@ namespace Vertex.Graphs
             using JsonDocument document = JsonDocument.Parse(json);
             JsonElement root = document.RootElement;
 
+            // Nodes still there stay the same objects, brought up to date: anything holding one (an editor) keeps it.
+            var existing = new Dictionary<int, GraphNode>();
+            foreach (GraphNode node in Nodes) existing[node.Id] = node;
+
             Nodes.Clear();
             Links.Clear();
             Variables.Clear();
@@ -269,7 +273,20 @@ namespace Vertex.Graphs
                 foreach (JsonElement saved in nodes.EnumerateArray())
                 {
                     int id = saved.GetProperty("id").GetInt32();
-                    var node = new GraphNode(id, saved.GetProperty("type").GetString() ?? "", new Vector2(Number(saved, "x"), Number(saved, "y")));
+                    string type = saved.GetProperty("type").GetString() ?? "";
+                    var position = new Vector2(Number(saved, "x"), Number(saved, "y"));
+                    GraphNode node;
+                    if (existing.TryGetValue(id, out GraphNode? kept) && kept.Type == type)
+                    {
+                        node = kept;
+                        node.Position = position;
+                        node.Values.Clear();
+                    }
+                    else
+                    {
+                        node = new GraphNode(id, type, position);
+                    }
+
                     if (saved.TryGetProperty("values", out JsonElement values))
                     {
                         foreach (JsonProperty value in values.EnumerateObject()) node.Values[value.Name] = ReadValue(value.Value);

@@ -81,6 +81,32 @@ namespace Vertex.UI
             _clips.Add(new Vector4(pixelOrigin.X, pixelOrigin.Y, pixelOrigin.X + width, pixelOrigin.Y + height));
         }
 
+        /// <summary>
+        /// Draws into <paramref name="size"/> of the current view at <paramref name="position"/> (both in UI units),
+        /// magnified by <paramref name="zoom"/> and scrolled so <paramref name="offset"/> is at its top-left, until
+        /// <see cref="EndView"/>: for an editor's zoomable canvas (a node graph). Everything drawn inside, text too, scales
+        /// with it and stays sharp; nothing spills out.
+        /// </summary>
+        internal static void BeginView(Vector2 position, Vector2 size, Vector2 offset, float zoom)
+        {
+            var clip = new Vector4(position.X * Scale + _origin.X, position.Y * Scale + _origin.Y, (position.X + size.X) * Scale + _origin.X, (position.Y + size.Y) * Scale + _origin.Y);
+            if (_clips.Count > 0)
+            {
+                Vector4 outer = _clips[^1];
+                clip = new Vector4(MathF.Max(clip.X, outer.X), MathF.Max(clip.Y, outer.Y), MathF.Min(clip.Z, outer.Z), MathF.Min(clip.W, outer.W));
+            }
+
+            if (clip.Z <= clip.X || clip.W <= clip.Y) clip = new Vector4(-2f, -2f, -1f, -1f);
+
+            _views.Push(new ViewState(Scale, Width, Height, _origin, _clips.ToArray()));
+            _origin = (position - offset * zoom) * Scale + _origin;
+            Scale *= zoom;
+            Width = size.X / zoom;
+            Height = size.Y / zoom;
+            _clips.Clear();
+            _clips.Add(clip);
+        }
+
         /// <summary>Goes back to drawing as before <see cref="BeginView"/>.</summary>
         internal static void EndView()
         {

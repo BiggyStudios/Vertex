@@ -51,6 +51,9 @@ namespace Vertex.Editor.Editing
             _selectedIndices = _context.Selection.Objects.Select(o => all.IndexOf(o)).Where(i => i >= 0).ToList();
             _wasDirty = _context.Dirty;
 
+            // Graphs light up afresh as this run goes; what went wrong last time is forgotten.
+            foreach (Vertex.Graphs.Graph graph in Vertex.Assets.LoadedGraphs.ToList()) graph.ClearActivity();
+
             Game game;
             if (_context.Origin == SceneOrigin.GameWorld && _context.WorldGame is { } worldGame)
             {

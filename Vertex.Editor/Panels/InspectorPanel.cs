@@ -178,6 +178,10 @@ namespace Vertex.Editor.Panels
                     y = Note("Drag it into the scene for more copies. To change it, change a copy, then Apply in that copy's inspector: every copy updates.", x, y, width);
                     break;
 
+                case AssetKind.VisualScript:
+                    y = DrawVisualScriptAsset(asset, x, y, width);
+                    break;
+
                 case AssetKind.Script:
                     y = DrawScript(asset, x, y, width);
                     break;
@@ -651,7 +655,7 @@ namespace Vertex.Editor.Panels
                 if (!slide) Ui.Snap(key, target - scrollTop);
 
                 float end = Card(component, ComponentCatalog.DisplayName(component.GetType()), IconFor(component), x, shown, width, removable: true,
-                    body: cy => _grid.Draw(component, x + 12f, cy, width - 24f), draggable: true);
+                    body: cy => ComponentBody(component, x + 12f, cy, width - 24f), draggable: true);
                 Ui.Remember(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "full"), end - shown);
             }
 
@@ -666,6 +670,73 @@ namespace Vertex.Editor.Panels
             }
 
             return at;
+        }
+
+        /// <summary>A component's values; a visual script's with ways to open its graph or make one.</summary>
+        private float ComponentBody(Component component, float x, float y, float width)
+        {
+            y = _grid.Draw(component, x, y, width);
+            if (component is not Vertex.Scripting.VisualScript script) return y;
+
+            var button = new Rect(x + PropertyGrid.LabelWidth(width), y, width - PropertyGrid.LabelWidth(width), 26f);
+            if (script.Script is { Source: { } source })
+            {
+                if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(script), "openGraph"), button, "Edit Script", ButtonStyle.Primary, "Open the graph in a tab", Icons.Graph))
+                {
+                    _context.OpenGraph(source);
+                }
+            }
+            else if (_context.Assets is { } assets)
+            {
+                if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(script), "newGraph"), button, "New Visual Script", ButtonStyle.Primary,
+                        "Make a .vscript file for this object in Assets/Scripts, and open it", Icons.Plus))
+                {
+                    try
+                    {
+                        string path = _context.CreateVisualScript(Path.Combine(assets.Root, "Scripts"), PrefabSafeName(component.GameObject.Name));
+                        SetValue.Apply(_context.History, "Set Script", script, typeof(Vertex.Scripting.VisualScript).GetProperty(nameof(Vertex.Scripting.VisualScript.Script))!,
+                            Assets.LoadGraph(path));
+                        _context.OpenGraph(path);
+                    }
+                    catch (Exception exception)
+                    {
+                        _context.Notify($"Couldn't make the script: {exception.Message}");
+                    }
+                }
+            }
+            else
+            {
+                return Note("Open a project to make visual scripts for it.", x, y, width);
+            }
+
+            return y + 26f + PropertyGrid.RowGap;
+        }
+
+        private static string PrefabSafeName(string name)
+        {
+            string safe = new(name.Where(c => !Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+            return safe.Trim().Length > 0 ? safe.Trim() : "Script";
+        }
+
+        /// <summary>A .vscript file: open it, and what's in it.</summary>
+        private float DrawVisualScriptAsset(AssetEntry asset, float x, float y, float width)
+        {
+            if (Widgets.Button(Ui.Id("asset.openGraph"), new Rect(x, y, width, 30f), "Open Graph", ButtonStyle.Primary, icon: Icons.Graph)) _context.OpenGraph(asset.Path);
+            y += 40f;
+
+            try
+            {
+                Vertex.Graphs.Graph graph = Assets.LoadGraph(asset.Path);
+                Ui.Text(new Rect(x, y, width, 20f), $"{graph.Nodes.Count} nodes, {graph.Links.Count} links, {graph.Variables.Count} variables", Theme.TextDim);
+                y += 26f;
+            }
+            catch (Exception exception)
+            {
+                Ui.Text(new Rect(x, y, width, 20f), $"Can't be read: {exception.Message}", Theme.Danger, size: Theme.SmallTextSize);
+                y += 26f;
+            }
+
+            return Note("Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit.", x, y, width);
         }
 
         private static int SlideKey(Component component) => Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "slide");
