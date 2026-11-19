@@ -122,7 +122,7 @@ namespace Vertex.Rendering
         private readonly List<(int Offset, int Size)> _freeRanges = new();
         private readonly List<GpuParticleSystemData> _slotData = new();
         private int _poolEnd;
-        private float _lastTime = float.NaN;
+        private double _lastTime = double.NaN;
 
         public GpuParticleUpdate Update { get; } = new();
 
@@ -130,11 +130,11 @@ namespace Vertex.Rendering
         public int SystemCount => _systems.Count;
 
         /// <summary>Gathers this frame's changes from <paramref name="scene"/>'s systems into <see cref="Update"/>.</summary>
-        public GpuParticleUpdate Gather(Scene scene, float totalTime)
+        public GpuParticleUpdate Gather(Scene scene, double totalTime)
         {
             GpuParticleUpdate update = Update;
             update.Reset();
-            update.DeltaTime = float.IsNaN(_lastTime) ? 0f : Math.Clamp(totalTime - _lastTime, 0f, 0.25f);
+            update.DeltaTime = double.IsNaN(_lastTime) ? 0f : (float)Math.Clamp(totalTime - _lastTime, 0.0, 0.25);
             _lastTime = totalTime;
 
             foreach (Registration registration in _systems.Values) registration.Seen = false;

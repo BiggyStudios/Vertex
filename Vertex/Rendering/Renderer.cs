@@ -116,7 +116,7 @@ namespace Vertex.Rendering
 
             // GPU particles move once a frame, whatever number of views draw them: on the GPU if the backend can,
             // otherwise here, and then they're handed over with the other particles.
-            GpuParticleUpdate particles = _gpuParticles.Gather(scene, Time.TotalTime);
+            GpuParticleUpdate particles = _gpuParticles.Gather(scene, Time.PreciseTotalTime);
             _cpuParticles = null;
             if (Backend.SupportsGpuParticles)
             {

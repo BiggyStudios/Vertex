@@ -75,6 +75,22 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void After_hours_of_play_they_still_move_in_even_steps()
+        {
+            // Ten hours in, a float's seconds are a few thousandths apart: steps worked out from them would jump about.
+            _backend.GpuParticles = true;
+            Time.Advance(10 * 60 * 60);
+            AddSystem("Sparks");
+            Frame();
+
+            for (int i = 0; i < 30; i++)
+            {
+                Frame();
+                Assert.Equal(1f / 60f, _backend.ParticleUpdates[^1].DeltaTime, 1e-5f);
+            }
+        }
+
+        [Fact]
         public void With_compute_shaders_the_backend_gets_one_update_a_frame()
         {
             _backend.GpuParticles = true;

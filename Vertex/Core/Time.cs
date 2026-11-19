@@ -18,10 +18,17 @@ namespace Vertex
         /// </summary>
         public static float FixedAlpha { get; internal set; }
 
+        /// <summary>
+        /// <see cref="TotalTime"/> kept to more places: what's worked out from the difference between two times (as GPU
+        /// particles' steps are) stays even after hours, when a float's seconds have grown too coarse.
+        /// </summary>
+        internal static double PreciseTotalTime { get; private set; }
+
         internal static void Advance(double deltaTime)
         {
             DeltaTime = (float)deltaTime;
-            TotalTime += DeltaTime;
+            PreciseTotalTime += deltaTime;
+            TotalTime = (float)PreciseTotalTime;
         }
     }
 }
