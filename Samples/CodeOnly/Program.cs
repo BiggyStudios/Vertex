@@ -70,7 +70,15 @@ public class CoinGame : Game
         }
     }
 
-    public static Vector3 RandomSpot() => new(Random.Shared.NextSingle() * 24f - 12f, 0.6f, Random.Shared.NextSingle() * 24f - 12f);
+    /// <summary>Somewhere on the ground, but not where the ball starts: a coin there would be picked up for free.</summary>
+    public static Vector3 RandomSpot()
+    {
+        while (true)
+        {
+            var spot = new Vector3(Random.Shared.NextSingle() * 24f - 12f, 0.6f, Random.Shared.NextSingle() * 24f - 12f);
+            if (new Vector2(spot.X, spot.Z).Length() > 2.5f) return spot;
+        }
+    }
 }
 
 /// <summary>Pushes the ball the way WASD points, as seen from the camera.</summary>

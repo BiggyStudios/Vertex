@@ -154,7 +154,15 @@ public static int Score { get; set; }
 // At the end of Load():
 for (int i = 0; i &lt; CoinCount; i++) Coin.Make(RandomSpot());
 
-public static Vector3 RandomSpot() =&gt; new(Random.Shared.NextSingle() * 24f - 12f, 0.6f, Random.Shared.NextSingle() * 24f - 12f);</pre>
+// Somewhere on the ground, but not where the ball starts: a coin there would be picked up for free.
+public static Vector3 RandomSpot()
+{
+    while (true)
+    {
+        var spot = new Vector3(Random.Shared.NextSingle() * 24f - 12f, 0.6f, Random.Shared.NextSingle() * 24f - 12f);
+        if (new Vector2(spot.X, spot.Z).Length() &gt; 2.5f) return spot;
+    }
+}</pre>
     </section>
 
     <section class="step" data-step="hud">
