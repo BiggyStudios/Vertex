@@ -102,10 +102,11 @@ namespace Vertex.Rendering
     public readonly record struct FogVolumeData(Matrix4x4 WorldToBox, float Density, float Softness);
 
     /// <summary>
-    /// A post effect to run on the finished picture (see <see cref="PostEffect"/>): its shader, and its settings in the
-    /// order the shader has them (see <see cref="ShaderProperty.Slot"/>).
+    /// A post effect to run on the finished picture (see <see cref="PostEffect"/>): its shader, its settings in the order
+    /// the shader has them (see <see cref="ShaderProperty.Slot"/>), and its textures (<see cref="Shader.MaxTextures"/>
+    /// of them, plain ones where it has fewer).
     /// </summary>
-    public readonly record struct PostEffectData(Shader Shader, Vector4[] Values);
+    public readonly record struct PostEffectData(Shader Shader, Vector4[] Values, Texture[] Textures);
 
     /// <summary>
     /// One particle, facing the camera. Velocity is the stretch: it's drawn that much longer along that direction

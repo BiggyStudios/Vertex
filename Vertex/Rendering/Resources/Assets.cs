@@ -50,10 +50,12 @@ namespace Vertex
         public static Graphs.Graph LoadGraph(string path) => Load(_graphs, path, Graphs.Graph.Load);
 
         /// <summary>
-        /// The shader in a .glsl file (see <see cref="Shader"/>), loaded the first time it's asked for. Everything using it
-        /// shares it, so when the file changes, they all change.
+        /// The shader in a .glsl file or a shader graph (a .shadergraph file; see <see cref="Shader"/>), loaded the first
+        /// time it's asked for. Everything using it shares it, so when the file changes, they all change. A shader graph's
+        /// shader follows its graph (see <see cref="LoadGraph"/>), so a change made in an editor shows straight away.
         /// </summary>
-        public static Shader LoadShader(string path) => Load(_shaders, path, Shader.Load);
+        public static Shader LoadShader(string path) => Load(_shaders, path, full =>
+            Path.GetExtension(full).Equals(ShaderGraphs.ShaderNodes.Extension, StringComparison.OrdinalIgnoreCase) ? Shader.FromGraph(LoadGraph(full)) : Shader.Load(full));
 
         /// <summary>
         /// A project file's path as it's kept in graphs and sent over the network: from the first of

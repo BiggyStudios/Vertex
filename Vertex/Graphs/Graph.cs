@@ -127,7 +127,7 @@ namespace Vertex.Graphs
             if (fromNode == toNode || Library is not { } library) return false;
             if (Node(fromNode) is not { } from || Node(toNode) is not { } to) return false;
             if (library.Find(from.Type)?.Output(fromPort) is not { } output || library.Find(to.Type)?.Input(toPort) is not { } input) return false;
-            return input.Linkable && TypeOf(from, output).CanLinkTo(TypeOf(to, input));
+            return input.Linkable && library.CanLink(TypeOf(from, output), TypeOf(to, input));
         }
 
         /// <summary>
@@ -286,6 +286,8 @@ namespace Vertex.Graphs
             Links.Clear();
             Variables.Clear();
             Kind = root.TryGetProperty("kind", out JsonElement kind) ? kind.GetString() ?? "script" : "script";
+            // Its kind's library knows the port types of its own that its variables may be.
+            _ = NodeLibrary.ForKind(Kind);
 
             if (root.TryGetProperty("variables", out JsonElement variables))
             {

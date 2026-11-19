@@ -104,6 +104,18 @@ namespace Vertex.Rendering.Vulkan
         }
 
         private readonly Dictionary<Shader, EffectShader> _effectShaders = new();
+
+        // Materials' surface shaders, lit and unlit, built the first time they're drawn and again when their code changes.
+        // One that won't compile is kept as failed (and drawn the standard way) until it changes.
+        private sealed class SurfaceShader
+        {
+            public int Version;
+            public ShaderModule? Module;
+            public Pipeline? Pipeline;
+        }
+
+        private readonly Dictionary<(Shader Shader, bool Lit), SurfaceShader> _surfaceShaders = new();
+        private Func<ShaderModule, VkPipelineDescription> _sceneDescription = null!;
         private readonly List<(PostEffectData Effect, Pipeline Pipeline)> _effects = new();
         private ShaderModule _fullscreenVertex;
 
@@ -239,6 +251,11 @@ namespace Vertex.Rendering.Vulkan
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                // A surface shader's textures.
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _textureSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.CombinedImageSampler, fragment));
             _postSetLayout = VkDescriptors.CreateLayout(_context,
@@ -247,7 +264,9 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
-            _effectSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.UniformBuffer, fragment));
+            _effectSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.UniformBuffer, fragment),
+                (DescriptorType.CombinedImageSampler, fragment), (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment), (DescriptorType.CombinedImageSampler, fragment));
 
             _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), ShaderStageFlags.VertexBit);
             _shadowLayout = VkDescriptors.CreatePipelineLayout(_context, [], (uint)sizeof(Matrix4x4), ShaderStageFlags.VertexBit);
@@ -320,6 +339,7 @@ namespace Vertex.Rendering.Vulkan
                 DepthFormat = _context.DepthFormat
             };
 
+            _sceneDescription = Scene;
             _lit = VkPipelines.CreateGraphics(_context, Scene(litFragment));
             _unlit = VkPipelines.CreateGraphics(_context, Scene(unlitFragment));
 
@@ -826,11 +846,24 @@ namespace Vertex.Rendering.Vulkan
             GetTexture(commands, CloudNoise.Texture);
 
             IReadOnlyList<DrawCall> draws = frame.DrawCalls;
+            Material? previous = null;
             for (int i = 0; i < draws.Count; i++)
             {
                 GetMesh(commands, draws[i].Mesh);
-                if (draws[i].Material.Texture is { } texture) GetTexture(commands, texture);
-                if (draws[i].Material.NormalMap is { } normalMap) GetTexture(commands, normalMap);
+                Material material = draws[i].Material;
+                if (material == previous) continue;
+                previous = material;
+                if (material.Texture is { } texture) GetTexture(commands, texture);
+                if (material.NormalMap is { } normalMap) GetTexture(commands, normalMap);
+                if (Renderer.SurfaceShader(material) is { } surface)
+                {
+                    foreach (Texture shaderTexture in surface.PackTextures(material.Values)) GetTexture(commands, shaderTexture);
+                }
+            }
+
+            foreach (PostEffectData effect in frame.PostEffects)
+            {
+                foreach (Texture effectTexture in effect.Textures) GetTexture(commands, effectTexture);
             }
 
             // Things out of view can still cast shadows into it.
@@ -1114,12 +1147,15 @@ namespace Vertex.Rendering.Vulkan
         {
             if (_materialSets.TryGetValue(material, out DescriptorSet set)) return set;
 
-            MaterialUniforms data = MaterialUniforms.Create(material);
+            Shader? surface = Renderer.SurfaceShader(material);
+            MaterialUniforms data = MaterialUniforms.Create(material, surface);
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write(in data);
             set = _frame.Descriptors.Allocate(_materialSetLayout);
             VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(MaterialUniforms));
             VkDescriptors.WriteImage(_context, set, 1, TextureImage(material.Texture).View, _repeatSampler);
             VkDescriptors.WriteImage(_context, set, 2, TextureImage(material.NormalMap).View, _repeatSampler);
+            Texture[]? textures = surface?.PackTextures(material.Values);
+            for (int i = 0; i < Rendering.Shader.MaxTextures; i++) VkDescriptors.WriteImage(_context, set, (uint)(3 + i), TextureImage(textures?[i]).View, _repeatSampler);
             _materialSets.Add(material, set);
             return set;
         }
@@ -1149,16 +1185,16 @@ namespace Vertex.Rendering.Vulkan
             {
                 DrawCall draw = draws[i];
                 Material material = draw.Material;
-                Pipeline pipeline = material.Shading == ShadingModel.Unlit ? _unlit : _lit;
-
-                if (pipeline.Handle != currentPipeline.Handle)
-                {
-                    _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
-                    currentPipeline = pipeline;
-                }
 
                 if (material != currentMaterial)
                 {
+                    Pipeline pipeline = ScenePipeline(material, Renderer.SurfaceShader(material));
+                    if (pipeline.Handle != currentPipeline.Handle)
+                    {
+                        _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
+                        currentPipeline = pipeline;
+                    }
+
                     DescriptorSet materialSet = MaterialSet(material);
                     _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 1, 1, &materialSet, 0, null);
                     currentMaterial = material;
@@ -1445,6 +1481,48 @@ namespace Vertex.Rendering.Vulkan
             return pipeline;
         }
 
+        /// <summary>
+        /// The scene pipeline for a material: its surface shader's own (lit or unlit as the material is), built the first
+        /// time and again when its code changes, or the standard one. A surface shader that won't compile is drawn the
+        /// standard way; what the compiler said goes in its <see cref="Rendering.Shader.Problem"/> and the log.
+        /// </summary>
+        private Pipeline ScenePipeline(Material material, Shader? surface)
+        {
+            bool lit = material.Shading != ShadingModel.Unlit;
+            if (surface == null) return lit ? _lit : _unlit;
+
+            if (!_surfaceShaders.TryGetValue((surface, lit), out SurfaceShader? built) || built.Version != surface.Version)
+            {
+                if (built != null)
+                {
+                    Pipeline? oldPipeline = built.Pipeline;
+                    ShaderModule? oldModule = built.Module;
+                    _frame.DeleteLater(() =>
+                    {
+                        if (oldPipeline is { } p) _context.Vk.DestroyPipeline(_context.Device, p, null);
+                        if (oldModule is { } m) _context.Vk.DestroyShaderModule(_context.Device, m, null);
+                    });
+                }
+
+                built = new SurfaceShader { Version = surface.Version };
+                _surfaceShaders[(surface, lit)] = built;
+                try
+                {
+                    string source = lit ? ShaderLibrary.LitFragmentWith(surface) : ShaderLibrary.UnlitFragmentWith(surface);
+                    ShaderModule module = _compiler.Create(surface.Name, ShaderKind.FragmentShader, ShaderLibrary.Build(ShaderTarget.Vulkan, source));
+                    built.Module = module;
+                    built.Pipeline = VkPipelines.CreateGraphics(_context, _sceneDescription(module));
+                }
+                catch (InvalidOperationException exception)
+                {
+                    surface.CompileProblem = exception.Message;
+                    Log.Error(exception.Message);
+                }
+            }
+
+            return built.Pipeline ?? (lit ? _lit : _unlit);
+        }
+
         /// <summary>Lets go of an effect's old build once the frames using it are done.</summary>
         private void ForgetEffect(EffectShader built)
         {
@@ -1477,7 +1555,7 @@ namespace Vertex.Rendering.Vulkan
                     VkImageResource target = views.Effects[(i + 1) % 2]!;
                     _context.Transition(commands, target, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
                     VkPipelines.BeginRendering(_context, commands, target.Width, target.Height, [(target, (ClearColorValue?)null)]);
-                    EffectDraw(commands, pipeline, target.Width, target.Height, post, source, views.Depth, effect.Values);
+                    EffectDraw(commands, pipeline, target.Width, target.Height, post, source, views.Depth, effect.Values, effect.Textures);
                     _context.Vk.CmdEndRendering(commands);
                     _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
                     source = target;
@@ -1489,19 +1567,20 @@ namespace Vertex.Rendering.Vulkan
                     Pipeline last = EffectPipeline(effect.Shader, outputFormat)!.Value;
                     post.TexelSize = new Vector2(1f / outputWidth, 1f / outputHeight);
                     BeginOutput(commands, output, outputAfter, null);
-                    EffectDraw(commands, last, outputWidth, outputHeight, post, source, views.Depth, effect.Values);
+                    EffectDraw(commands, last, outputWidth, outputHeight, post, source, views.Depth, effect.Values, effect.Textures);
                 }
             }
         }
 
         private void EffectDraw(CommandBuffer commands, Pipeline pipeline, int width, int height, PostUniforms post, VkImageResource source,
-            VkImageResource? depth, Vector4[] values)
+            VkImageResource? depth, Vector4[] values, Texture[] textures)
         {
             DescriptorSet* sets = stackalloc DescriptorSet[2];
             sets[0] = PostImages(source, depth: depth);
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write<Vector4>(values);
             sets[1] = _frame.Descriptors.Allocate(_effectSetLayout);
             VkDescriptors.WriteBuffer(_context, sets[1], 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)(values.Length * sizeof(Vector4)));
+            for (int i = 0; i < textures.Length; i++) VkDescriptors.WriteImage(_context, sets[1], (uint)(1 + i), TextureImage(textures[i]).View, _repeatSampler);
 
             _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
             VkPipelines.SetViewport(_context, commands, width, height, flipped: false);
@@ -1645,6 +1724,11 @@ namespace Vertex.Rendering.Vulkan
             foreach (EffectShader built in _effectShaders.Values)
             {
                 foreach (Pipeline pipeline in built.Pipelines.Values) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
+                if (built.Module is { } module) _context.Vk.DestroyShaderModule(_context.Device, module, null);
+            }
+            foreach (SurfaceShader built in _surfaceShaders.Values)
+            {
+                if (built.Pipeline is { } pipeline) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
                 if (built.Module is { } module) _context.Vk.DestroyShaderModule(_context.Device, module, null);
             }
 

@@ -81,6 +81,44 @@ namespace Vertex.Rendering
         /// <summary>How bright <see cref="Emission"/> is. Above 1 it's brighter than any colour can show, and glows more.</summary>
         public float EmissionStrength { get; set; } = 1f;
 
+        /// <summary>
+        /// A surface shader that works out the look at each point itself, from a .glsl file or a shader graph: flowing
+        /// lava, a force field, a scrolling screen. It's given the settings above to start from, and changes what it
+        /// likes. Null for the standard look, from the settings alone.
+        /// </summary>
+        public Shader? Shader { get; set; }
+
+        /// <summary>
+        /// The <see cref="Shader"/>'s settings changed from its own starting values, by name. Those the shader no longer
+        /// has are kept, in case it's being edited and they come back.
+        /// </summary>
+        [HideInInspector]
+        public List<ShaderValue> Values { get; set; } = new();
+
+        /// <summary>Sets one of the shader's settings (a float, an int or a bool given as 0 or 1).</summary>
+        public void Set(string name, float value) => Set(name, new Vector4(value, 0f, 0f, 0f));
+
+        public void Set(string name, bool value) => Set(name, value ? 1f : 0f);
+        public void Set(string name, Vector2 value) => Set(name, new Vector4(value, 0f, 0f));
+        public void Set(string name, Vector3 value) => Set(name, new Vector4(value, 0f));
+        public void Set(string name, Color value) => Set(name, new Vector4(value.R, value.G, value.B, value.A));
+        public void Set(string name, Vector4 value) => ShaderValue.Set(Values, name, value);
+
+        /// <summary>Sets one of the shader's texture settings; null puts it back to the shader's own.</summary>
+        public void SetTexture(string name, Texture? texture) => ShaderValue.SetTexture(Values, name, texture);
+
+        /// <summary>A texture setting: as set, or the file the shader starts it as. Null for a plain one.</summary>
+        public Texture? GetTexture(string name) => ShaderValue.GetTexture(Values, Shader, name);
+
+        /// <summary>A shader setting's value: as set, or the shader's starting value. Zero if the shader has no such setting.</summary>
+        public Vector4 Get(string name) => ShaderValue.Get(Values, Shader, name);
+
+        /// <summary>Puts a shader setting back to the shader's starting value.</summary>
+        public void Reset(string name) => Values.RemoveAll(value => value.Name == name);
+
+        /// <summary>Whether a shader setting has been changed from the shader's starting value.</summary>
+        public bool IsSet(string name) => Values.Exists(value => value.Name == name);
+
         public Material() {}
 
         public Material(Color color)
@@ -93,6 +131,7 @@ namespace Vertex.Rendering
         {
             var copy = (Material)MemberwiseClone();
             copy.Source = null;
+            copy.Values = Values.Select(v => new ShaderValue { Name = v.Name, Value = v.Value, Texture = v.Texture }).ToList();
             return copy;
         }
     }

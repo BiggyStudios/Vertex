@@ -36,9 +36,12 @@ namespace Vertex.Rendering
         private CpuParticlePool? _cpuParticlePool;
         private CpuParticlePool? _cpuParticles;
 
-        // Any order that keeps draws with the same material, and within that the same mesh, next to each other.
+        // Any order that keeps draws with the same surface shader (or none) next to each other, as switching shaders costs
+        // the most; within that the same material, and within that the same mesh.
         private static readonly Comparison<DrawCall> _byMaterialThenMesh = (a, b) =>
         {
+            int shader = RuntimeHelpers.GetHashCode(a.Material.Shader).CompareTo(RuntimeHelpers.GetHashCode(b.Material.Shader));
+            if (shader != 0) return shader;
             int material = RuntimeHelpers.GetHashCode(a.Material).CompareTo(RuntimeHelpers.GetHashCode(b.Material));
             return material != 0 ? material : RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
         };
@@ -228,18 +231,34 @@ namespace Vertex.Rendering
 
             foreach (PostEffect effect in camera.GameObject.GetComponents<PostEffect>())
             {
-                if (!effect.Enabled || effect.Shader is not { } shader) continue;
-                if (shader.Problem != null)
-                {
-                    // Said once for each version of its code; what the compiler said, the backend has logged already.
-                    if (shader.CompileProblem == null && shader.ReportedVersion != shader.Version) Log.Error(shader.Problem);
-                    shader.ReportedVersion = shader.Version;
-                    continue;
-                }
-
-                _frame.PostEffectList.Add(new PostEffectData(shader, effect.Pack()));
+                if (!effect.Enabled || effect.Shader is not { } shader || !Usable(shader, ShaderPurpose.PostEffect)) continue;
+                _frame.PostEffectList.Add(new PostEffectData(shader, shader.PackValues(effect.Values), shader.PackTextures(effect.Values)));
             }
         }
+
+        /// <summary>
+        /// Whether a game's shader can be drawn for <paramref name="purpose"/>: it has no problems, and it's for that. What's
+        /// wrong is said once for each version of its code; what the compiler said, the backend has logged already.
+        /// </summary>
+        internal static bool Usable(Shader shader, ShaderPurpose purpose)
+        {
+            string? problem = shader.Problem;
+            if (problem == null && shader.Purpose != purpose)
+            {
+                problem = purpose == ShaderPurpose.PostEffect
+                    ? $"{shader.Name} is a surface shader, for a material: a post effect needs vec4 effect(vec2 uv)"
+                    : $"{shader.Name} is a post effect, for a camera: a material needs a surface shader, with void surface(inout Surface s)";
+            }
+
+            if (problem == null) return true;
+            if (shader.CompileProblem == null && shader.ReportedVersion != shader.Version) Log.Error(problem);
+            shader.ReportedVersion = shader.Version;
+            return false;
+        }
+
+        /// <summary>The surface shader a material is drawn with, or null for the standard one (none, or one that can't be used).</summary>
+        internal static Shader? SurfaceShader(Material material) =>
+            material.Shader is { } shader && Usable(shader, ShaderPurpose.Surface) ? shader : null;
 
         /// <summary>The boxes of fog the view reaches into, nearest first, as many as the shaders take.</summary>
         private void CollectFogVolumes(Scene scene, in Frustum frustum)

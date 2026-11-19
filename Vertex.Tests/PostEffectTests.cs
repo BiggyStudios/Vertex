@@ -100,9 +100,9 @@ namespace Vertex.Tests
             string[] written = Invert.Replace("\r\n", "\n").Split('\n');
             string[] body = shader.Body.Split('\n');
 
-            Assert.Equal("#define Amount (effectValues[0].x)", body[1]);
-            Assert.Equal("#define Flip (effectValues[3].x > 0.5)", body[4]);
-            Assert.Equal("#define Steps int(effectValues[4].x)", body[5]);
+            Assert.Equal("#define Amount (shaderValues[0].x)", body[1]);
+            Assert.Equal("#define Flip (shaderValues[3].x > 0.5)", body[4]);
+            Assert.Equal("#define Steps int(shaderValues[4].x)", body[5]);
             Assert.Equal(written[7], body[7]);
         }
 

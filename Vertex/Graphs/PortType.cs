@@ -58,6 +58,9 @@ namespace Vertex.Graphs
         /// <summary>A sound of the project's. Kept in a graph as where its file is.</summary>
         public static readonly PortType Sound = new("Sound", typeof(Audio.AudioClip), new Vertex.Color(0.79f, 0.55f, 0.96f));
 
+        /// <summary>A texture of the project's. Kept in a graph as where its file is.</summary>
+        public static readonly PortType Texture = new("Texture", typeof(Rendering.Texture), new Vertex.Color(0.95f, 0.6f, 0.35f));
+
         private static readonly Dictionary<Type, PortType> _enums = new();
 
         /// <summary>A choice from an enum (a key on the keyboard): set on the node, not linked.</summary>
@@ -110,6 +113,7 @@ namespace Vertex.Graphs
                 if (this == Object) return value switch { GameObject gameObject => gameObject, Component component => component.GameObject, _ => null };
                 if (this == Prefab) return value is string prefab && Assets.FindFile(prefab) is { } prefabFile ? Assets.LoadPrefab(prefabFile) : null;
                 if (this == Sound) return value is string sound && Assets.FindFile(sound) is { } soundFile ? Assets.LoadSound(soundFile) : null;
+                if (this == Texture) return value is string texture && Assets.FindFile(texture) is { } textureFile ? Assets.LoadTexture(textureFile) : null;
                 if (this == Color) return value switch { Vector4 v => new Vertex.Color(v.X, v.Y, v.Z, v.W), Vector3 v => new Vertex.Color(v.X, v.Y, v.Z), float f => new Vertex.Color(f, f, f), _ => Default };
                 if (ValueType is { IsEnum: true } enumType && value is string name && System.Enum.TryParse(enumType, name, out object? parsed)) return parsed;
             }
@@ -146,6 +150,7 @@ namespace Vertex.Graphs
             GameObject gameObject => gameObject.Name,
             Vertex.Prefab prefab => prefab.Name,
             Audio.AudioClip => "Sound",
+            Rendering.Texture => "Texture",
             Component component => $"{component.GameObject.Name} ({component.GetType().Name})",
             _ => System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
         };

@@ -20,6 +20,12 @@ namespace Vertex.Graphs
         /// for a Boolean variable): see <see cref="Graph.TypeOf"/>. <see cref="Type"/> is what it is before one's chosen.
         /// </summary>
         public bool TypeFromVariable { get; init; }
+
+        /// <summary>
+        /// What an input is while nothing's linked to it, shown in place of a value to type (a shader graph's Surface
+        /// output keeps the material's own colour: "Material's"). Null for an input that takes a typed value.
+        /// </summary>
+        public string? WhenUnlinked { get; init; }
     }
 
     /// <summary>
@@ -171,6 +177,16 @@ namespace Vertex.Graphs
         /// <summary>The colour of a category's node headers.</summary>
         public virtual Color CategoryColor(string category) => new(0.4f, 0.42f, 0.48f);
 
+        /// <summary>
+        /// Whether an output of type <paramref name="output"/> can be linked to an input of <paramref name="input"/>'s.
+        /// Most kinds of graph go by <see cref="PortType.CanLinkTo"/>; a shader graph lets any number, vector or colour
+        /// into any other, as GLSL turns one into another.
+        /// </summary>
+        public virtual bool CanLink(PortType output, PortType input) => output.CanLinkTo(input);
+
+        /// <summary>The types a graph of this kind's variables can be.</summary>
+        public virtual IReadOnlyList<PortType> VariableTypes => PortType.VariableTypes;
+
         /// <summary>What a graph of this kind calls its variables, one and several ("Variable", "Variables"), and what they're for.</summary>
         public virtual (string One, string Several, string Note) VariableWords => ("Variable", "Variables", "kept per object while it runs");
 
@@ -188,6 +204,7 @@ namespace Vertex.Graphs
             if (kind == Scripting.ScriptNodes.Kind) _ = Scripting.ScriptNodes.Library;
             if (kind == Effects.VfxNodes.Kind) _ = Effects.VfxNodes.Library;
             if (kind == Audio.AudioNodes.Kind) _ = Audio.AudioNodes.Library;
+            if (kind == ShaderGraphs.ShaderNodes.Kind) _ = ShaderGraphs.ShaderNodes.Library;
             lock (_libraries) return _libraries.GetValueOrDefault(kind);
         }
     }

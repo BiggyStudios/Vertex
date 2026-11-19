@@ -544,6 +544,7 @@ namespace Vertex.Rendering.Shaders
                 vec4 surface;        // x: roughness, y: metallic, z: specular, w: 1 if textured
                 vec4 uvTransform;    // xy: scale, zw: offset
                 vec4 normalParams;   // x: 1 if there's a normal map, y: its strength
+                vec4 values[16];     // a surface shader's settings (see Shader.PackValues)
             } material;
 
             TEXTURE(1, 1) sampler2D materialTexture;
@@ -556,13 +557,15 @@ namespace Vertex.Rendering.Shaders
                 return mix(uv, affineUV, frame.retro.y) * material.uvTransform.xy + material.uvTransform.zw;
             }
 
-            // The material's texture, smoothed, or in crisp square texels with no smaller copies (Lighting.PixelatedTextures).
-            vec4 materialTexel(vec2 uv)
+            // A texture, smoothed, or in crisp square texels with no smaller copies (Lighting.PixelatedTextures).
+            vec4 crispTexture(sampler2D image, vec2 uv)
             {
-                if (frame.retro.z < 0.5) return texture(materialTexture, uv);
-                vec2 size = vec2(textureSize(materialTexture, 0));
-                return textureLod(materialTexture, (floor(uv * size) + 0.5) / size, 0.0);
+                if (frame.retro.z < 0.5) return texture(image, uv);
+                vec2 size = vec2(textureSize(image, 0));
+                return textureLod(image, (floor(uv * size) + 0.5) / size, 0.0);
             }
+
+            vec4 materialTexel(vec2 uv) { return crispTexture(materialTexture, uv); }
 
             """;
 
@@ -586,6 +589,8 @@ namespace Vertex.Rendering.Shaders
             VARYING(2) out vec2 vUV;
             // The same, spread evenly across the screen rather than in perspective: how early consoles drew textures.
             VARYING(3) noperspective out vec2 vAffineUV;
+            // Where the object's origin is, for surface shaders.
+            VARYING(4) flat out vec3 vObjectPosition;
 
             void main()
             {
@@ -594,6 +599,7 @@ namespace Vertex.Rendering.Shaders
                 vNormal = mat3(draw.normalMatrix) * aNormal;
                 vUV = aUV;
                 vAffineUV = aUV;
+                vObjectPosition = draw.model[3].xyz;
                 vec4 position = frame.projection * frame.view * worldPosition;
 
                 // Corners snapped to a coarse grid on the screen (Lighting.VertexSnapping), as the PlayStation's were to
@@ -609,11 +615,13 @@ namespace Vertex.Rendering.Shaders
             }
             """;
 
-        public const string LitFragment = Frame + Material + """
+        // What the mesh shader hands on, and what the scene pass draws into.
+        private const string SceneFragmentInputs = """
             VARYING(0) in vec3 vWorldPosition;
             VARYING(1) in vec3 vNormal;
             VARYING(2) in vec2 vUV;
             VARYING(3) noperspective in vec2 vAffineUV;
+            VARYING(4) flat in vec3 vObjectPosition;
 
             layout (location = 0) out vec4 FragColor;
             // The part of the colour that's soft light from all around, which ambient occlusion takes away from.
@@ -622,16 +630,167 @@ namespace Vertex.Rendering.Shaders
             // light up the space round them. Nearer things cover glow behind them.
             layout (location = 2) out vec4 GlowColor;
 
+            """;
+
+        // ---- Surfaces ---------------------------------------------------------------------------------------------
+        // How a surface looks at one point: from the material's settings, then changed by its surface shader if it has
+        // one (see Shader), which defines void surface(inout Surface s) and can read the values below.
+        private const string SurfaceCommon = """
+            struct Surface
+            {
+                vec3 color;        // linear
+                float alpha;       // with alphaClip: where it's below alphaClip, nothing's drawn (leaves, fences)
+                vec3 normal;       // in the world, facing out of the surface
+                float roughness;
+                float metallic;
+                float specular;
+                vec3 emission;     // linear light it gives off; above 1 it glows
+                float alphaClip;
+            };
+
+            vec2 uv;               // the mesh's texture coordinates, bent across the surface as much as Lighting.AffineTextures says
+            vec3 worldPosition;
+            vec3 worldNormal;      // the mesh's own, before any normal map
+            vec3 viewDirection;    // from the surface towards the camera
+            vec3 objectPosition;   // where the object's origin is
+            vec2 screenPosition;   // 0 to 1 across the view, from its top-left corner
+            float time;            // seconds since the game started
+
+            // The material's own look, as the surface shader was given it.
+            Surface materialSurface;
+
+            // A texture's colour, made linear as the surface's colours are, in crisp texels if the scene asks.
+            vec4 sampleColor(sampler2D image, vec2 at)
+            {
+                vec4 texel = crispTexture(image, at);
+                return vec4(toLinear(texel.rgb), texel.a);
+            }
+
+            // A texture's values as they're stored, not made linear: masks, heights, noise.
+            vec4 sampleData(sampler2D image, vec2 at) { return crispTexture(image, at); }
+
+            // A normal map's bumps as a direction off the surface (z straight out), made as deep as strength says.
+            vec3 sampleNormal(sampler2D image, vec2 at, float strength)
+            {
+                vec3 bent = texture(image, at).xyz * 2.0 - 1.0;
+                bent.xy *= strength;
+                return bent;
+            }
+
+            // A direction off the surface (as normal maps have them, z straight out) turned into the world. Which ways
+            // across the surface its x and y go is worked out from how the position and texture coordinates `at` change
+            // across the pixel, so meshes don't need tangents (Schüler's method).
+            vec3 surfaceToWorld(vec3 bent, vec2 at)
+            {
+                vec3 N = worldNormal;
+                vec3 dp1 = dFdx(worldPosition);
+                vec3 dp2 = dFdy(worldPosition);
+                vec2 duv1 = dFdx(at);
+                vec2 duv2 = dFdy(at);
+                vec3 dp2perp = cross(dp2, N);
+                vec3 dp1perp = cross(N, dp1);
+                vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+                vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+                float scale = inversesqrt(max(dot(T, T), dot(B, B)));
+                if (!(scale < 1e18)) return N;
+
+                return normalize(mat3(T * scale, B * scale, N) * bent);
+            }
+
+            vec3 surfaceToWorld(vec3 bent) { return surfaceToWorld(bent, uv); }
+
+            void readSurfaceInputs()
+            {
+                uv = mix(vUV, vAffineUV, frame.retro.y);
+                worldPosition = vWorldPosition;
+                worldNormal = normalize(vNormal);
+                viewDirection = normalize(frame.cameraPosition.xyz - vWorldPosition);
+                objectPosition = vObjectPosition;
+                vec4 clip = frame.projection * frame.view * vec4(vWorldPosition, 1.0);
+                screenPosition = vec2(clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5);
+                time = frame.cameraPosition.w;
+            }
+
+            // The look the material's own settings give.
+            Surface standardSurface()
+            {
+                vec2 at = materialUV(vUV, vAffineUV);
+                vec4 albedo = material.color;
+                if (material.surface.w > 0.5)
+                {
+                    vec4 texel = materialTexel(at);
+                    albedo *= vec4(toLinear(texel.rgb), texel.a);
+                }
+
+                Surface s;
+                s.color = albedo.rgb;
+                s.alpha = albedo.a;
+                s.normal = worldNormal;
+                if (material.normalParams.x > 0.5) s.normal = surfaceToWorld(sampleNormal(normalMap, at, material.normalParams.y), at);
+                s.roughness = material.surface.x;
+                s.metallic = material.surface.y;
+                s.specular = material.surface.z;
+                s.emission = material.emission.rgb;
+                s.alphaClip = 0.0;
+                return s;
+            }
+
+            """;
+
+        // A surface shader's own settings: its values (in the material's block) and up to four textures.
+        private const string SurfaceShaderHeader = """
+            #define shaderValues material.values
+            TEXTURE(1, 3) sampler2D shaderTexture0;
+            TEXTURE(1, 4) sampler2D shaderTexture1;
+            TEXTURE(1, 5) sampler2D shaderTexture2;
+            TEXTURE(1, 6) sampler2D shaderTexture3;
+
+            """;
+
+        // The surface the pixel shows: the material's look, through its surface shader if it has one. Pixels it cuts
+        // out aren't drawn.
+        private const string ReadSurface = """
+                readSurfaceInputs();
+                Surface s = standardSurface();
+            #ifdef CUSTOM_SURFACE
+                materialSurface = s;
+                surface(s);
+                if (s.alpha < s.alphaClip) discard;
+                s.normal = normalize(s.normal);
+            #endif
+
+            """;
+
+        /// <summary>
+        /// A scene fragment shader, lit or unlit: with a surface shader's code (see <see cref="Rendering.Shader.Body"/>)
+        /// put in, numbered from its first line so the compiler's errors match it, or the standard one without.
+        /// </summary>
+        private static string SceneFragment(Rendering.Shader? surface, string shading, string main)
+        {
+            string custom = surface == null ? "" : SurfaceShaderHeader + "#line 1\n" + surface.Body + "\n";
+            return (surface == null ? "" : "#define CUSTOM_SURFACE 1\n") + Frame + Material + SceneFragmentInputs + SurfaceCommon + custom + shading + main;
+        }
+
+        public static readonly string LitFragment = LitFragmentWith(null);
+        public static readonly string UnlitFragment = UnlitFragmentWith(null);
+
+        /// <summary>The lit scene shader, with a material's surface shader in it (or the standard one, for null).</summary>
+        public static string LitFragmentWith(Rendering.Shader? surface) => SceneFragment(surface, LitShading, "void main()\n{\n" + ReadSurface + LitMain);
+
+        /// <summary>The unlit scene shader, with a material's surface shader in it (or the standard one, for null).</summary>
+        public static string UnlitFragmentWith(Rendering.Shader? surface) => SceneFragment(surface, "", "void main()\n{\n" + ReadSurface + UnlitMain);
+
+        private const string LitShading = """
             vec3 diffuseLight;
             vec3 specularLight;
 
             // ---- Shadows ----------------------------------------------------------------------------------------
             // A 5x5 tent filter from 9 lookups, each already blending 4 texels' tests in hardware (Castaño's), so
             // edges are soft and smooth without noise.
-            float filteredShadow(vec2 uv, float layer, float depth)
+            float filteredShadow(vec2 shadowUV, float layer, float depth)
             {
                 float texel = frame.shadow.x;
-                vec2 position = uv / texel;
+                vec2 position = shadowUV / texel;
                 vec2 base = floor(position + 0.5);
                 float s = position.x + 0.5 - base.x;
                 float t = position.y + 0.5 - base.y;
@@ -663,10 +822,10 @@ namespace Vertex.Rendering.Shaders
 
                 vec4 lightSpace = frame.shadowMatrices[cascade] * vec4(position, 1.0);
                 vec3 p = lightSpace.xyz / lightSpace.w;
-                vec2 uv = NDC_TO_UV(p.xy);
-                if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || p.z >= 1.0) return 1.0;
+                vec2 shadowUV = NDC_TO_UV(p.xy);
+                if (any(lessThan(shadowUV, vec2(0.0))) || any(greaterThan(shadowUV, vec2(1.0))) || p.z >= 1.0) return 1.0;
 
-                return filteredShadow(uv, float(cascade), STORED_DEPTH(p.z) - 0.0002);
+                return filteredShadow(shadowUV, float(cascade), STORED_DEPTH(p.z) - 0.0002);
             }
 
             // 1 in full sunlight, 0 in shadow. Each cascade covers further out than the one before, at lower detail;
@@ -751,47 +910,15 @@ namespace Vertex.Rendering.Shaders
                 specularLight += color * F * mix(highlight, smoothstep(0.5, 0.6, highlight) * 2.0, celShading);
             }
 
-            // The surface's normal, bent by the normal map. The directions the map's sideways and up follow on the
-            // surface are worked out from how its position and texture coordinates change across the pixel, so meshes
-            // don't need tangents (Schüler's method).
-            vec3 surfaceNormal(vec2 uv)
-            {
-                vec3 N = normalize(vNormal);
-                if (material.normalParams.x < 0.5) return N;
+            """;
 
-                vec3 bent = texture(normalMap, uv).xyz * 2.0 - 1.0;
-                bent.xy *= material.normalParams.y;
+        private const string LitMain = """
+                float roughness = clamp(s.roughness, 0.04, 1.0);
+                float metallic = clamp(s.metallic, 0.0, 1.0);
+                vec3 F0 = mix(vec3(0.08 * clamp(s.specular, 0.0, 1.0)), s.color, metallic);
+                vec3 diffuseColor = s.color * (1.0 - metallic);
 
-                vec3 dp1 = dFdx(vWorldPosition);
-                vec3 dp2 = dFdy(vWorldPosition);
-                vec2 duv1 = dFdx(uv);
-                vec2 duv2 = dFdy(uv);
-                vec3 dp2perp = cross(dp2, N);
-                vec3 dp1perp = cross(N, dp1);
-                vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-                vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-                float scale = inversesqrt(max(dot(T, T), dot(B, B)));
-                if (!(scale < 1e18)) return N;
-
-                return normalize(mat3(T * scale, B * scale, N) * bent);
-            }
-
-            void main()
-            {
-                vec2 uv = materialUV(vUV, vAffineUV);
-                vec4 albedo = material.color;
-                if (material.surface.w > 0.5)
-                {
-                    vec4 texel = materialTexel(uv);
-                    albedo *= vec4(toLinear(texel.rgb), texel.a);
-                }
-
-                float roughness = clamp(material.surface.x, 0.04, 1.0);
-                float metallic = clamp(material.surface.y, 0.0, 1.0);
-                vec3 F0 = mix(vec3(0.08 * material.surface.z), albedo.rgb, metallic);
-                vec3 diffuseColor = albedo.rgb * (1.0 - metallic);
-
-                vec3 N = surfaceNormal(uv);
+                vec3 N = s.normal;
                 vec3 toCamera = frame.cameraPosition.xyz - vWorldPosition;
                 float distance = length(toCamera);
                 vec3 V = toCamera / max(distance, 1e-4);
@@ -805,7 +932,7 @@ namespace Vertex.Rendering.Shaders
                 {
                     vec3 L = normalize(-frame.directionalDirection[i].xyz);
                     vec3 color = frame.directionalColor[i].rgb;
-                    if (i == shadowLight) color *= sunShadow(normalize(vNormal), L);
+                    if (i == shadowLight) color *= sunShadow(worldNormal, L);
                     addLight(N, V, L, color, F0, roughness);
                 }
 
@@ -821,11 +948,11 @@ namespace Vertex.Rendering.Shaders
                 float ambientIntensity = frame.skyLight.w;
                 vec3 R = reflect(-V, N);
                 vec3 reflected = mix(skyRadiance(R), ambientLight(R), smoothstep(0.0, 0.7, roughness));
-                reflected *= clamp(1.0 + dot(R, normalize(vNormal)), 0.0, 1.0);
+                reflected *= clamp(1.0 + dot(R, worldNormal), 0.0, 1.0);
                 vec2 brdf = environmentBRDF(roughness, NdotV);
                 vec3 ambient = (diffuseColor * ambientLight(N) + reflected * (F0 * brdf.x + brdf.y)) * ambientIntensity;
 
-                vec3 emission = material.emission.rgb;
+                vec3 emission = max(s.emission, vec3(0.0));
                 vec3 color = diffuseColor * diffuseLight + specularLight + ambient + emission;
 
                 // Fades into the sky with distance. Done last, so far-off things match the sky behind them. Then the
@@ -838,24 +965,9 @@ namespace Vertex.Rendering.Shaders
             }
             """;
 
-        public const string UnlitFragment = Frame + Material + """
-            VARYING(0) in vec3 vWorldPosition;
-            VARYING(1) in vec3 vNormal;
-            VARYING(2) in vec2 vUV;
-            VARYING(3) noperspective in vec2 vAffineUV;
-
-            layout (location = 0) out vec4 FragColor;
-            layout (location = 1) out vec4 AmbientColor;
-            // What glows, in linear light, for bloom: emission, so glowing things keep their colour on screen and still
-            // light up the space round them. Nearer things cover glow behind them.
-            layout (location = 2) out vec4 GlowColor;
-
-            void main()
-            {
-                vec2 uv = materialUV(vUV, vAffineUV);
-                vec3 color = material.color.rgb;
-                if (material.surface.w > 0.5) color *= toLinear(materialTexel(uv).rgb);
-                color += material.emission.rgb;
+        private const string UnlitMain = """
+                vec3 emission = max(s.emission, vec3(0.0));
+                vec3 color = s.color + emission;
 
                 vec3 toCamera = frame.cameraPosition.xyz - vWorldPosition;
                 float distance = length(toCamera);
@@ -863,7 +975,7 @@ namespace Vertex.Rendering.Shaders
                 vec4 haze = fogAtPoint(vWorldPosition);
                 FragColor = vec4(mix(color, fogColor(-toCamera / max(distance, 1e-4)), fog) * haze.a + haze.rgb, 1.0);
                 AmbientColor = vec4(0.0, 0.0, 0.0, 1.0);
-                GlowColor = vec4(material.emission.rgb * (GLOW_STRENGTH * (1.0 - fog) * haze.a), 1.0);
+                GlowColor = vec4(emission * (GLOW_STRENGTH * (1.0 - fog) * haze.a), 1.0);
             }
             """;
 
@@ -1716,14 +1828,18 @@ namespace Vertex.Rendering.Shaders
         // ---- Post effects written for a game (see Shader and PostEffect) --------------------------------------------
 
         // What a game's post effect can use. Its uv counts from the top-left of the picture in both APIs (OpenGL's images
-        // start at the bottom), and picture() and distanceAt() take the same. Its settings come in effectValues, which
-        // each setting's name stands for (see Shader.SetCode).
+        // start at the bottom), and picture() and distanceAt() take the same. Its settings come in shaderValues and its
+        // textures in shaderTexture0 to 3, which each setting's name stands for (see Shader.SetCode).
         public const string EffectHeader = Post + """
             #ifdef VERTEX_VULKAN
-            layout (set = 1, binding = 0, std140) uniform EffectData { vec4 effectValues[16]; };
+            layout (set = 1, binding = 0, std140) uniform EffectData { vec4 shaderValues[16]; };
             #else
-            uniform vec4 effectValues[16];
+            uniform vec4 shaderValues[16];
             #endif
+            TEXTURE(1, 1) sampler2D shaderTexture0;
+            TEXTURE(1, 2) sampler2D shaderTexture1;
+            TEXTURE(1, 3) sampler2D shaderTexture2;
+            TEXTURE(1, 4) sampler2D shaderTexture3;
 
             vec2 screenSize;   // in pixels
             float time;        // seconds since the game started

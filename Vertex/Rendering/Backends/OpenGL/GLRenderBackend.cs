@@ -31,6 +31,9 @@ namespace Vertex.Rendering.OpenGL
         // Where the fog passes find what the other pass (or last frame) made.
         private const int _fogSourceUnit = 6;
 
+        // Where a game's shaders (surface shaders and post effects) find their textures: four, one after another.
+        private const int _shaderTextureUnit = 8;
+
         private GL _gl = null!;
         private GLShader _fogLight = null!;
         private GLShader _fogTotal = null!;
@@ -49,6 +52,8 @@ namespace Vertex.Rendering.OpenGL
         // Games' post effects (see PostEffect), built the first time they're used and again when their code changes; null
         // for one that won't compile, until it changes.
         private readonly Dictionary<Shader, (int Version, GLShader? Program)> _effectShaders = new();
+        // Materials' surface shaders, lit and unlit, built the first time and again when their code changes.
+        private readonly Dictionary<(Shader Shader, bool Lit), (int Version, GLShader? Program)> _surfaceShaders = new();
         private readonly List<(PostEffectData Effect, GLShader Program)> _effects = new();
         private GLShadowMaps _shadowMaps = null!;
         private GLViewTargets _screenViews = null!;
@@ -165,6 +170,7 @@ namespace Vertex.Rendering.OpenGL
             shader.BindBlock("MaterialData", _materialBinding);
             shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
                 ("fogVolume", FogUnit));
+            SetShaderTextureUnits(shader);
             return shader;
         }
 
@@ -196,6 +202,7 @@ namespace Vertex.Rendering.OpenGL
             try
             {
                 program = PostShader(ShaderLibrary.EffectFragment(shader));
+                SetShaderTextureUnits(program);
             }
             catch (Exception exception)
             {
@@ -205,6 +212,46 @@ namespace Vertex.Rendering.OpenGL
 
             _effectShaders[shader] = (shader.Version, program);
             return program;
+        }
+
+        /// <summary>
+        /// The scene program for a material: its surface shader's own (lit or unlit as the material is), built the first
+        /// time and again when its code changes, or the standard one. A surface shader that won't compile is drawn the
+        /// standard way; what the compiler said goes in its <see cref="Shader.Problem"/> and the log.
+        /// </summary>
+        private GLShader SceneProgram(Material material, Shader? surface)
+        {
+            bool lit = material.Shading != ShadingModel.Unlit;
+            if (surface == null) return lit ? _litShader : _unlitShader;
+
+            if (!_surfaceShaders.TryGetValue((surface, lit), out (int Version, GLShader? Program) built) || built.Version != surface.Version)
+            {
+                built.Program?.Dispose();
+                built = (surface.Version, null);
+                try
+                {
+                    built.Program = SceneShader(ShaderLibrary.MeshVertex, lit ? ShaderLibrary.LitFragmentWith(surface) : ShaderLibrary.UnlitFragmentWith(surface));
+                }
+                catch (Exception exception)
+                {
+                    surface.CompileProblem = $"Shader {surface.Name} didn't compile:\n{ShaderLibrary.WithFileName(exception.Message, surface.Name)}";
+                    Log.Error(surface.CompileProblem);
+                }
+
+                _surfaceShaders[(surface, lit)] = built;
+            }
+
+            return built.Program ?? (lit ? _litShader : _unlitShader);
+        }
+
+        private static void SetShaderTextureUnits(GLShader shader) => shader.SetSamplers(
+            ("shaderTexture0", _shaderTextureUnit), ("shaderTexture1", _shaderTextureUnit + 1),
+            ("shaderTexture2", _shaderTextureUnit + 2), ("shaderTexture3", _shaderTextureUnit + 3));
+
+        /// <summary>A game shader's textures, each on its unit (see <see cref="Shader.PackTextures"/>).</summary>
+        private void BindShaderTextures(Texture[] textures)
+        {
+            for (int i = 0; i < textures.Length; i++) GetTexture(textures[i]).Bind(_shaderTextureUnit + i);
         }
 
         public void Resize(int width, int height)
@@ -382,7 +429,7 @@ namespace Vertex.Rendering.OpenGL
                 if (_materialOffsets.ContainsKey(draw.Material)) continue;
 
                 if (size + stride > _materialData.Length) Array.Resize(ref _materialData, Math.Max(_materialData.Length * 2, size + stride));
-                MaterialUniforms data = MaterialUniforms.Create(draw.Material);
+                MaterialUniforms data = MaterialUniforms.Create(draw.Material, Renderer.SurfaceShader(draw.Material));
                 MemoryMarshal.Write(_materialData.AsSpan(size), in data);
                 _materialOffsets.Add(draw.Material, size);
                 size += stride;
@@ -424,23 +471,26 @@ namespace Vertex.Rendering.OpenGL
             {
                 DrawCall draw = draws[i];
                 Material material = draw.Material;
-                GLShader shader = material.Shading == ShadingModel.Unlit ? _unlitShader : _litShader;
-
-                if (shader != currentShader)
-                {
-                    shader.Use();
-                    currentShader = shader;
-                }
 
                 if (material != currentMaterial)
                 {
+                    Shader? surface = Renderer.SurfaceShader(material);
+                    GLShader program = SceneProgram(material, surface);
+                    if (program != currentShader)
+                    {
+                        program.Use();
+                        currentShader = program;
+                    }
+
                     _gl.BindBufferRange(BufferTargetARB.UniformBuffer, _materialBinding, _materialBuffer, _materialOffsets[material],
                         (nuint)sizeof(MaterialUniforms));
                     (material.Texture != null ? GetTexture(material.Texture) : _white).Bind(_textureUnit);
                     (material.NormalMap != null ? GetTexture(material.NormalMap) : _white).Bind(_normalUnit);
+                    if (surface != null) BindShaderTextures(surface.PackTextures(material.Values));
                     currentMaterial = material;
                 }
 
+                GLShader shader = currentShader!;
                 shader.SetMatrix4("draw.model", draw.WorldMatrix);
                 Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
                 shader.SetMatrix4("draw.normalMatrix", Matrix4x4.Transpose(inverseModel));
@@ -592,7 +642,8 @@ namespace Vertex.Rendering.OpenGL
                     Mark(effect.Shader.Name);
                     bool last = i == _effects.Count - 1;
                     program.Use();
-                    program.SetVector4Array("effectValues", effect.Values);
+                    program.SetVector4Array("shaderValues", effect.Values);
+                    BindShaderTextures(effect.Textures);
                     RunPost(program, last ? output : views.EffectFramebuffers[(i + 1) % 2], frame.Width, frame.Height, post, source, depth: views.Depth,
                         flipY: last && toTexture);
                     source = views.Effects[(i + 1) % 2];
@@ -717,6 +768,7 @@ namespace Vertex.Rendering.OpenGL
             foreach (GLShader shader in new[] { _fogLight, _fogTotal, _litShader, _unlitShader, _skyShader, _gridShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
                 shader.Dispose();
             foreach ((int _, GLShader? program) in _effectShaders.Values) program?.Dispose();
+            foreach ((int _, GLShader? program) in _surfaceShaders.Values) program?.Dispose();
             _shadowMaps.Dispose();
             _screenViews.Dispose();
             _canvas.Dispose();

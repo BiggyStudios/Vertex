@@ -3,37 +3,65 @@ using System.Numerics;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using Vertex.Graphs;
+
 namespace Vertex.Rendering
 {
+    /// <summary>What a <see cref="Shader"/> is for.</summary>
+    public enum ShaderPurpose
+    {
+        /// <summary>Changes the finished picture (see <see cref="PostEffect"/>): it defines <c>vec4 effect(vec2 uv)</c>.</summary>
+        PostEffect,
+
+        /// <summary>
+        /// Works out how a material's surface looks at each point (see <see cref="Material.Shader"/>): it defines
+        /// <c>void surface(inout Surface s)</c>.
+        /// </summary>
+        Surface
+    }
+
     /// <summary>
-    /// A shader written in GLSL, from a .glsl file in the project or made in code. For now that's a post effect (see
-    /// <see cref="PostEffect"/>): a function that's given the finished picture and changes it.
+    /// A shader written in GLSL, from a .glsl file in the project or made in code, or made with nodes in a shader graph
+    /// (a .shadergraph file). It's one of two kinds (see <see cref="Purpose"/>):
+    /// <list type="bullet">
+    /// <item>A post effect (see <see cref="PostEffect"/>) defines <c>vec4 effect(vec2 uv)</c>, which returns the colour at
+    /// <c>uv</c> (0 to 1 across the picture, from its top-left corner). It can read <c>picture(uv)</c> (the picture so far,
+    /// in screen colours from 0 to 1), <c>distanceAt(uv)</c> (how far from the camera what's drawn there is),
+    /// <c>screenSize</c> (in pixels) and <c>time</c> (in seconds).</item>
+    /// <item>A surface shader (see <see cref="Material.Shader"/>) defines <c>void surface(inout Surface s)</c>, which is
+    /// given the material's own look in <c>s</c> (its colour, roughness and so on) and changes what it likes. It can read
+    /// <c>uv</c>, <c>worldPosition</c>, <c>worldNormal</c>, <c>viewDirection</c>, <c>objectPosition</c>,
+    /// <c>screenPosition</c> and <c>time</c>, and sample textures with <c>sampleColor</c> (colours, made linear) and
+    /// <c>sampleNormal</c> (normal maps). Colours in it are linear, as light is.</item>
+    /// </list>
     /// <para>
-    /// A post effect's file defines <c>vec4 effect(vec2 uv)</c>, which returns the colour at <c>uv</c> (0 to
-    /// 1 across the picture, from its top-left corner). It can read <c>picture(uv)</c> (the picture so far, in screen
-    /// colours from 0 to 1), <c>distanceAt(uv)</c> (how far from the camera what's drawn there is), <c>screenSize</c> (in
-    /// pixels) and <c>time</c> (in seconds).
-    /// </para>
-    /// <para>
-    /// Settings shown in the editor, and set from code with <see cref="PostEffect.Set(string, float)"/>, are lines like
+    /// Settings shown in the editor, and set from code with <see cref="PostEffect.Set(string, float)"/> or
+    /// <see cref="Material.Set(string, float)"/>, are lines like
     /// <c>property float Contrast = 1 [0, 4];  // How far apart dark and light are</c>: a type (float, int, bool, vec2,
-    /// vec3, vec4 or color), a name, a starting value, an optional range for a slider, and the comment after as its tooltip.
-    /// The shader then reads the setting by its name.
+    /// vec3, vec4, color or texture), a name, a starting value, an optional range for a slider, and the comment after as
+    /// its tooltip. The shader then reads the setting by its name. A texture starts as white, black, normal (a flat
+    /// normal map) or a file in the project: <c>property texture Bricks = "Textures/Bricks.png";</c>.
     /// </para>
     /// </summary>
     public sealed class Shader
     {
-        /// <summary>How many settings a shader can have.</summary>
+        /// <summary>How many settings a shader can have, besides textures.</summary>
         public const int MaxProperties = 16;
+
+        /// <summary>How many texture settings a shader can have.</summary>
+        public const int MaxTextures = 4;
 
         private static readonly Regex _property = new(
             @"^\s*property\s+(?<type>\w+)\s+(?<name>[A-Za-z_]\w*)\s*(=\s*(?<value>[^;\[]*?))?\s*(\[\s*(?<min>[^,\]]+?)\s*,\s*(?<max>[^\]]+?)\s*\])?\s*;\s*(//\s*(?<tip>.*?))?\s*$",
             RegexOptions.Compiled);
 
         private static readonly Regex _effect = new(@"\bvec4\s+effect\s*\(", RegexOptions.Compiled);
+        private static readonly Regex _surface = new(@"\bvoid\s+surface\s*\(\s*inout\s+Surface\b", RegexOptions.Compiled);
 
-        private readonly List<ShaderProperty> _properties = new();
-        private readonly List<string> _problems = new();
+        private List<ShaderProperty> _properties = new();
+        private List<string> _problems = new();
+        private readonly Graph? _graph;
+        private int _graphVersion = -1;
 
         private Shader(string code, string name)
         {
@@ -41,11 +69,27 @@ namespace Vertex.Rendering
             SetCode(code);
         }
 
+        private Shader(Graph graph, string name)
+        {
+            Name = name;
+            _graph = graph;
+        }
+
         /// <summary>A shader from GLSL written in code. <paramref name="name"/> is what its errors are reported as.</summary>
         public static Shader FromCode(string code, string name = "shader") => new(code, name);
 
-        /// <summary>The shader in a .glsl file. Most games use <see cref="Assets.LoadShader"/> instead, which loads each file once.</summary>
-        public static Shader Load(string path) => new(File.ReadAllText(path), Path.GetFileName(path)) { Source = Path.GetFullPath(path) };
+        /// <summary>
+        /// The shader a shader graph makes. It follows the graph: change the graph and the shader changes with it. Most
+        /// games use <see cref="Assets.LoadShader"/> with the .shadergraph file instead.
+        /// </summary>
+        public static Shader FromGraph(Graph graph) => new(graph, graph.Source != null ? Path.GetFileName(graph.Source) : graph.Name) { Source = graph.Source };
+
+        /// <summary>The shader in a .glsl or .shadergraph file. Most games use <see cref="Assets.LoadShader"/> instead, which loads each file once.</summary>
+        public static Shader Load(string path)
+        {
+            if (Path.GetExtension(path).Equals(ShaderGraphs.ShaderNodes.Extension, StringComparison.OrdinalIgnoreCase)) return FromGraph(Graph.Load(path));
+            return new Shader(File.ReadAllText(path), Path.GetFileName(path)) { Source = Path.GetFullPath(path) };
+        }
 
         /// <summary>The file it was loaded from; null if it was made in code.</summary>
         public string? Source { get; internal set; }
@@ -53,11 +97,30 @@ namespace Vertex.Rendering
         /// <summary>What its errors are reported as: the file's name.</summary>
         public string Name { get; private set; }
 
-        /// <summary>The GLSL as written.</summary>
-        public string Code { get; private set; } = "";
+        /// <summary>The shader graph it's made from, if it is: it's worked out again whenever the graph changes.</summary>
+        public Graph? Graph => _graph;
+
+        /// <summary>The GLSL as written, or as a shader graph wrote it.</summary>
+        public string Code
+        {
+            get
+            {
+                Follow();
+                return _code;
+            }
+        }
+
+        private string _code = "";
 
         /// <summary>Its settings, in the order they're written.</summary>
-        public IReadOnlyList<ShaderProperty> Properties => _properties;
+        public IReadOnlyList<ShaderProperty> Properties
+        {
+            get
+            {
+                Follow();
+                return _properties;
+            }
+        }
 
         /// <summary>
         /// What's wrong with it, if anything: a setting it couldn't read, or (once the renderer has tried) what the GLSL
@@ -67,6 +130,7 @@ namespace Vertex.Rendering
         {
             get
             {
+                Follow();
                 if (_problems.Count > 0) return string.Join("\n", _problems);
                 return CompileProblem;
             }
@@ -79,23 +143,48 @@ namespace Vertex.Rendering
         internal int ReportedVersion { get; set; }
 
         /// <summary>Goes up each time the code changes, so renderers know to build it again.</summary>
-        public int Version { get; private set; }
+        public int Version
+        {
+            get
+            {
+                Follow();
+                return _version;
+            }
+        }
+
+        private int _version;
+
+        /// <summary>What it's for: a post effect, or a material's surface. Null if it defines neither function.</summary>
+        public ShaderPurpose? Purpose
+        {
+            get
+            {
+                Follow();
+                return _purpose;
+            }
+        }
+
+        private ShaderPurpose? _purpose;
 
         /// <summary>Whether it's a post effect: it defines <c>vec4 effect(vec2 uv)</c>.</summary>
-        public bool IsPostEffect { get; private set; }
+        public bool IsPostEffect => Purpose == ShaderPurpose.PostEffect;
+
+        /// <summary>Whether it's a surface shader, for a material: it defines <c>void surface(inout Surface s)</c>.</summary>
+        public bool IsSurface => Purpose == ShaderPurpose.Surface;
 
         /// <summary>The setting called <paramref name="name"/>, or null.</summary>
-        public ShaderProperty? Property(string name) => _properties.FirstOrDefault(p => p.Name == name);
+        public ShaderProperty? Property(string name) => Properties.FirstOrDefault(p => p.Name == name);
 
-        /// <summary>Changes the code (an edited file read again): renderers build it again, and its settings are read again.</summary>
+        /// <summary>
+        /// Changes the code (an edited file read again): renderers build it again, and its settings are read again. A
+        /// shader made from a graph is changed by changing the graph instead.
+        /// </summary>
         public void SetCode(string code)
         {
-            Code = code;
-            Version++;
-            CompileProblem = null;
-            _problems.Clear();
-            _properties.Clear();
+            if (_graph != null) throw new InvalidOperationException($"{Name} is made from a shader graph: change the graph instead.");
 
+            var problems = new List<string>();
+            var properties = new List<ShaderProperty>();
             var body = new StringBuilder();
             string[] lines = code.Replace("\r\n", "\n").Split('\n');
             for (int i = 0; i < lines.Length; i++)
@@ -111,29 +200,74 @@ namespace Vertex.Rendering
 
                 // Each setting becomes a name for its place among the values handed in, so the line count stays the
                 // same and the compiler's line numbers match the file's.
-                string? problem = ReadProperty(line, out ShaderProperty? property);
+                string? problem = ReadProperty(line, properties, out ShaderProperty? property);
                 if (problem != null)
                 {
-                    _problems.Add($"{Name}:{i + 1}: {problem}");
+                    problems.Add($"{Name}:{i + 1}: {problem}");
                     body.Append('\n');
                     continue;
                 }
 
-                _properties.Add(property!);
+                properties.Add(property!);
                 body.Append($"#define {property!.Name} {Swizzle(property)}\n");
             }
 
-            Body = body.ToString();
-            IsPostEffect = _effect.IsMatch(Body);
-            if (!IsPostEffect) _problems.Add($"{Name}: a post effect needs a function vec4 effect(vec2 uv)");
+            ShaderPurpose? purpose = PurposeOf(body.ToString());
+            if (purpose == null) problems.Add($"{Name}: a shader needs a function vec4 effect(vec2 uv) (a post effect) or void surface(inout Surface s) (a material's surface)");
+            Apply(code, body.ToString(), purpose, properties, problems, always: true);
+        }
+
+        /// <summary>Which purpose GLSL is for, by the function it defines.</summary>
+        internal static ShaderPurpose? PurposeOf(string body) =>
+            _effect.IsMatch(body) ? ShaderPurpose.PostEffect : _surface.IsMatch(body) ? ShaderPurpose.Surface : null;
+
+        /// <summary>
+        /// Takes in a new build of it. Code set by hand (<paramref name="always"/>) always counts as changed, so a file
+        /// read again is tried again; a shader graph's counts only if the code the renderers are given changed, so one
+        /// whose nodes were only moved, or whose properties' starting values changed, isn't built again.
+        /// </summary>
+        internal void Apply(string code, string body, ShaderPurpose? purpose, List<ShaderProperty> properties, List<string> problems, bool always = false)
+        {
+            bool changed = always || body != Body || purpose != _purpose || _version == 0 || !problems.SequenceEqual(_problems) ||
+                           !properties.Select(p => (p.Type, p.Slot)).SequenceEqual(_properties.Select(p => (p.Type, p.Slot)));
+            _code = code;
+            Body = body;
+            _purpose = purpose;
+            _properties = properties;
+            _problems = problems;
+            if (!changed) return;
+
+            _version++;
+            CompileProblem = null;
+        }
+
+        /// <summary>For a shader made from a graph: works it out again if the graph has changed since.</summary>
+        private void Follow()
+        {
+            if (_graph == null || _graph.Version == _graphVersion) return;
+            _graphVersion = _graph.Version;
+            ShaderGraphs.ShaderGraphCompiler.Compile(_graph, this);
         }
 
         /// <summary>The code with its settings turned into names for the values handed in (see ShaderLibrary.EffectHeader).</summary>
-        internal string Body { get; private set; } = "";
-
-        private static string Swizzle(ShaderProperty property)
+        internal string Body
         {
-            string value = $"effectValues[{property.Slot}]";
+            get
+            {
+                Follow();
+                return _body;
+            }
+            private set => _body = value;
+        }
+
+        private string _body = "";
+
+        /// <summary>What a setting's name stands for in GLSL: its place among the values (or textures) handed to the shader.</summary>
+        internal static string Swizzle(ShaderProperty property)
+        {
+            if (property.Type == ShaderPropertyType.Texture) return $"shaderTexture{property.Slot}";
+
+            string value = $"shaderValues[{property.Slot}]";
             return property.Type switch
             {
                 ShaderPropertyType.Float => $"({value}.x)",
@@ -145,7 +279,7 @@ namespace Vertex.Rendering
             };
         }
 
-        private string? ReadProperty(string line, out ShaderProperty? property)
+        private string? ReadProperty(string line, List<ShaderProperty> properties, out ShaderProperty? property)
         {
             property = null;
             Match match = _property.Match(line);
@@ -160,18 +294,36 @@ namespace Vertex.Rendering
                 "vec3" => ShaderPropertyType.Vector3,
                 "vec4" => ShaderPropertyType.Vector4,
                 "color" => ShaderPropertyType.Color,
+                "texture" => ShaderPropertyType.Texture,
                 _ => null
             };
-            if (type == null) return $"a setting's type is float, int, bool, vec2, vec3, vec4 or color, not {match.Groups["type"].Value}";
+            if (type == null) return $"a setting's type is float, int, bool, vec2, vec3, vec4, color or texture, not {match.Groups["type"].Value}";
 
             string name = match.Groups["name"].Value;
-            if (_properties.Any(p => p.Name == name)) return $"there's already a setting called {name}";
-            if (_properties.Count == MaxProperties) return $"a shader can have up to {MaxProperties} settings";
+            if (properties.Any(p => p.Name == name)) return $"there's already a setting called {name}";
+            string? tip = match.Groups["tip"].Success && match.Groups["tip"].Value.Length > 0 ? match.Groups["tip"].Value : null;
+            string written = match.Groups["value"].Success ? match.Groups["value"].Value.Trim() : "";
+
+            if (type == ShaderPropertyType.Texture)
+            {
+                int textures = properties.Count(p => p.Type == ShaderPropertyType.Texture);
+                if (textures == MaxTextures) return $"a shader can have up to {MaxTextures} textures";
+                if (ReadTexture(written) is not { } texture) return $"a texture starts as white, black, normal or a file in quotes, not {written}";
+                property = new ShaderProperty(name, ShaderPropertyType.Texture, Vector4.Zero, null, null, tip, textures)
+                {
+                    Fallback = texture.Fallback,
+                    DefaultTexture = texture.File
+                };
+                return null;
+            }
+
+            int values = properties.Count(p => p.Type != ShaderPropertyType.Texture);
+            if (values == MaxProperties) return $"a shader can have up to {MaxProperties} settings";
 
             Vector4 value = type == ShaderPropertyType.Color ? Vector4.One : Vector4.Zero;
-            if (match.Groups["value"].Success && match.Groups["value"].Value.Length > 0)
+            if (written.Length > 0)
             {
-                if (ParseValue(match.Groups["value"].Value, type.Value) is not { } parsed) return $"can't read {match.Groups["value"].Value.Trim()} as a {match.Groups["type"].Value}";
+                if (ParseValue(written, type.Value) is not { } parsed) return $"can't read {written} as a {match.Groups["type"].Value}";
                 value = parsed;
             }
 
@@ -184,8 +336,17 @@ namespace Vertex.Rendering
                 max = high;
             }
 
-            string? tip = match.Groups["tip"].Success && match.Groups["tip"].Value.Length > 0 ? match.Groups["tip"].Value : null;
-            property = new ShaderProperty(name, type.Value, value, min, max, tip, _properties.Count);
+            property = new ShaderProperty(name, type.Value, value, min, max, tip, values);
+            return null;
+        }
+
+        /// <summary>A texture setting's starting value: white, black, normal or "a/file.png" (white until it's found).</summary>
+        private static (TextureFallback Fallback, string? File)? ReadTexture(string text)
+        {
+            if (text.Length == 0 || text == "white") return (TextureFallback.White, null);
+            if (text == "black") return (TextureFallback.Black, null);
+            if (text == "normal") return (TextureFallback.Normal, null);
+            if (text.Length >= 2 && text[0] == '"' && text[^1] == '"') return (TextureFallback.White, text[1..^1]);
             return null;
         }
 
@@ -247,6 +408,40 @@ namespace Vertex.Rendering
 
         private static bool TryNumber(string text, out float value) =>
             float.TryParse(text.Trim().TrimEnd('f', 'F'), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
+        // ---------------------------------------------------------------- Packing settings for the renderer
+
+        /// <summary>
+        /// The values to hand the shader, in its settings' order: as set in <paramref name="values"/>, or the shader's
+        /// starting values. A surface shader's colours are made linear, as light is worked out in.
+        /// </summary>
+        internal Vector4[] PackValues(List<ShaderValue> values)
+        {
+            var packed = new Vector4[MaxProperties];
+            bool linear = IsSurface;
+            foreach (ShaderProperty property in Properties)
+            {
+                if (property.Type == ShaderPropertyType.Texture) continue;
+                Vector4 value = ShaderValue.Get(values, this, property.Name);
+                if (linear && property.Type == ShaderPropertyType.Color) value = Shaders.FrameUniforms.Linear(new Color(value.X, value.Y, value.Z), value.W);
+                packed[property.Slot] = value;
+            }
+
+            return packed;
+        }
+
+        /// <summary>The textures to hand the shader, in its texture settings' order: as set, its starting file, or a plain one.</summary>
+        internal Texture[] PackTextures(List<ShaderValue> values)
+        {
+            var packed = new Texture[MaxTextures];
+            for (int i = 0; i < packed.Length; i++) packed[i] = ShaderTextures.White;
+            foreach (ShaderProperty property in Properties)
+            {
+                if (property.Type == ShaderPropertyType.Texture) packed[property.Slot] = ShaderValue.GetTexture(values, this, property.Name) ?? ShaderTextures.For(property.Fallback);
+            }
+
+            return packed;
+        }
     }
 
     /// <summary>What kind of value a <see cref="ShaderProperty"/> holds.</summary>
@@ -260,13 +455,116 @@ namespace Vertex.Rendering
         Vector4,
 
         /// <summary>A colour, red, green, blue and alpha from 0 to 1.</summary>
-        Color
+        Color,
+
+        /// <summary>A texture, sampled by the shader.</summary>
+        Texture
+    }
+
+    /// <summary>What a texture setting is when no texture's been given it.</summary>
+    public enum TextureFallback
+    {
+        White,
+        Black,
+
+        /// <summary>A flat normal map: bends nothing.</summary>
+        Normal
     }
 
     /// <summary>
-    /// One of a <see cref="Shader"/>'s settings: a <c>property</c> line in its code. Values are kept as a
-    /// <see cref="Vector4"/>, whatever the type: a float in X, a bool as 0 or 1.
+    /// One of a <see cref="Shader"/>'s settings: a <c>property</c> line in its code, or a property of its shader graph.
+    /// Values are kept as a <see cref="Vector4"/>, whatever the type: a float in X, a bool as 0 or 1.
     /// </summary>
-    /// <param name="Slot">Where among the values handed to the shader this one goes.</param>
-    public sealed record ShaderProperty(string Name, ShaderPropertyType Type, Vector4 Default, float? Min, float? Max, string? Tooltip, int Slot);
+    /// <param name="Slot">Where among the values (or for a texture, the textures) handed to the shader this one goes.</param>
+    public sealed record ShaderProperty(string Name, ShaderPropertyType Type, Vector4 Default, float? Min, float? Max, string? Tooltip, int Slot)
+    {
+        /// <summary>For a texture: what it is with none given and no <see cref="DefaultTexture"/>.</summary>
+        public TextureFallback Fallback { get; init; }
+
+        /// <summary>For a texture: the file in the project it starts as ("Textures/Bricks.png"), if any.</summary>
+        public string? DefaultTexture { get; init; }
+
+        /// <summary>
+        /// One a shader graph made for a texture chosen on one of its nodes: kept with the shader, not shown on the
+        /// materials and effects that use it.
+        /// </summary>
+        public bool Hidden { get; init; }
+    }
+
+    /// <summary>
+    /// One of a <see cref="PostEffect"/>'s or <see cref="Material"/>'s shader settings, kept by name: a float in X, a bool
+    /// as 0 or 1, or a texture.
+    /// </summary>
+    public sealed class ShaderValue
+    {
+        public string Name { get; set; } = "";
+        public Vector4 Value { get; set; }
+
+        /// <summary>For a texture setting: the texture.</summary>
+        public Texture? Texture { get; set; }
+
+        // Shared by post effects and materials, which keep their settings the same way.
+
+        internal static void Set(List<ShaderValue> values, string name, Vector4 value)
+        {
+            foreach (ShaderValue saved in values)
+            {
+                if (saved.Name != name) continue;
+                saved.Value = value;
+                return;
+            }
+
+            values.Add(new ShaderValue { Name = name, Value = value });
+        }
+
+        internal static void SetTexture(List<ShaderValue> values, string name, Texture? texture)
+        {
+            foreach (ShaderValue saved in values)
+            {
+                if (saved.Name != name) continue;
+                saved.Texture = texture;
+                return;
+            }
+
+            values.Add(new ShaderValue { Name = name, Texture = texture });
+        }
+
+        internal static Vector4 Get(List<ShaderValue> values, Shader? shader, string name)
+        {
+            foreach (ShaderValue saved in values)
+            {
+                if (saved.Name == name) return saved.Value;
+            }
+
+            return shader?.Property(name)?.Default ?? Vector4.Zero;
+        }
+
+        /// <summary>A texture setting: as set, or the file the shader starts it as (null if neither).</summary>
+        internal static Texture? GetTexture(List<ShaderValue> values, Shader? shader, string name)
+        {
+            foreach (ShaderValue saved in values)
+            {
+                if (saved.Name == name && saved.Texture != null) return saved.Texture;
+            }
+
+            return shader?.Property(name) is { DefaultTexture: { } file } && Assets.FindFile(file) is { } path ? Assets.LoadTexture(path) : null;
+        }
+    }
+
+    /// <summary>The plain textures a texture setting is when it's given none.</summary>
+    internal static class ShaderTextures
+    {
+        public static readonly Texture White = new(1, 1, [255, 255, 255, 255]);
+        public static readonly Texture Black = new(1, 1, [0, 0, 0, 255]);
+
+        /// <summary>Straight out of the surface, as normal maps have it.</summary>
+        public static readonly Texture FlatNormal = new(1, 1, [128, 128, 255, 255]);
+
+        public static Texture For(TextureFallback fallback) => fallback switch
+        {
+            TextureFallback.Black => Black,
+            TextureFallback.Normal => FlatNormal,
+            _ => White
+        };
+    }
 }

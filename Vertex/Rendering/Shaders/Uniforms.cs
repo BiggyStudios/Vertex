@@ -207,16 +207,33 @@ namespace Vertex.Rendering.Shaders
         public Vector4 UVTransform;
         public Vector4 NormalParams;
 
-        public static MaterialUniforms Create(Material material) => new()
+        /// <summary>Its surface shader's settings, if it has one (see <see cref="Shader.PackValues"/>).</summary>
+        public ShaderValues Values;
+
+        public static MaterialUniforms Create(Material material, Shader? surface = null)
         {
-            Color = FrameUniforms.Linear(material.Color, material.Color.A),
-            Emission = new Vector4(FrameUniforms.ToLinear(material.Emission) * MathF.Max(material.EmissionStrength, 0f), 0f),
-            Surface = new Vector4(Math.Clamp(material.Roughness, 0f, 1f), Math.Clamp(material.Metallic, 0f, 1f),
-                Math.Clamp(material.Specular, 0f, 1f), material.Texture != null ? 1f : 0f),
-            UVTransform = new Vector4(material.TextureScale, material.TextureOffset.X, material.TextureOffset.Y),
-            NormalParams = new Vector4(material.NormalMap != null ? 1f : 0f, material.NormalStrength, 0f, 0f)
-        };
+            var data = new MaterialUniforms
+            {
+                Color = FrameUniforms.Linear(material.Color, material.Color.A),
+                Emission = new Vector4(FrameUniforms.ToLinear(material.Emission) * MathF.Max(material.EmissionStrength, 0f), 0f),
+                Surface = new Vector4(Math.Clamp(material.Roughness, 0f, 1f), Math.Clamp(material.Metallic, 0f, 1f),
+                    Math.Clamp(material.Specular, 0f, 1f), material.Texture != null ? 1f : 0f),
+                UVTransform = new Vector4(material.TextureScale, material.TextureOffset.X, material.TextureOffset.Y),
+                NormalParams = new Vector4(material.NormalMap != null ? 1f : 0f, material.NormalStrength, 0f, 0f)
+            };
+
+            if (surface != null)
+            {
+                Vector4[] values = surface.PackValues(material.Values);
+                for (int i = 0; i < values.Length; i++) data.Values[i] = values[i];
+            }
+
+            return data;
+        }
     }
+
+    [InlineArray(Shader.MaxProperties)]
+    internal struct ShaderValues { private Vector4 _first; }
 
     /// <summary>
     /// The post-processing passes' settings, as <see cref="ShaderLibrary.Post"/>'s PostBlock has them: push constants in
