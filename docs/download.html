@@ -11,17 +11,11 @@
 <main class="content">
     <span class="eyebrow">Download</span>
     <h1>Get Vertex</h1>
-    <p class="lead">One download has the editor, the engine for games made in code, both tutorials' finished games, and a blank game to start from. Unzip it and go.</p>
+    <p class="lead">The editor, the engine and the samples, in one download. Unzip it and go.</p>
 
     <div class="download-hero">
         <div class="latest reveal" id="latest">
             <div class="latest-loading"><span class="shimmer" style="width:40%"></span><span class="shimmer big" style="width:70%"></span><span class="shimmer button-like"></span><span class="shimmer" style="width:85%"></span></div>
-        </div>
-
-        <div class="tree reveal" data-delay="120">
-            <div class="tree-title">What's in it</div>
-            <div class="tree-rows" id="tree"></div>
-            <div class="tree-about" id="tree-about"></div>
         </div>
     </div>
 
@@ -35,8 +29,8 @@
     </div>
     <p><a href="getting-started.html">Getting started</a> takes it from there: flying round the editor, the samples, and making your own project.</p>
 
-    <h2 id="games-made-in-code">Games made in code</h2>
-    <p>The engine comes as a NuGet package, in the download's <code>Engine</code> folder. Projects inside the download's folder find it by themselves (that's what its <code>nuget.config</code> is for), so the quickest start is to copy <code>Starter</code> and run it:</p>
+    <h2 id="games-made-in-code">The engine's package</h2>
+    <p>For games written in code, the engine comes as a NuGet package, in the download's <code>Engine</code> folder. Projects inside the download's folder find it by themselves (that's what its <code>nuget.config</code> is for), so the quickest start is to copy <code>Starter</code> and run it:</p>
     <pre class="sh">cd Starter
 dotnet run</pre>
     <p>For a project anywhere else, tell .NET where the package is once, then add it as you would any other:</p>
@@ -63,36 +57,6 @@ dotnet run --project Vertex.Editor</pre>
     (async () => {
         const repo = "BiggyStudios/Vertex";
         const releasesPage = `https://github.com/${repo}/releases`;
-
-        // ------------------------------------------------------------ What's in the download
-
-        const files = [
-            { name: "Editor", folder: true, about: "<b>The editor.</b> Run <code>Vertex.Editor.exe</code>: make scenes, prefabs, materials and effects, write C# scripts or visual scripts, and play the game as you go." },
-            { name: "Engine", folder: true, about: "<b>The engine as a NuGet package</b>, for games made in code. Its doc comments come with it, so your code editor explains the API as you type." },
-            { name: "Samples", folder: true, about: "<b>The tutorials' finished games.</b> Open them in the editor, or <code>dotnet run</code> them.", children: [
-                { name: "CodeOnly", folder: true, about: "<b>Coin Grab:</b> roll a ball round a field and grab the coins. A whole game in one C# file, made without the editor." },
-                { name: "Duel", folder: true, about: "<b>Duel:</b> a 1v1 multiplayer shooter made in the editor, twice: once with C# scripts and once with visual scripts. Over Steam or the local network." }
-            ] },
-            { name: "Starter", folder: true, about: "<b>A blank game made in code</b>: a cube turning on a field. Copy it, rename it, and make it your own." },
-            { name: "nuget.config", about: "Tells the projects in the folder where the engine's package is, so they build without setting anything up." },
-            { name: "README.txt", about: "What's where, and how to run each thing." }
-        ];
-        const tree = document.getElementById("tree"), about = document.getElementById("tree-about");
-        let row = 0;
-        const rows = (list, depth) => list.map(f => {
-            const html = `<button class="tree-row" style="--depth:${depth};animation-delay:${200 + row++ * 70}ms" data-about="${Site.escape(f.about)}"><span class="tree-icon">${f.folder ? "▸" : "·"}</span>${f.name}${f.folder ? "/" : ""}</button>`;
-            return html + (f.children ? rows(f.children, depth + 1) : "");
-        }).join("");
-        tree.innerHTML = `<div class="tree-row root" style="--depth:0;animation-delay:150ms"><span class="tree-icon">▾</span><span id="tree-root">Vertex/</span></div>` + rows(files, 1);
-        const choose = button => {
-            tree.querySelectorAll(".tree-row").forEach(r => r.classList.toggle("on", r === button));
-            about.classList.remove("in");
-            void about.offsetWidth;
-            about.innerHTML = button.dataset.about;
-            about.classList.add("in");
-        };
-        tree.querySelectorAll("button.tree-row").forEach(b => { b.addEventListener("mouseenter", () => choose(b)); b.addEventListener("click", () => choose(b)); b.addEventListener("focus", () => choose(b)); });
-        choose(tree.querySelector("button.tree-row"));
 
         if (!/Windows/i.test(navigator.userAgent)) document.getElementById("os-note").hidden = false;
 
@@ -165,7 +129,6 @@ dotnet run --project Vertex.Editor</pre>
                 setTimeout(() => { step.classList.remove("flash"); void step.offsetWidth; step.classList.add("flash"); }, 700);
             });
 
-            document.getElementById("tree-root").textContent = `Vertex-${version(r)}/`;
             document.getElementById("package-commands").innerHTML = Site.escape(`dotnet nuget add source "C:\\Games\\Vertex-${version(r)}\\Engine" --name Vertex\ndotnet add package Vertex.Engine --version ${version(r)}`);
         }
 

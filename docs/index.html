@@ -3,8 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Vertex: a C# game engine with an editor, C# scripts and visual scripting</title>
-    <meta name="description" content="Make games with Vertex: entirely in C#, in the editor with C# scripts, or in the editor with visual scripting. Multiplayer through Steam built in.">
+    <title>Vertex: a 3D game engine in C#, with its own editor</title>
+    <meta name="description" content="Vertex is a 3D game engine in C# with its own editor: C# and visual scripting, Jolt physics, VFX and audio graphs, and multiplayer through Steam.">
     <link rel="stylesheet" href="assets/site.css">
 </head>
 <body class="home">
@@ -14,8 +14,8 @@
     <div class="hero-inner">
         <div class="reveal">
             <span class="eyebrow">A game engine in C#</span>
-            <h1>Make games <span class="shine">your way</span>: in code, or in the editor.</h1>
-            <p class="lead">Vertex is a 3D engine with its own editor. Write the whole game in C#, build it in the editor with C# scripts, or wire it up with visual scripting. It's the same engine underneath, so you can mix all three.</p>
+            <h1>A 3D game engine, <span class="shine">with its own editor</span>.</h1>
+            <p class="lead">Lay out scenes and prefabs in the editor, give objects behaviour with C# or visual scripts, and press Play to try it. Physics, sound, effects and multiplayer are built in.</p>
             <div class="hero-actions">
                 <a class="button primary" href="download.html">↓ Download</a>
                 <a class="button" href="getting-started.html">Get started →</a>
@@ -39,63 +39,58 @@
 </section>
 
 <section class="section">
-    <h2 class="reveal">Three ways to make a game</h2>
-    <p class="lead reveal">Pick the one that suits you, or the job in front of you. None of them locks you in.</p>
-    <div class="paths">
-        <a class="card reveal" href="tutorial-code-only.html">
+    <h2 class="reveal">Making things happen</h2>
+    <p class="lead reveal">What an object does comes from the scripts on it. Write them in C#, or wire them up from nodes.</p>
+    <div class="scripting">
+        <div class="card reveal">
             <div class="card-icon">{ }</div>
-            <h3>Code only</h3>
-            <p>A whole game in C#, no editor needed. Build the world in a few lines and run it with <code>new MyGame().Run()</code>.</p>
-            <ul><li>Great for programmers and prototypes</li><li>Everything in source control as code</li><li>Open it in the editor any time</li></ul>
-            <span class="more">Coin Grab tutorial →</span>
-        </a>
-        <a class="card reveal" data-delay="100" href="tutorial-duel.html?track=cs">
-            <div class="card-icon">▣</div>
-            <h3>Editor + C#</h3>
-            <p>Lay out levels and prefabs in the editor, and write components in C#. Their settings show up in the inspector.</p>
-            <ul><li>Unity-style workflow</li><li>Drag objects into a script's slots</li><li>Rebuilds when you switch back to the editor</li></ul>
-            <span class="more">Duel tutorial, C# →</span>
-        </a>
-        <a class="card reveal" data-delay="200" href="tutorial-duel.html?track=vs">
+            <h3>C# scripts</h3>
+            <p>A component is a C# class with <code>Start</code>, <code>Update</code>, collisions and network events. Its properties show in the inspector, and objects and prefabs can be dragged into them.</p>
+            <pre class="cs">public class Spinner : Component
+{
+    public float Speed { get; set; } = 90f;
+
+    protected override void Update()
+    {
+        float turn = Speed * Time.DeltaTime;
+        Transform.Rotate(new Vector3(0f, turn, 0f));
+    }
+}</pre>
+            <div class="links"><a href="csharp.html">C# scripting guide →</a><a href="api.html">C# API reference →</a></div>
+        </div>
+        <div class="card reveal" data-delay="100">
             <div class="card-icon">⌁</div>
-            <h3>Editor + visual scripting</h3>
-            <p>Connect nodes instead of writing code: events, flow, maths, physics, sound, UI and multiplayer.</p>
-            <ul><li>No code at all</li><li>Watch the flow light up as it runs</li><li>Over 100 nodes, networking included</li></ul>
-            <span class="more">Duel tutorial, visual →</span>
-        </a>
-    </div>
-</section>
-
-<section class="section">
-    <h2 class="reveal">They work together</h2>
-    <p class="lead reveal">A code-only game opens in the editor. A game made in the editor can still do things in code. Use whichever is quicker for each part.</p>
-    <div class="mix reveal">
-        <div>
-            <span class="badge cs">Code</span>
-            <h3>From code, use what's made in the editor</h3>
-            <p style="color:var(--text-dim)">Open a level with <code>Scene.Load("Scenes/Arena.scene")</code>, make copies of prefabs, and find objects by name. Your C# components work in the editor too.</p>
-        </div>
-        <div class="arrows"><span>Scenes, prefabs, materials →</span><span>← Components, Game class</span><span>Visual scripts ⇄ C#</span></div>
-        <div>
-            <span class="badge ed">Editor</span>
-            <h3>In the editor, add code where it helps</h3>
-            <p style="color:var(--text-dim)">Write a component in C#, or give the game a <code>Game</code> class that runs around your scenes. C# can read and set a visual script's variables, and both get the same network events.</p>
+            <h3>Visual scripts</h3>
+            <p>Events, flow, maths, physics, sound, UI and multiplayer as nodes. The flow lights up as the game runs, so you can watch it work.</p>
+            <div class="mini-graph" id="script-graph"></div>
+            <div class="links"><a href="visual-scripting.html">Visual scripting guide →</a><a href="nodes.html">Node reference →</a></div>
         </div>
     </div>
 </section>
 
 <section class="section">
-    <h2 class="reveal">What's in it</h2>
-    <p class="lead reveal">Everything a small multiplayer 3D game needs, with an editor that's quick to learn.</p>
+    <h2 class="reveal">What it uses</h2>
+    <p class="lead reveal">Vertex is built on libraries proven in other engines and games, with graph editors of its own for effects and sound.</p>
     <div class="features">
-        <div class="feature reveal"><div class="card-icon">◆</div><b>Vulkan and OpenGL</b><p>Physically based lighting, shadows, sky and clouds, fog, bloom and soft shadowing. Vulkan first, OpenGL when it isn't there.</p></div>
-        <div class="feature reveal" data-delay="80"><div class="card-icon">⬢</div><b>Jolt physics</b><p>Rigidbodies, colliders, triggers, raycasts, and a character controller that climbs steps and slides along walls.</p></div>
-        <div class="feature reveal" data-delay="160"><div class="card-icon">⇆</div><b>Multiplayer</b><p>Steam lobbies (Spacewar's app ID for testing) or the local network. Networked objects, synced movement and network events.</p></div>
-        <div class="feature reveal" data-delay="240"><div class="card-icon">✺</div><b>Particles and VFX graphs</b><p>Particle systems with bursts, shapes and turbulence, or design effects with nodes. They play in the editor as you change them.</p></div>
-        <div class="feature reveal"><div class="card-icon">▤</div><b>Prefabs</b><p>Reusable objects that open in a tab of their own. Changes reach every copy, and undo puts them back.</p></div>
-        <div class="feature reveal" data-delay="80"><div class="card-icon">♪</div><b>Sound and UI</b><p>3D sound, and <a href="audio.html">audio graphs</a>: a random one of several sounds at a random pitch, layered, looped. A UI of canvases, text, images and buttons.</p></div>
-        <div class="feature reveal" data-delay="160"><div class="card-icon">↶</div><b>Undo for everything</b><p>Every edit in the editor can be undone, a drag of a number included, and Play puts the scene back when you stop.</p></div>
-        <div class="feature reveal" data-delay="240"><div class="card-icon">⌕</div><b>Docs from the engine</b><p>The <a href="nodes.html">node reference</a> and <a href="api.html">C# API</a> here are made from the engine itself, so they match the version you have.</p></div>
+        <div class="feature reveal"><div class="card-icon">◆</div><b>Vulkan and OpenGL</b><p>Physically based lighting, shadows, sky and clouds, fog and bloom. Vulkan where the graphics card has it, OpenGL 3.3 where it doesn't.</p></div>
+        <div class="feature reveal" data-delay="80"><div class="card-icon">⬢</div><b>Jolt Physics</b><p>Rigidbodies, colliders, triggers, raycasts, and a character controller that climbs steps and slides along walls.</p></div>
+        <div class="feature reveal" data-delay="160"><div class="card-icon">♪</div><b>OpenAL Soft</b><p>Sound in 3D: it comes from objects, follows them as they move, and gets quieter further away.</p></div>
+        <div class="feature reveal" data-delay="240"><div class="card-icon">⇆</div><b>Steamworks</b><p>Multiplayer through Steam lobbies, or over the local network. Networked objects, synced movement and network events.</p></div>
+    </div>
+
+    <div class="graph-kinds">
+        <div class="reveal">
+            <div class="mini-graph" id="vfx-graph"></div>
+            <h3>VFX graphs</h3>
+            <p>Design particle effects with nodes: where particles start, how they move, and their colour and size over their life. They play in the editor as you change them.</p>
+            <a href="effects.html">Particles and VFX graphs →</a>
+        </div>
+        <div class="reveal" data-delay="100">
+            <div class="mini-graph" id="audio-graph"><button class="button listen">▶ Listen</button></div>
+            <h3>Audio graphs</h3>
+            <p>A sound made of sounds: a random one of several, at a different pitch each time, layered, in sequence or looping. An Audio Source plays it from an object.</p>
+            <a href="audio.html">Sound and audio graphs →</a>
+        </div>
     </div>
 </section>
 
@@ -104,7 +99,7 @@
         <div>
             <span class="eyebrow">Tutorial</span>
             <h2 style="margin:0 0 12px;font-size:32px">Build a multiplayer 1v1 shooter</h2>
-            <p style="color:var(--text-dim)">Follow along in the editor and end up with a duel you can play with a friend over Steam. Each step can be done in C# or in visual scripting, and you can switch between them at any point to compare. Along the way you'll learn the editor, prefabs, physics, UI and networking.</p>
+            <p style="color:var(--text-dim)">Follow along in the editor and end up with a duel you can play with a friend over Steam. Each script is shown in C# and as a visual script. Along the way you'll learn the editor, prefabs, physics, UI and networking.</p>
             <div class="hero-actions"><a class="button primary" href="tutorial-duel.html">Start the tutorial →</a><a class="button" href="https://github.com/BiggyStudios/Vertex/tree/master/Samples/Duel">The finished sample</a></div>
         </div>
         <div class="figure" style="margin:0"><img src="images/duel.jpg" alt="The Duel sample: an arena with cover, a gun in view, health and score"></div>
@@ -163,6 +158,15 @@
         };
         tabs.forEach((t, i) => t.addEventListener("click", () => show(i)));
         show(0);
+
+        // The graphs further down: the Duel's health script, an effect, and footsteps to listen to.
+        GraphView.mount(document.getElementById("script-graph"), "Health", { bare: true });
+        GraphView.mount(document.getElementById("vfx-graph"), "Embers (VFX)", { bare: true });
+        const audio = document.getElementById("audio-graph"), listen = audio.querySelector(".listen");
+        GraphView.mount(audio, "Footsteps (Audio)", { bare: true, whole: true }).then(view => {
+            audio.append(listen);
+            listen.addEventListener("click", () => view.run());
+        });
 
         // The backdrop: nodes drifting slowly, wired together, with pulses running along the wires.
         const canvas = document.querySelector(".backdrop");

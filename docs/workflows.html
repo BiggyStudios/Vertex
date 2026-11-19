@@ -3,15 +3,15 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Three ways to make a game · Vertex docs</title>
+    <title>Code and the editor · Vertex docs</title>
     <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 <div class="layout">
 <main class="content">
-    <span class="eyebrow">Start here</span>
-    <h1>Three ways to make a game</h1>
-    <p class="lead">Vertex has one engine and three ways of using it. Here's the same small thing (a cube that bobs up and down and spins) done each way, then how to mix them.</p>
+    <span class="eyebrow">Guide</span>
+    <h1>Code and the editor</h1>
+    <p class="lead">Most games are made in the editor, with C# or visual scripts on their objects. A game can also be written entirely in code, without the editor. Here's the same small thing (a cube that bobs up and down and spins) made each way, then how they mix.</p>
 
     <table>
         <tr><th></th><th>Code only</th><th>Editor + C#</th><th>Editor + visual scripting</th></tr>
@@ -19,7 +19,6 @@
         <tr><td><strong>Levels are</strong></td><td>Built in <code>Load()</code></td><td>Scenes made in the editor</td><td>Scenes made in the editor</td></tr>
         <tr><td><strong>Settings</strong></td><td>Set in code</td><td>Public properties, shown in the inspector</td><td>Variables, set per object in the inspector</td></tr>
         <tr><td><strong>Runs with</strong></td><td><code>new MyGame().Run()</code>, or Play in the editor</td><td>Play in the editor</td><td>Play in the editor</td></tr>
-        <tr><td><strong>Good for</strong></td><td>Programmers, generated worlds, prototypes, tools</td><td>Most games: hand-made levels plus code</td><td>Non-programmers, quick behaviour, learning</td></tr>
     </table>
 
     <h2>1. Code only</h2>
@@ -96,7 +95,7 @@ public class Bobber : Component
     <p>Drag across the graph to pan and scroll to zoom. Hover a node to see what it does, and press <strong>Run</strong> to watch the flow go along the white wires. In the editor the wires light up like this while the game plays. <a href="visual-scripting.html">Visual scripting</a> explains events, flow, values and variables.</p>
 
     <h2>Mixing them</h2>
-    <p>All three are the same engine, so they combine freely. Some common mixes:</p>
+    <p>It all runs on the same engine, so they combine freely. Some common mixes:</p>
 
     <h3>Open a code-only game in the editor</h3>
     <p>Choose <strong>File › Open Project</strong> and pick the game's <code>.csproj</code>. The editor makes a <code>.vertexproject</code> beside it, builds the code, and shows the world your <code>Load()</code> builds. Play runs the game as it would run on its own. From there you can make prefabs, materials, scenes and VFX graphs in the editor and use them from code:</p>

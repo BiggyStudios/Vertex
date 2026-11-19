@@ -7,12 +7,11 @@ const Site = (() => {
         { group: "Start", items: [
             { href: "index.html", title: "Home", icon: "◆" },
             { href: "download.html", title: "Download", icon: "↓" },
-            { href: "getting-started.html", title: "Getting started", icon: "▶" },
-            { href: "workflows.html", title: "Three ways to make a game", icon: "⇄" }
+            { href: "getting-started.html", title: "Getting started", icon: "▶" }
         ] },
         { group: "Tutorials", items: [
-            { href: "tutorial-code-only.html", title: "Coin Grab: code only", icon: "●", tag: "C#" },
-            { href: "tutorial-duel.html", title: "Duel: a 1v1 shooter", icon: "✦", tag: "Editor" }
+            { href: "tutorial-duel.html", title: "Duel: a 1v1 shooter", icon: "✦", tag: "Editor" },
+            { href: "tutorial-code-only.html", title: "Coin Grab: code only", icon: "●", tag: "C#" }
         ] },
         { group: "Guides", items: [
             { href: "editor.html", title: "The editor", icon: "▣" },
@@ -20,7 +19,8 @@ const Site = (() => {
             { href: "visual-scripting.html", title: "Visual scripting", icon: "⌁" },
             { href: "effects.html", title: "Particles and VFX graphs", icon: "✺" },
             { href: "audio.html", title: "Sound and audio graphs", icon: "♪" },
-            { href: "multiplayer.html", title: "Multiplayer", icon: "⇆" }
+            { href: "multiplayer.html", title: "Multiplayer", icon: "⇆" },
+            { href: "workflows.html", title: "Code and the editor", icon: "⊞" }
         ] },
         { group: "Reference", items: [
             { href: "nodes.html", title: "Nodes", icon: "◇" },
