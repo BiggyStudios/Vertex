@@ -44,6 +44,7 @@ const Site = (() => {
         top.innerHTML = `
             <button class="icon-button menu-button" aria-label="Menu">☰</button>
             <a class="brand" href="index.html"><span class="logo">V</span> Vertex <small>docs</small></a>
+            <a class="badge stage" href="download.html#pre-alpha" title="Vertex is in pre-alpha: not recommended for production yet">pre-alpha</a>
             <nav class="top-links">
                 <a href="download.html">Download</a>
                 <a href="getting-started.html">Start</a>

@@ -19,6 +19,7 @@
         </div>
     </div>
 
+    <div class="note warn" id="pre-alpha"><p><strong>Vertex is in pre-alpha.</strong> It's for trying out and experimenting: expect bugs, missing features, and changes that break projects from one version to the next. It isn't recommended for production games yet.</p></div>
     <div class="note" id="mac-note" hidden><p>macOS won't open programs from the internet that aren't signed with an Apple developer account. Once, before the first run, open a terminal in the unpacked folder and run <code>xattr -dr com.apple.quarantine .</code> (the dot too). The download is for Macs with Apple silicon; on an Intel Mac, <a href="#build-from-source">build from source</a>.</p></div>
     <div class="note" id="linux-note" hidden><p>Run the editor from a terminal. It needs your distribution's Vulkan or OpenGL drivers (Mesa, or your GPU maker's).</p></div>
 
@@ -127,6 +128,7 @@ dotnet run --project Vertex.Editor</pre>
         const latest = document.getElementById("latest"), releases = document.getElementById("releases");
         const requirements = `<div class="needs"><span>${here.needs}</span><span>${here.graphics}</span><span><a href="https://dotnet.microsoft.com/download/dotnet/10.0">.NET 10 SDK</a></span></div>`;
         const version = r => r.tag.replace(/^v/, "");
+        const stage = r => /pre-?alpha/i.test(r.tag) ? "pre-alpha" : /alpha/i.test(r.tag) ? "alpha" : /beta/i.test(r.tag) ? "beta" : "pre-release";
 
         function showLatest(r) {
             const download = system => r.assets.find(a => system.file.test(a.name));
@@ -135,7 +137,7 @@ dotnet run --project Vertex.Editor</pre>
             const pkg = r.assets.find(a => /\.nupkg$/i.test(a.name));
             const downloads = r.assets.reduce((sum, a) => sum + a.downloads, 0);
             latest.innerHTML = `
-                <div class="latest-top"><span class="pulse-dot"></span>Latest release ${r.pre ? '<span class="badge">pre-release</span>' : ""}</div>
+                <div class="latest-top"><span class="pulse-dot"></span>Latest release ${r.pre ? `<span class="badge stage">${stage(r)}</span>` : ""}</div>
                 <div class="latest-version">Vertex <span>${Site.escape(version(r))}</span></div>
                 <div class="latest-date" title="${longDate(r.date)}">Released ${when(r.date)}${downloads ? ` · ${downloads.toLocaleString("en")} download${downloads === 1 ? "" : "s"}` : ""}</div>
                 ${mine ? `<a class="button primary download-button" href="${mine.url}"><span class="dl-arrow">↓</span><span><b>Download for ${here.name}</b><small>${Site.escape(mine.name)} · ${size(mine.size)}</small></span></a>`
@@ -167,7 +169,7 @@ dotnet run --project Vertex.Editor</pre>
             const newest = list.find(r => !r.pre) ?? list[0];
             releases.innerHTML = list.map((r, i) => `
                 <details class="release" style="animation-delay:${Math.min(i, 10) * 60}ms" ${r === newest ? "open" : ""}>
-                    <summary><span class="release-caret">▸</span><b>${Site.escape(r.name)}</b>${r === newest ? '<span class="badge ed">latest</span>' : ""}${r.pre ? '<span class="badge">pre-release</span>' : ""}<span class="release-date" title="${longDate(r.date)}">${when(r.date)}</span></summary>
+                    <summary><span class="release-caret">▸</span><b>${Site.escape(r.name)}</b>${r === newest ? '<span class="badge ed">latest</span>' : ""}${r.pre ? `<span class="badge stage">${stage(r)}</span>` : ""}<span class="release-date" title="${longDate(r.date)}">${when(r.date)}</span></summary>
                     <div class="release-body">
                         <div class="release-notes">${markdown(r.notes) || '<p style="color:var(--text-faint)">No notes.</p>'}</div>
                         <div class="assets">${r.assets.map(a => `<a class="asset" href="${a.url}"><span class="dl-arrow">↓</span><span class="asset-name">${Site.escape(a.name)}</span><span class="asset-size">${size(a.size)}</span></a>`).join("")}

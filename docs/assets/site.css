@@ -601,6 +601,10 @@ body[data-showing="cs"] [data-track="vs"], body[data-showing="vs"] [data-track="
 .badge.cs { color: #7cb4ff; border-color: rgba(124,180,255,0.35); background: rgba(124,180,255,0.08); }
 .badge.vs { color: #c49bff; border-color: rgba(196,155,255,0.35); background: rgba(196,155,255,0.08); }
 .badge.ed { color: #6fdcb5; border-color: rgba(111,220,181,0.35); background: rgba(111,220,181,0.08); }
+.badge.stage { color: #f0b545; border-color: rgba(240,181,69,0.4); background: rgba(240,181,69,0.1); margin-left: -2px; }
+.badge.stage:hover { text-decoration: none; background: rgba(240,181,69,0.18); }
+.stage-note { margin: 18px 0 0; font-size: 14px; color: var(--text-faint); }
+.stage-note b { color: #f0b545; font-weight: 600; }
 
 /* Appearing as they scroll into view. */
 .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s cubic-bezier(.2,.8,.2,1), transform 0.7s cubic-bezier(.2,.8,.2,1); }
