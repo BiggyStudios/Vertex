@@ -73,6 +73,16 @@ effect.Set("Tint", new Color(1f, 0.3f, 0.3f));
 effect.Enabled = false;   // off for now</pre>
     <p>A Post Effect can be added in code as well: <code>camera.AddComponent&lt;PostEffect&gt;().Shader = Assets.LoadShader("Shaders/Pixels.glsl")</code>.</p>
 
+    <h2>A retro look</h2>
+    <p>Some of the look of early 3D consoles happens as things are drawn, so a post effect can't do it alone. The scene's <strong>Lighting &amp; Sky</strong> has a <strong>Retro</strong> section for that part:</p>
+    <table>
+        <tr><th>Setting</th><th>What it does</th></tr>
+        <tr><td><strong>Vertex Snapping</strong></td><td>Corners of meshes snap to a grid this many rows high on the screen, so things wobble and jitter as they or the camera move. 240 is the first PlayStation's; 0 turns it off.</td></tr>
+        <tr><td><strong>Affine Textures</strong></td><td>Textures slide and bend across surfaces seen at an angle, as on consoles that couldn't correct for perspective. Big flat surfaces bend most, so build floors and walls from pieces a metre or so across.</td></tr>
+        <tr><td><strong>Pixelated Textures</strong></td><td>Textures are drawn in crisp square texels instead of being smoothed.</td></tr>
+    </table>
+    <p>Pair them with a post effect like the one above, set to the same number of rows, and small textures (64 pixels or so). Turning off <strong>Anti-Aliasing</strong> keeps edges as hard as they were.</p>
+
     <h2>When it doesn't compile</h2>
     <p>The game keeps running without the effect, and the Console says what's wrong and on which line of the file, such as <code>Pixels.glsl:9: 'colur' : undeclared identifier</code>. The effect's inspector shows the same. Fix it and save, and it comes back.</p>
 </main>
