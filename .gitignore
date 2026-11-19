@@ -350,6 +350,8 @@ osu.Framework.NativeLibs/scripts/ffmpeg/*.tar.gz
 
 # The sample game is its own repository (BiggyStudios/VertexSampleGame), cloned in here to work on both at once.
 /VertexSampleGame/
+# The horror game is its own repository too (BiggyStudios/AnarchyTest), cloned in here the same way.
+/AnarchyTest/
 
 # Notes for AI coding assistants: kept local for now.
 /CLAUDE.md
