@@ -72,10 +72,10 @@ New-Item -ItemType Directory -Force $folder | Out-Null
 # The editor. Not self-contained: it builds games with the .NET SDK, which brings the runtime anyway, and compiles them
 # against the engine files beside it, which mustn't include a copy of the framework's.
 Invoke-Dotnet publish (Join-Path $root "Vertex.Editor/Vertex.Editor.csproj") -c Release -r $Runtime --self-contained false `
-    -p:Version=$Version -o (Join-Path $folder "Editor") -nologo
+    "-p:Version=$Version" -o (Join-Path $folder "Editor") -nologo
 
 # The engine's package.
-Invoke-Dotnet pack (Join-Path $root "Vertex/Vertex.csproj") -c Release -p:Version=$Version -o (Join-Path $folder "Engine") -nologo
+Invoke-Dotnet pack (Join-Path $root "Vertex/Vertex.csproj") -c Release "-p:Version=$Version" -o (Join-Path $folder "Engine") -nologo
 
 # The samples and the starter, using the engine's package instead of the engine's project.
 foreach ($sample in "CodeOnly", "Duel")
