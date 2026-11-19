@@ -218,6 +218,16 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void OpenGL_drivers_errors_name_the_shaders_file_and_line_as_Vulkans_do()
+        {
+            Assert.Equal("ERROR: Dots.glsl:4: 'Amont' : undeclared identifier",
+                ShaderLibrary.WithFileName("ERROR: 0:4: 'Amont' : undeclared identifier", "Dots.glsl"));
+            Assert.Equal("Dots.glsl:12: error C1008: undefined variable \"Amont\"",
+                ShaderLibrary.WithFileName("0(12) : error C1008: undefined variable \"Amont\"", "Dots.glsl"));
+            Assert.Equal("vec2(0.5, 10:3)", ShaderLibrary.WithFileName("vec2(0.5, 10:3)", "Dots.glsl"));
+        }
+
+        [Fact]
         public void An_effect_compiles_for_Vulkan_and_its_errors_give_the_line_in_its_own_file()
         {
             using var compiler = new VkShaderCompiler(null!);

@@ -1725,5 +1725,12 @@ namespace Vertex.Rendering.Shaders
 
         /// <summary>A game's post effect, built into a whole fragment shader: <see cref="EffectHeader"/>, its code, then a main that calls it.</summary>
         public static string EffectFragment(Shader shader) => EffectHeader + "#line 1\n" + shader.Body + EffectMain;
+
+        /// <summary>
+        /// An OpenGL driver's compile errors with the places in them named by <paramref name="file"/> and line, as Vulkan's
+        /// compiler names them: drivers write "0:4:" (AMD, Intel, Mesa) or "0(4) :" (NVIDIA).
+        /// </summary>
+        public static string WithFileName(string errors, string file) =>
+            System.Text.RegularExpressions.Regex.Replace(errors, @"\b0(?::(\d+):|\((\d+)\)\s*:)", match => $"{file}:{match.Groups[1].Value}{match.Groups[2].Value}:");
     }
 }

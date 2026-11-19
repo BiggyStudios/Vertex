@@ -199,7 +199,7 @@ namespace Vertex.Rendering.OpenGL
             }
             catch (Exception exception)
             {
-                shader.CompileProblem = $"Shader {shader.Name} didn't compile:\n{exception.Message}";
+                shader.CompileProblem = $"Shader {shader.Name} didn't compile:\n{ShaderLibrary.WithFileName(exception.Message, shader.Name)}";
                 Log.Error(shader.CompileProblem);
             }
 
