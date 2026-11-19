@@ -37,6 +37,9 @@ namespace Vertex.Editor.Graphs
             public Rect Rect;
             public readonly Dictionary<string, Vector2> Inputs = new();
             public readonly Dictionary<string, Vector2> Outputs = new();
+
+            /// <summary>Its inputs as shown: with as many of a repeated one as it has linked, and one more.</summary>
+            public IReadOnlyList<Port> InputPorts = [];
         }
 
         private GraphDocument? _doc;
@@ -152,6 +155,7 @@ namespace Vertex.Editor.Graphs
             UpdateBox(doc);
             Ui.PopView();
 
+            HandleSoundDrop(rect, doc, library);
             DrawToolbar(rect, doc, library);
             if (_showVariables) DrawVariables(rect, doc);
             if (graph.Nodes.Count == 0)
@@ -170,15 +174,16 @@ namespace Vertex.Editor.Graphs
             foreach (GraphNode node in graph.Nodes)
             {
                 if (library.Find(node.Type) is not { } type) continue;
+                IReadOnlyList<Port> inputs = type.InputsOf(graph, node);
 
                 float left = 0f, right = 0f;
-                int rows = Math.Max(Math.Max(type.Inputs.Count, type.Outputs.Count), 1);
+                int rows = Math.Max(Math.Max(inputs.Count, type.Outputs.Count), 1);
                 for (int i = 0; i < rows; i++)
                 {
                     float l = 0f, r = 0f;
-                    if (i < type.Inputs.Count)
+                    if (i < inputs.Count)
                     {
-                        Port port = type.Inputs[i];
+                        Port port = inputs[i];
                         l = 14f + LabelWidth(port);
                         if (ShowsEditor(graph, node, port)) l += 6f + EditorWidth(port, graph.TypeOf(node, port));
                     }
@@ -193,10 +198,11 @@ namespace Vertex.Editor.Graphs
                 {
                     Node = node,
                     Type = type,
+                    InputPorts = inputs,
                     Rect = new Rect(node.Position.X, node.Position.Y, width, _header + rows * _row + 8f)
                 };
 
-                for (int i = 0; i < type.Inputs.Count; i++) layout.Inputs[type.Inputs[i].Name] = new Vector2(layout.Rect.X, RowCentre(layout.Rect, i));
+                for (int i = 0; i < inputs.Count; i++) layout.Inputs[inputs[i].Name] = new Vector2(layout.Rect.X, RowCentre(layout.Rect, i));
                 for (int i = 0; i < type.Outputs.Count; i++) layout.Outputs[type.Outputs[i].Name] = new Vector2(layout.Rect.Right, RowCentre(layout.Rect, i));
                 _layouts[node.Id] = layout;
             }
@@ -291,16 +297,17 @@ namespace Vertex.Editor.Graphs
                 if (Ends(link) is not var (a, b, type) || _pickedUp == link) continue;
                 Color color = type.WireColor;
 
-                // Flow that's just gone along it shows.
-                if (type.IsFlow && graph.LastRan(link.ToNode) is double ran && now - ran < 0.5)
-                {
-                    color = Color.Lerp(color, Theme.Hex(0x5FC9B5), (float)(1.0 - (now - ran) / 0.5));
-                }
+                // Flow that's just gone along it shows, and in an audio graph, the sound that was just chosen.
+                // (Sounds' wires are teal already, so they flash white.)
+                bool sound = type == Vertex.Audio.AudioNodes.Audio;
+                double? last = type.IsFlow ? graph.LastRan(link.ToNode) : sound ? graph.LastRan(link.FromNode) : null;
+                float flash = last is double ran && now - ran < 0.5 ? (float)(1.0 - (now - ran) / 0.5) : 0f;
+                if (flash > 0f) color = Color.Lerp(color, sound ? Color.White : Theme.Hex(0x5FC9B5), flash);
 
                 // Under the mouse: brighter and thicker, to show which would be cut.
                 bool lit = link == hovered;
                 if (lit) color = Color.Lerp(color, Theme.AccentHover, 0.7f);
-                Wire(a, b, color, (type.IsFlow ? 2.6f : 2f) + (lit ? 1.6f : 0f));
+                Wire(a, b, color, (type.IsFlow ? 2.6f : 2f) + (lit ? 1.6f : 0f) + (sound ? flash * 1.5f : 0f));
             }
         }
 
@@ -426,7 +433,7 @@ namespace Vertex.Editor.Graphs
                 Menu.Open(Ui.Id(nodeId, "menu"), Ui.Mouse, NodeMenu(doc));
             }
 
-            for (int i = 0; i < type.Inputs.Count; i++) DrawInput(nodeId, doc, layout, type.Inputs[i], i);
+            for (int i = 0; i < layout.InputPorts.Count; i++) DrawInput(nodeId, doc, layout, layout.InputPorts[i], i);
             for (int i = 0; i < type.Outputs.Count; i++) DrawOutput(nodeId, doc, layout, type.Outputs[i], i);
         }
 
@@ -830,7 +837,7 @@ namespace Vertex.Editor.Graphs
 
         /// <summary>Whether a node of <paramref name="type"/> has a port the link being let go of could join.</summary>
         private static Port? JoinablePort(NodeType type, PortType linkType, bool fromOutput) => fromOutput
-            ? type.Inputs.FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(p.Type))
+            ? type.Inputs.Concat(type.Repeated is { } repeated ? [repeated] : []).FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(p.Type))
             : type.Outputs.FirstOrDefault(p => p.Type.CanLinkTo(linkType));
 
         private void AddList(int popupId, Rect rect, GraphDocument doc, NodeLibrary library)
@@ -948,7 +955,7 @@ namespace Vertex.Editor.Graphs
 
                 // The first of its ports the link fits, as it is now (with its variable chosen).
                 Port? port = link.FromOutput
-                    ? type.Inputs.FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(graph.TypeOf(node, p)))
+                    ? type.InputsOf(graph, node).FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(graph.TypeOf(node, p)))
                     : type.Outputs.FirstOrDefault(p => graph.TypeOf(node, p).CanLinkTo(linkType));
                 if (port == null) return;
 
@@ -1101,6 +1108,18 @@ namespace Vertex.Editor.Graphs
             Ui.Text(new Rect(x, bar.Y, 200f, bar.Height), $"{library.DisplayName}  ·  {doc.Graph.Nodes.Count} nodes", Theme.TextFaint, size: Theme.SmallTextSize);
 
             var variables = new Rect(bar.Right - 98f - 34f, bar.Y + 4f, 94f, 28f);
+
+            // An audio graph can be listened to as it's made: each press plays it again, choosing again.
+            if (doc.Graph.Kind == Vertex.Audio.AudioNodes.Kind)
+            {
+                bool playing = Inspection.SoundPreview.IsPlaying(doc.Path);
+                var play = new Rect(variables.X - 32f, bar.Y + 4f, 28f, 28f);
+                if (Widgets.IconButton(Ui.Id("graph.play"), play, playing ? Icons.Stop : Icons.Play, playing ? "Stop" : "Play it, as the game would (again for another random choice)"))
+                {
+                    Inspection.SoundPreview.Toggle(doc.Path);
+                }
+            }
+
             (string one, string several, _) = library.VariableWords;
             if (Widgets.Button(Ui.Id("graph.variables"), variables, several, _showVariables ? ButtonStyle.Primary : ButtonStyle.Subtle, $"Show or hide the graph's {several.ToLowerInvariant()}"))
             {
@@ -1114,6 +1133,64 @@ namespace Vertex.Editor.Graphs
 
             const string hint = "Right-click or Space: add  ·  drag from a port: link  ·  drag a wire off an input, or Alt-click it: disconnect  ·  middle-drag: pan  ·  wheel: zoom";
             Ui.Text(new Rect(rect.X + 12f, rect.Bottom - 24f, rect.Width - 24f, 18f), hint, Theme.TextFaint, size: Theme.SmallTextSize);
+        }
+
+        /// <summary>
+        /// Sounds dragged in from the assets, into an audio graph: each makes a Sound node where it's let go. Let go on a
+        /// node with a free sound input (a Random, a Sequence), it's linked into it too, and put to its left: so a Random's
+        /// sounds can be dropped onto it one after another.
+        /// </summary>
+        private void HandleSoundDrop(Rect rect, GraphDocument doc, NodeLibrary library)
+        {
+            if (library.Kind != Vertex.Audio.AudioNodes.Kind || !DragDrop.Dragging || DragDrop.Payload is not AssetEntry { Kind: AssetKind.Sound } sound) return;
+            if (!rect.Contains(Ui.Mouse)) return;
+
+            Graph graph = doc.Graph;
+            Vector2 at = doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom;
+            (Layout Node, string Port, int Row)? into = null;
+            foreach (Layout layout in _layouts.Values)
+            {
+                if (!layout.Rect.Contains(at)) continue;
+                for (int row = 0; row < layout.InputPorts.Count; row++)
+                {
+                    Port port = layout.InputPorts[row];
+                    if (port.Linkable && port.Type == Vertex.Audio.AudioNodes.Audio && !graph.LinksTo(layout.Node.Id, port.Name).Any())
+                    {
+                        into = (layout, port.Name, row);
+                        break;
+                    }
+                }
+            }
+
+            // Where it'd go: the node it'd be linked into, outlined.
+            if (into is ({ } target, _, _))
+            {
+                var outline = new Rect(rect.Position + (target.Rect.Position - doc.Offset) * doc.Zoom, target.Rect.Size * doc.Zoom);
+                Ui.Outline(outline.Grow(4f), Theme.Accent, 10f * doc.Zoom, 2f);
+            }
+
+            if (!DragDrop.Dropped) return;
+
+            string file = Vertex.Assets.RelativePath(sound.Path);
+            doc.Edit(_context.History, "Add Sound", () =>
+            {
+                // Beside the node it's linked into: under the sounds already linked to it, or level with its input.
+                Vector2 position = at - new Vector2(80f, 20f);
+                if (into is ({ } node, _, var row))
+                {
+                    List<Layout> linked = graph.Links.Where(l => l.ToNode == node.Node.Id).Select(l => _layouts.GetValueOrDefault(l.FromNode))
+                        .OfType<Layout>().Where(l => l.Rect.Right <= node.Rect.X).ToList();
+                    position = linked.Count > 0
+                        ? new Vector2(linked.Min(l => l.Rect.X), linked.Max(l => l.Rect.Bottom) + 16f)
+                        : new Vector2(node.Rect.X - 300f, RowCentre(node.Rect, row) - _header - _row);
+                }
+
+                GraphNode added = graph.AddNode(Vertex.Audio.AudioNodes.SoundFile, position);
+                added.Values["Sound"] = file;
+                if (into is ({ } linkTo, { } port, _)) graph.Link(added.Id, "Sound", linkTo.Node.Id, port);
+                doc.Selected.Clear();
+                doc.Selected.Add(added.Id);
+            });
         }
 
         /// <summary>The graph's variables: a name, a type and a starting value each, with a way to add more.</summary>

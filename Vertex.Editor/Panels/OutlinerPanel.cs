@@ -396,6 +396,11 @@ namespace Vertex.Editor.Panels
                 if (component is MeshRenderer) return Icons.Cube;
             }
 
+            foreach (Component component in gameObject.Components)
+            {
+                if (component is Vertex.Audio.AudioSource) return Icons.Sound;
+            }
+
             return gameObject.Components.Count == 0 ? Icons.Empty : Icons.Component;
         }
 

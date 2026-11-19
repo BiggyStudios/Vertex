@@ -19,11 +19,15 @@ namespace Vertex.Editor.Inspection
 
         private const int _peakCount = 200;
 
-        public static bool IsPlaying(string path) => _playingPath == path && _playing.IsPlaying;
+        // An audio graph being listened to: played as the game would, choosing afresh each time.
+        private static AudioPlayback? _graph;
+
+        public static bool IsPlaying(string path) => _playingPath == path && (_graph?.IsPlaying ?? _playing.IsPlaying);
 
         public static void Toggle(string path)
         {
             if (IsPlaying(path)) Stop();
+            else if (path.EndsWith(AudioNodes.Extension, StringComparison.OrdinalIgnoreCase)) PlayGraph(path);
             else Play(path);
         }
 
@@ -37,9 +41,31 @@ namespace Vertex.Editor.Inspection
             _playingPath = path;
         }
 
+        /// <summary>
+        /// Plays an audio graph (a .audiograph file), as the game would: each time, its Random nodes choose again and its
+        /// nodes light up in the graph's tab as they play. What can't be played is marked on the node.
+        /// </summary>
+        public static void PlayGraph(string path)
+        {
+            Stop();
+            try
+            {
+                Vertex.Graphs.Graph graph = Assets.LoadGraph(path);
+                graph.ClearActivity();
+                _graph = Sound.Play(graph);
+                _playingPath = path;
+            }
+            catch (Exception exception)
+            {
+                Log.Warning($"Couldn't play {System.IO.Path.GetFileName(path)}: {exception.Message}");
+            }
+        }
+
         public static void Stop()
         {
             _playing.Stop();
+            _graph?.Stop();
+            _graph = null;
             _playingPath = null;
         }
 

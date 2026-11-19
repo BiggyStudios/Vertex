@@ -1017,6 +1017,19 @@ namespace Vertex.Editor
             return path;
         }
 
+        /// <summary>
+        /// Makes a new audio graph in <paramref name="folder"/>, to start from (a Random node to drop sounds onto, at a
+        /// random pitch), and returns where.
+        /// </summary>
+        public string CreateAudioGraph(string folder, string name = "New Audio Graph")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.Audio.AudioNodes.Extension);
+            Vertex.Audio.AudioNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
         private int _graphsCheckedAt = -1;
 
         /// <summary>

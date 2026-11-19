@@ -306,8 +306,14 @@ namespace Vertex.Editor.Inspection
         {
             if (AssetKindOf(member.Type) is not { } kind) return;
 
-            // A graph of another kind than a visual script (an effect's VFX graph) offers only files of that kind.
-            if (member.Member.GetCustomAttribute<Vertex.Graphs.GraphKindAttribute>() is { Kind: Vertex.Effects.VfxNodes.Kind }) kind = (AssetKind.VisualEffect, kind.Load);
+            // A graph of another kind than a visual script (an effect's VFX graph, a source's audio graph) offers only files
+            // of that kind.
+            if (member.Member.GetCustomAttribute<Vertex.Graphs.GraphKindAttribute>() is { } graphKind)
+            {
+                if (graphKind.Kind == Vertex.Effects.VfxNodes.Kind) kind = (AssetKind.VisualEffect, kind.Load);
+                else if (graphKind.Kind == Vertex.Audio.AudioNodes.Kind) kind = (AssetKind.AudioGraph, kind.Load);
+            }
+
             AssetField(id, field, kind.Kind, value, member.CanWrite, path =>
             {
                 try
@@ -498,6 +504,7 @@ namespace Vertex.Editor.Inspection
                 AssetKind.Sound => "sounds",
                 AssetKind.VisualScript => "visual scripts",
                 AssetKind.VisualEffect => "VFX graphs",
+                AssetKind.AudioGraph => "audio graphs",
                 _ => "files"
             };
             TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);

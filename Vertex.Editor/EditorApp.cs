@@ -150,6 +150,9 @@ namespace Vertex.Editor
             if (deltaTime > 0f) _fps = _fps <= 0f ? 1f / deltaTime : _fps + (1f / deltaTime - _fps) * MathF.Min(deltaTime * 2f, 1f);
 
             Context.Update();
+
+            // Audio graphs being listened to move on while the game isn't running (it moves its own on as it runs).
+            if (!Context.Play.Playing || Context.Play.Paused) Vertex.Audio.Sound.UpdatePlaybacks(deltaTime);
             if (_renderer != null) _renderer.ShadowResolution = Context.Project?.Settings.ShadowResolution ?? ShadowResolutionDefault;
 
             // Changes made while the mouse is held (a drag) count as one; letting go ends it.

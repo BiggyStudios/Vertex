@@ -17,6 +17,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>A .vfx file: a particle effect, made of nodes.</summary>
         VisualEffect,
+
+        /// <summary>A .audiograph file: a sound made of sounds (a random one of several, at a random pitch), made of nodes.</summary>
+        AudioGraph,
         Other
     }
 
@@ -149,6 +152,7 @@ namespace Vertex.Editor.Editing
             ".cs" => AssetKind.Script,
             ".vscript" => AssetKind.VisualScript,
             ".vfx" => AssetKind.VisualEffect,
+            ".audiograph" => AssetKind.AudioGraph,
             _ => AssetKind.Other
         };
 

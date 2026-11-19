@@ -154,6 +154,8 @@ namespace Vertex.Editor.Editing
                 // Whatever the game left half done is thrown away below anyway.
             }
 
+            // What the game was playing stops with it: a looping sound would otherwise go on in the editor.
+            Vertex.Audio.Sound.StopAll();
             InputSystem.CursorLocked = false;
             InputSystem.Muted = false;
             GameFocused = false;

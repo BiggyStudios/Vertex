@@ -183,7 +183,7 @@ namespace Vertex.Editor.Panels
                     break;
                 }
 
-                case AssetKind.VisualScript or AssetKind.VisualEffect:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph:
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
@@ -687,6 +687,9 @@ namespace Vertex.Editor.Panels
                     "New Visual Script", "Scripts", (folder, name) => _context.CreateVisualScript(folder, name), "visual scripts", x, y, width), width),
                 Vertex.Effects.VisualEffect effect => GraphButtons(component, effect.Effect, nameof(Vertex.Effects.VisualEffect.Effect), "Edit Effect",
                     "New VFX Graph", "Effects", (folder, name) => _context.CreateVfxGraph(folder, name), "VFX graphs", x, y, width),
+                Vertex.Audio.AudioSource source => GraphValues(source, source.AudioGraph, nameof(Vertex.Audio.AudioSource.Properties), source.Properties, "Properties", "graph",
+                    x, GraphButtons(component, source.AudioGraph, nameof(Vertex.Audio.AudioSource.AudioGraph), "Edit Audio Graph", "New Audio Graph", "Audio",
+                        (folder, name) => _context.CreateAudioGraph(folder, name), "audio graphs", x, y, width), width),
                 _ => y
             };
         }
@@ -725,24 +728,30 @@ namespace Vertex.Editor.Panels
             return y + 26f + PropertyGrid.RowGap;
         }
 
-        /// <summary>
-        /// A visual script's variables, to give this object values of its own (a gun's own fire rate, the door a switch
-        /// opens). Ones left as the script starts them are shown faint; one set here has a button to put it back.
-        /// </summary>
-        private float ScriptVariables(Vertex.Scripting.VisualScript script, float x, float y, float width)
-        {
-            if (script.Script is not { Variables.Count: > 0 } graph) return y;
+        /// <summary>A visual script's variables, for this object's own values.</summary>
+        private float ScriptVariables(Vertex.Scripting.VisualScript script, float x, float y, float width) =>
+            GraphValues(script, script.Script, nameof(Vertex.Scripting.VisualScript.Variables), script.Variables, "Variables", "script", x, y, width);
 
-            Ui.Text(new Rect(x, y + 4f, width, 20f), "Variables", Theme.TextDim, size: Theme.SmallTextSize, bold: true);
+        /// <summary>
+        /// A graph's variables, to give this object values of its own (a gun's own fire rate, the door a switch opens, the
+        /// footsteps an audio source plays). Ones left as the graph starts them are shown faint; one set here has a button
+        /// to put it back. They're kept in the component's list property <paramref name="listName"/>.
+        /// </summary>
+        private float GraphValues(Component component, Vertex.Graphs.Graph? graph, string listName, List<Vertex.Scripting.ScriptVariableValue> list,
+            string title, string graphWord, float x, float y, float width)
+        {
+            if (graph is not { Variables.Count: > 0 }) return y;
+
+            Ui.Text(new Rect(x, y + 4f, width, 20f), title, Theme.TextDim, size: Theme.SmallTextSize, bold: true);
             y += 26f;
 
-            int id = Ui.Id(RuntimeHelpers.GetHashCode(script), "variables");
+            int id = Ui.Id(RuntimeHelpers.GetHashCode(component), "variables");
             float labelWidth = PropertyGrid.LabelWidth(width);
-            System.Reflection.PropertyInfo property = typeof(Vertex.Scripting.VisualScript).GetProperty(nameof(Vertex.Scripting.VisualScript.Variables))!;
+            System.Reflection.PropertyInfo property = component.GetType().GetProperty(listName)!;
             foreach (Vertex.Graphs.GraphVariable variable in graph.Variables.ToList())
             {
                 int rowId = Ui.Id(id, variable.Name);
-                Vertex.Scripting.ScriptVariableValue? own = script.Variables.FirstOrDefault(v => v.Name == variable.Name);
+                Vertex.Scripting.ScriptVariableValue? own = list.FirstOrDefault(v => v.Name == variable.Name);
                 object? value = own != null ? own.Get(variable.Type) : variable.Value;
                 var label = new Rect(x, y, labelWidth - 6f, Theme.RowHeight);
                 var field = new Rect(x + labelWidth, y, width - labelWidth, Theme.RowHeight);
@@ -750,20 +759,20 @@ namespace Vertex.Editor.Panels
                 // Each change is a new list, so undo has the one before to go back to.
                 void Change(object? next, bool reset = false)
                 {
-                    List<Vertex.Scripting.ScriptVariableValue> values = script.Variables.Where(v => v.Name != variable.Name).Select(v => v.Copy()).ToList();
+                    List<Vertex.Scripting.ScriptVariableValue> values = list.Where(v => v.Name != variable.Name).Select(v => v.Copy()).ToList();
                     if (!reset) values.Add(new Vertex.Scripting.ScriptVariableValue(variable.Name, variable.Type, next));
-                    _context.History.Do(new SetValue(reset ? $"Reset {variable.Name}" : $"Change {variable.Name}", script, property, script.Variables, values), (script, variable.Name));
+                    _context.History.Do(new SetValue(reset ? $"Reset {variable.Name}" : $"Change {variable.Name}", component, property, list, values), (component, variable.Name));
                 }
 
                 if (own != null)
                 {
                     var reset = new Rect(label.Right - 20f, y + (Theme.RowHeight - 20f) * 0.5f, 20f, 20f);
-                    if (Widgets.IconButton(Ui.Id(rowId, "reset"), reset, Icons.Undo, "Back to the script's starting value")) Change(null, reset: true);
+                    if (Widgets.IconButton(Ui.Id(rowId, "reset"), reset, Icons.Undo, $"Back to the {graphWord}'s starting value")) Change(null, reset: true);
                     label = label.CutRight(22f);
                 }
 
                 Widgets.Label(Ui.Id(rowId, "label"), label, variable.Name,
-                    own != null ? $"{variable.Type.Name}, set for this object" : $"{variable.Type.Name}, as the script starts it", own != null ? Theme.Text : Theme.TextFaint);
+                    own != null ? $"{variable.Type.Name}, set for this object" : $"{variable.Type.Name}, as the {graphWord} starts it", own != null ? Theme.Text : Theme.TextFaint);
 
                 PortType type = variable.Type;
                 if (type == PortType.Number)
@@ -814,13 +823,29 @@ namespace Vertex.Editor.Panels
         /// <summary>A .vscript file: open it, and what's in it.</summary>
         private float DrawVisualScriptAsset(AssetEntry asset, float x, float y, float width)
         {
-            if (Widgets.Button(Ui.Id("asset.openGraph"), new Rect(x, y, width, 30f), "Open Graph", ButtonStyle.Primary, icon: Icons.Graph)) _context.OpenGraph(asset.Path);
+            var buttons = new Rect(x, y, width, 30f);
+            if (asset.Kind == AssetKind.AudioGraph)
+            {
+                // Listened to here, as the game would play it: again for another random choice.
+                bool playing = SoundPreview.IsPlaying(asset.Path);
+                if (Widgets.Button(Ui.Id("asset.playGraph"), buttons.Column(1, 2, 6f), playing ? "Stop" : "Play", icon: playing ? Icons.Stop : Icons.Play))
+                {
+                    SoundPreview.Toggle(asset.Path);
+                }
+
+                buttons = buttons.Column(0, 2, 6f);
+            }
+
+            if (Widgets.Button(Ui.Id("asset.openGraph"), buttons, "Open Graph", ButtonStyle.Primary, icon: Icons.Graph)) _context.OpenGraph(asset.Path);
             y += 40f;
 
             try
             {
                 Vertex.Graphs.Graph graph = Assets.LoadGraph(asset.Path);
-                Ui.Text(new Rect(x, y, width, 20f), $"{graph.Nodes.Count} nodes, {graph.Links.Count} links, {graph.Variables.Count} variables", Theme.TextDim);
+                (string one, string several, _) = graph.Library?.VariableWords ?? ("variable", "variables", "");
+                string Count(int n, string word, string words) => $"{n} {(n == 1 ? word : words)}";
+                string variables = Count(graph.Variables.Count, one.ToLowerInvariant(), several.ToLowerInvariant());
+                Ui.Text(new Rect(x, y, width, 20f), $"{Count(graph.Nodes.Count, "node", "nodes")}, {Count(graph.Links.Count, "link", "links")}, {variables}", Theme.TextDim);
                 y += 26f;
             }
             catch (Exception exception)
@@ -829,9 +854,12 @@ namespace Vertex.Editor.Panels
                 y += 26f;
             }
 
-            return Note(asset.Kind == AssetKind.VisualEffect
-                ? "Add a Visual Effect component to an object and choose this file to play it there. Double-click to edit."
-                : "Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit.", x, y, width);
+            return Note(asset.Kind switch
+            {
+                AssetKind.VisualEffect => "Add a Visual Effect component to an object and choose this file to play it there. Double-click to edit.",
+                AssetKind.AudioGraph => "Add an Audio Source component to an object and choose this file as its Audio Graph to play it there. Double-click to edit.",
+                _ => "Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit."
+            }, x, y, width);
         }
 
         private static int SlideKey(Component component) => Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "slide");
@@ -998,6 +1026,7 @@ namespace Vertex.Editor.Panels
             Light => Icons.Light,
             MeshRenderer => Icons.Cube,
             Collider or Rigidbody or CharacterController => Icons.Scale,
+            Vertex.Audio.AudioSource => Icons.Sound,
             _ => Icons.Component
         };
 
