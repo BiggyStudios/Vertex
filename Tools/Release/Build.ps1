@@ -1,8 +1,10 @@
-# Makes a release's downloads, in dist/:
-#   Vertex-<version>-win-x64.zip    the editor, the engine's package, the samples and a starter game, ready to use
-#   Vertex.Engine.<version>.nupkg   the engine's package on its own
-# The release workflow (.github/workflows/release.yml) runs it; it runs on a PC too:
-#   powershell -File Tools/Release/Build.ps1 -Version 0.1.0
+# Makes a release's downloads for one system, in dist/:
+#   Vertex-<version>-<runtime>.zip (Windows) or .tar.gz (Linux, macOS)
+#                                   the editor, the engine's package, the samples and a starter game, ready to use
+#   Vertex.Engine.<version>.nupkg   the engine's package on its own (the same on every system)
+# The release workflow (.github/workflows/release.yml) runs it on each system; it runs on a PC too:
+#   pwsh -File Tools/Release/Build.ps1 -Version 0.1.0 -Runtime win-x64     (or linux-x64, osx-arm64)
+# Build on the system the download is for: on a Mac, .NET signs the editor so macOS will run it.
 
 param(
     [string]$Version = "0.0.0-dev",
@@ -35,10 +37,27 @@ function Copy-Source([string]$from, [string]$to)
     }
 }
 
-# A text file from Tools/Release with the version filled in.
+$windows = $Runtime.StartsWith("win")
+$mac = $Runtime.StartsWith("osx")
+
+# What the README says to run, and anything to know on this system.
+$editor = if ($windows) { "Editor\Vertex.Editor.exe" } else { "./Editor/Vertex.Editor (from a terminal in this folder)" }
+$notes = if ($mac)
+{
+    "  - macOS won't open programs from the internet that aren't signed with an Apple developer account. Once, before`n" +
+    "    the first run, open a terminal in this folder and run:  xattr -dr com.apple.quarantine .`n"
+}
+elseif (-not $windows)
+{
+    "  - Vulkan or OpenGL drivers from your distribution (Mesa, or the GPU maker's).`n"
+}
+else { "" }
+
+# A text file from Tools/Release with the version (and the system's details) filled in.
 function Write-WithVersion([string]$from, [string]$to)
 {
-    $text = [IO.File]::ReadAllText($from).Replace('$(VertexVersion)', $Version)
+    $text = [IO.File]::ReadAllText($from).Replace('$(VertexVersion)', $Version).Replace('$(VertexEditor)', $editor)
+    $text = [regex]::Replace($text, '\$\(VertexPlatformNotes\)\r?\n', $notes.Replace('$', '$$'))
     [IO.File]::WriteAllText($to, $text)
 }
 
@@ -72,10 +91,19 @@ Write-WithVersion (Join-Path $PSScriptRoot "README.txt") (Join-Path $folder "REA
 Copy-Item (Join-Path $PSScriptRoot "nuget.release.config") (Join-Path $folder "nuget.config")
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $folder "LICENSE.txt")
 
-# Zipped, with the version's folder inside so it unzips tidily.
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = Join-Path $dist "$name-$Runtime.zip"
-[IO.Compression.ZipFile]::CreateFromDirectory($folder, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
+# Packed, with the version's folder inside so it unpacks tidily: a zip for Windows, and for Linux and macOS a .tar.gz,
+# which keeps the editor marked as a program that can be run.
+if ($windows)
+{
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = Join-Path $dist "$name-$Runtime.zip"
+    [IO.Compression.ZipFile]::CreateFromDirectory($folder, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
+}
+else
+{
+    & tar -czf (Join-Path $dist "$name-$Runtime.tar.gz") -C $dist $name
+    if ($LASTEXITCODE -ne 0) { throw "tar failed" }
+}
 Copy-Item (Join-Path $folder "Engine/Vertex.Engine.$Version.nupkg") $dist
 
 Write-Host "Made:"
