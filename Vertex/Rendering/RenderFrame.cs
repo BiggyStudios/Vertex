@@ -59,6 +59,55 @@ namespace Vertex.Rendering
     public readonly record struct ParticleData(Vector3 Position, Vector3 Velocity, float Size, Color Color, float Glow, bool Additive,
         float Rotation = 0f, ParticleLook Look = ParticleLook.Soft);
 
+    /// <summary>
+    /// A flat, four-cornered piece of picture in the world, drawn over the scene with its see-through parts blended: a
+    /// sprite, or one letter of world text. Corners go round from the top-left; <see cref="UvMin"/> is the texture at the
+    /// top-left corner and <see cref="UvMax"/> at the bottom-right. <see cref="Color"/> is straight (not premultiplied)
+    /// sRGB, and tints the texture; with no texture it is a plain colour.
+    /// </summary>
+    public readonly record struct WorldQuad(Texture? Texture, Vector3 TopLeft, Vector3 TopRight, Vector3 BottomRight, Vector3 BottomLeft,
+        Vector2 UvMin, Vector2 UvMax, Color Color)
+    {
+        /// <summary>Whether the texture's colours are already multiplied by its alpha (the font's are; image files' aren't).</summary>
+        public bool PremultipliedTexture { get; init; }
+
+        /// <summary>Drawn with sharp, square pixels instead of smoothed between them: for pixel art.</summary>
+        public bool Pixelated { get; init; }
+
+        /// <summary>The floats each corner has on the GPU: position, texture coordinates, colour, and whether the texture is premultiplied.</summary>
+        internal const int FloatsPerVertex = 10;
+
+        /// <summary>
+        /// Writes its two triangles into <paramref name="into"/> from vertex <paramref name="vertex"/>, as the sprite
+        /// shaders take them; returns the vertex after.
+        /// </summary>
+        internal int Write(float[] into, int vertex)
+        {
+            WriteCorner(into, vertex++, TopLeft, UvMin);
+            WriteCorner(into, vertex++, TopRight, new Vector2(UvMax.X, UvMin.Y));
+            WriteCorner(into, vertex++, BottomRight, UvMax);
+            WriteCorner(into, vertex++, TopLeft, UvMin);
+            WriteCorner(into, vertex++, BottomRight, UvMax);
+            WriteCorner(into, vertex++, BottomLeft, new Vector2(UvMin.X, UvMax.Y));
+            return vertex;
+        }
+
+        private void WriteCorner(float[] into, int vertex, Vector3 position, Vector2 uv)
+        {
+            Span<float> v = into.AsSpan(vertex * FloatsPerVertex, FloatsPerVertex);
+            v[0] = position.X;
+            v[1] = position.Y;
+            v[2] = position.Z;
+            v[3] = uv.X;
+            v[4] = uv.Y;
+            v[5] = Color.R;
+            v[6] = Color.G;
+            v[7] = Color.B;
+            v[8] = Color.A;
+            v[9] = PremultipliedTexture ? 1f : 0f;
+        }
+    }
+
     /// <summary>One corner of a 2D quad: a position in pixels from the top-left of the screen, and a colour already multiplied by its alpha.</summary>
     public readonly record struct CanvasVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);
 
@@ -126,6 +175,7 @@ namespace Vertex.Rendering
         internal readonly List<PointLightData> PointLightList = new();
         internal readonly List<ParticleData> ParticleList = new();
         internal readonly List<CanvasQuad> CanvasQuadList = new();
+        internal readonly List<WorldQuad> WorldQuadList = new();
 
         /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
         internal readonly Shaders.ShadowCascades Cascades = new();
@@ -198,6 +248,12 @@ namespace Vertex.Rendering
         /// <summary>Particles, furthest from the camera first, so the nearer ones cover them.</summary>
         public IReadOnlyList<ParticleData> Particles => ParticleList;
 
+        /// <summary>
+        /// Sprites and letters in the world, in the order to draw them: by sorting order, then furthest first, so the
+        /// nearer cover what's behind. Drawn after the scene's meshes, tested against their depth without writing it.
+        /// </summary>
+        public IReadOnlyList<WorldQuad> WorldQuads => WorldQuadList;
+
         /// <summary>The 2D layer (see <see cref="UI.Canvas"/>), drawn after the 3D scene. Drawn even without a camera.</summary>
         public IReadOnlyList<CanvasQuad> CanvasQuads => CanvasQuadList;
 
@@ -208,6 +264,7 @@ namespace Vertex.Rendering
             PointLightList.Clear();
             ParticleList.Clear();
             CanvasQuadList.Clear();
+            WorldQuadList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
             Grid = false;

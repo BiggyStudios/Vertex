@@ -22,6 +22,9 @@ namespace Vertex.Editor.Gui
             [typeof(Camera)] = Icons.Camera,
             [typeof(Light)] = Icons.Light,
             [typeof(MeshRenderer)] = Icons.Cube,
+            [typeof(SpriteRenderer)] = Icons.Sprite,
+            [typeof(SpriteAnimator)] = Icons.Animation,
+            [typeof(WorldText)] = Icons.WorldText,
             [typeof(ParticleEmitter)] = Icons.Particles,
             [typeof(VisualEffect)] = Icons.Sparkle,
 

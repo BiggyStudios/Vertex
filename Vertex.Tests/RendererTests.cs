@@ -20,6 +20,9 @@ namespace Vertex.Tests
             /// <summary>Particles in the last frame drawn.</summary>
             public List<ParticleData> LastParticles = new();
 
+            /// <summary>Sprites and world text in the last frame drawn, in the order drawn.</summary>
+            public List<WorldQuad> LastWorldQuads = new();
+
             /// <summary>What the last frame drew, and what it drew into each shadow cascade (empty without shadows).</summary>
             public List<DrawCall> LastDraws = new();
             public List<List<DrawCall>> LastShadowCasters = new();
@@ -39,6 +42,7 @@ namespace Vertex.Tests
             {
                 Frames.Add((frame.Target, frame.HasCamera, frame.Width, frame.Height, frame.DrawCalls.Count, frame.CanvasQuads.Count));
                 LastParticles = frame.Particles.ToList();
+                LastWorldQuads = frame.WorldQuads.ToList();
                 LastDraws = frame.DrawCalls.ToList();
                 LastShadowCasters = frame.HasShadows
                     ? Enumerable.Range(0, Rendering.Shaders.ShadowCascades.Count).Select(i => frame.ShadowCasters(i).ToList()).ToList()

@@ -824,6 +824,63 @@ namespace Vertex.Rendering.Shaders
             }
             """;
 
+        // ---- Sprites and world text ---------------------------------------------------------------------------------
+        // Flat pieces of picture in the world (see WorldQuad), built on the CPU. Colours are straight sRGB; textures are
+        // straight alpha, as image files are, unless the corner says they're premultiplied, as the font's letters are.
+        public const string SpriteVertex = Frame + """
+            layout (location = 0) in vec3 aPosition;
+            layout (location = 1) in vec2 aUV;
+            layout (location = 2) in vec4 aColor;
+            layout (location = 3) in float aPremultiplied;
+
+            VARYING(0) out vec2 vUV;
+            VARYING(1) out vec4 vColor;
+            VARYING(2) out float vPremultiplied;
+            VARYING(3) out vec3 vToCamera;
+
+            void main()
+            {
+                vUV = aUV;
+                vColor = aColor;
+                vPremultiplied = aPremultiplied;
+                vToCamera = frame.cameraPosition.xyz - aPosition;
+                gl_Position = frame.projection * frame.view * vec4(aPosition, 1.0);
+            }
+            """;
+
+        // Blended with premultiplied alpha over the scene, and into its ambient and glow images, so a sprite covers the
+        // light and glow behind it as much as it covers its colour.
+        public const string SpriteFragment = Frame + """
+            TEXTURE(1, 0) sampler2D spriteTexture;
+
+            VARYING(0) in vec2 vUV;
+            VARYING(1) in vec4 vColor;
+            VARYING(2) in float vPremultiplied;
+            VARYING(3) in vec3 vToCamera;
+
+            layout (location = 0) out vec4 FragColor;
+            layout (location = 1) out vec4 AmbientColor;
+            layout (location = 2) out vec4 GlowColor;
+
+            void main()
+            {
+                vec4 texel = texture(spriteTexture, vUV);
+                if (vPremultiplied > 0.5 && texel.a > 0.0) texel.rgb /= texel.a;
+
+                float alpha = texel.a * vColor.a;
+                if (alpha <= 0.004) discard;
+
+                vec3 color = toLinear(texel.rgb * vColor.rgb);
+                float distance = length(vToCamera);
+                float fog = fogAmount(distance);
+                color = mix(color, fogColor(-vToCamera / max(distance, 1e-4)), fog);
+
+                FragColor = vec4(color * alpha, alpha);
+                AmbientColor = vec4(0.0, 0.0, 0.0, alpha);
+                GlowColor = vec4(0.0, 0.0, 0.0, alpha);
+            }
+            """;
+
         // ---- The editor's ground grid ------------------------------------------------------------------------------
         // A square on the ground (y = 0) under the camera, far wider than can be seen clearly. Metre lines fade out where
         // they'd crowd together, leaving the ten-metre ones, and everything fades into the distance. The X axis is red
@@ -941,7 +998,7 @@ namespace Vertex.Rendering.Shaders
                 float threshold;       // bloom: brightness it starts at, on the first step down only
                 float time;
                 vec2 direction;        // blur: which way
-                float pad0;
+                float orthographic;    // 1 for an orthographic camera, whose depth is linear
                 float pad1;
             #ifdef VERTEX_VULKAN
             } post;
@@ -953,17 +1010,28 @@ namespace Vertex.Rendering.Shaders
             VARYING(0) in vec2 vUV;
             layout (location = 0) out vec4 FragColor;
 
-            // How far in front of the camera the scene is here. Depth d is (M33 z + M43) / -z, so z = -M43 / (d + M33).
+            // How far in front of the camera the scene is here. With perspective, depth d is (M33 z + M43) / -z, so
+            // z = -M43 / (d + M33); orthographic, d is M33 z + M43, so z = (d - M43) / M33.
             float viewDepth(vec2 uv)
             {
-                return post.projection.w / (NDC_DEPTH(textureLod(depthImage, uv, 0.0).r) + post.projection.z);
+                float d = NDC_DEPTH(textureLod(depthImage, uv, 0.0).r);
+                if (post.orthographic > 0.5) return (post.projection.w - d) / post.projection.z;
+                return post.projection.w / (d + post.projection.z);
             }
 
             vec3 viewPosition(vec2 uv)
             {
                 float z = viewDepth(uv);
                 vec2 ndc = UV_TO_NDC(uv);
+                if (post.orthographic > 0.5) return vec3(ndc.x / post.projection.x, ndc.y / post.projection.y, -z);
                 return vec3(ndc.x * z / post.projection.x, ndc.y * z / post.projection.y, -z);
+            }
+
+            // Where a point in front of the camera (view space) is on the screen, 0 to 1 across it.
+            vec2 viewToUV(vec3 p)
+            {
+                vec2 ndc = vec2(p.x * post.projection.x, p.y * post.projection.y);
+                return NDC_TO_UV(post.orthographic > 0.5 ? ndc : ndc / -p.z);
             }
 
             """;
@@ -1064,7 +1132,7 @@ namespace Vertex.Rendering.Shaders
                     vec3 offset = vec3(cos(spin) * sqrt(1.0 - lift * lift), sin(spin) * sqrt(1.0 - lift * lift), lift) * mix(0.15, 1.0, t * t);
                     vec3 s = p + basis * offset * radius;
 
-                    vec2 sampleUV = NDC_TO_UV(vec2(s.x * post.projection.x, s.y * post.projection.y) / -s.z);
+                    vec2 sampleUV = viewToUV(s);
                     float sceneDepth = viewDepth(sampleUV);
                     float inRange = smoothstep(0.0, 1.0, radius / abs(depth - sceneDepth));
                     occluded += (sceneDepth <= -s.z - 0.02 ? 1.0 : 0.0) * inRange;

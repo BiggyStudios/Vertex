@@ -41,6 +41,7 @@ namespace Vertex.Rendering.OpenGL
         private GLViewTargets _screenViews = null!;
         private GLCanvas _canvas = null!;
         private GLParticles _particles = null!;
+        private GLSprites _sprites = null!;
         private GLTexture _white = null!;
 
         private uint _frameBuffer;
@@ -137,6 +138,7 @@ namespace Vertex.Rendering.OpenGL
             _canvas = new GLCanvas(_gl);
             _emptyVertexArray = _gl.GenVertexArray();
             _particles = new GLParticles(_gl);
+            _sprites = new GLSprites(_gl);
             _white = new GLTexture(_gl, new Texture(1, 1, [255, 255, 255, 255]));
             _timer = new GLGpuTimer(_gl);
         }
@@ -370,6 +372,7 @@ namespace Vertex.Rendering.OpenGL
                 _gl.Disable(EnableCap.Blend);
             }
 
+            _sprites.Draw(frame, texture => texture != null ? GetTexture(texture) : _white);
             _particles.Draw(frame);
         }
 
@@ -573,6 +576,7 @@ namespace Vertex.Rendering.OpenGL
             _screenViews.Dispose();
             _canvas.Dispose();
             _particles.Dispose();
+            _sprites.Dispose();
             _white.Dispose();
             _timer.Dispose();
             _gl.DeleteBuffer(_frameBuffer);

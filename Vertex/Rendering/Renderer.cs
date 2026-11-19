@@ -250,6 +250,8 @@ namespace Vertex.Rendering
                 Stats.ShadowDrawCalls += list.Count;
             }
 
+            CollectFlat(scene, camera, frustum);
+
             foreach (ParticleSystem particles in scene.FindComponents<ParticleSystem>()) particles.Collect(_frame.ParticleList);
             foreach (Effects.VisualEffect effect in scene.FindComponents<Effects.VisualEffect>()) effect.Collect(_frame.ParticleList);
             _cpuParticles?.Collect(_frame.ParticleList);
@@ -258,6 +260,60 @@ namespace Vertex.Rendering
             Vector3 eye = _frame.CameraPosition;
             Vector3 forward = _frame.CameraForward;
             _frame.ParticleList.Sort((a, b) => Vector3.Dot(b.Position - eye, forward).CompareTo(Vector3.Dot(a.Position - eye, forward)));
+        }
+
+        // Sprites' and world text's quads as they're gathered, and which renderer each run of them came from, to sort.
+        private readonly List<WorldQuad> _flatQuads = new();
+        private readonly List<(int Order, float Depth, int Start, int Count)> _flatRuns = new();
+
+        private static readonly Comparison<(int Order, float Depth, int Start, int Count)> _flatOrder = (a, b) =>
+            a.Order != b.Order ? a.Order.CompareTo(b.Order)
+            : a.Depth != b.Depth ? b.Depth.CompareTo(a.Depth)
+            : a.Start.CompareTo(b.Start);
+
+        /// <summary>
+        /// Sprites and world text the camera can see, into the frame: by sorting order, then furthest first, so the nearer
+        /// cover what's behind. Each renderer's quads (a text's letters) stay together, in their own order.
+        /// </summary>
+        private void CollectFlat(Scene scene, Camera camera, in Frustum frustum)
+        {
+            _flatQuads.Clear();
+            _flatRuns.Clear();
+            Transform eye = camera.Transform;
+            var view = new ViewAxes(eye.WorldPosition, eye.Right, eye.Up, eye.Forward);
+
+            foreach (FlatRenderer flat in scene.FindComponents<FlatRenderer>())
+            {
+                int start = _flatQuads.Count;
+                flat.Collect(_flatQuads, view);
+                int count = _flatQuads.Count - start;
+                if (count == 0) continue;
+
+                Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+                for (int i = start; i < _flatQuads.Count; i++)
+                {
+                    WorldQuad quad = _flatQuads[i];
+                    min = Vector3.Min(min, Vector3.Min(Vector3.Min(quad.TopLeft, quad.TopRight), Vector3.Min(quad.BottomRight, quad.BottomLeft)));
+                    max = Vector3.Max(max, Vector3.Max(Vector3.Max(quad.TopLeft, quad.TopRight), Vector3.Max(quad.BottomRight, quad.BottomLeft)));
+                }
+
+                if (!frustum.Intersects((min + max) * 0.5f, (max - min) * 0.5f))
+                {
+                    _flatQuads.RemoveRange(start, count);
+                    Stats.CulledDrawCalls++;
+                    continue;
+                }
+
+                _flatRuns.Add((flat.SortingOrder, Vector3.Dot(flat.Transform.WorldPosition - view.Position, view.Forward), start, count));
+            }
+
+            _flatRuns.Sort(_flatOrder);
+            foreach ((_, _, int start, int count) in _flatRuns)
+            {
+                for (int i = start; i < start + count; i++) _frame.WorldQuadList.Add(_flatQuads[i]);
+            }
+
+            Stats.DrawCalls += _flatRuns.Count;
         }
 
         public void Dispose() => Backend.Dispose();

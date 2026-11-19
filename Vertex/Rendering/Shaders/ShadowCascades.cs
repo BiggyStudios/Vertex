@@ -48,6 +48,7 @@ namespace Vertex.Rendering.Shaders
             float tanX = 1f / projection.M11;
             float tanY = 1f / projection.M22;
             float spread = tanX * tanX + tanY * tanY;
+            bool flatView = projection.M44 > 0.5f;
 
             float far = MathF.Max(frame.ShadowDistance, _near * 2f);
             Vector3 forward = Vector3.Normalize(frame.CameraForward);
@@ -63,9 +64,20 @@ namespace Vertex.Rendering.Shaders
                 Splits[i] = end;
 
                 // The smallest ball holding this stretch of the view: its centre is along the view, where the nearest and
-                // furthest corners are equally far from it.
-                float centreDepth = MathF.Min((end + start) * (1f + spread) * 0.5f, end);
-                float radius = MathF.Sqrt((end - centreDepth) * (end - centreDepth) + end * end * spread);
+                // furthest corners are equally far from it. An orthographic view's stretch is a box, the same size all
+                // the way along (half its width and height are tanX and tanY then), so it's the box's middle.
+                float centreDepth, radius;
+                if (flatView)
+                {
+                    centreDepth = (start + end) * 0.5f;
+                    radius = MathF.Sqrt((end - start) * (end - start) * 0.25f + spread);
+                }
+                else
+                {
+                    centreDepth = MathF.Min((end + start) * (1f + spread) * 0.5f, end);
+                    radius = MathF.Sqrt((end - centreDepth) * (end - centreDepth) + end * end * spread);
+                }
+
                 radius = MathF.Ceiling(radius * 16f) / 16f;
 
                 float texel = radius * 2f / Resolution;

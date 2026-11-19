@@ -35,9 +35,21 @@ namespace Vertex.Rendering
         /// </summary>
         public RenderTexture? Target { get; set; }
 
-        /// <summary>Vertical field of view in degrees.</summary>
+        /// <summary>
+        /// Perspective (further away looks smaller, as eyes see) or orthographic (the same size at any distance: for 2D
+        /// games, and maps and plans seen straight on).
+        /// </summary>
+        [Tooltip("Perspective: further away looks smaller. Orthographic: the same size at any distance, for 2D games")]
+        public CameraProjection Projection { get; set; } = CameraProjection.Perspective;
+
+        /// <summary>Vertical field of view in degrees, for a perspective camera.</summary>
         [Range(1f, 179f)]
         public float FieldOfView { get; set; } = 60f;
+
+        /// <summary>For an orthographic camera: half the height of what it sees, in world units. Smaller zooms in.</summary>
+        [Tooltip("Orthographic: half the height of what it sees, in world units. Smaller zooms in")]
+        public float OrthographicSize { get; set; } = 5f;
+
         public float NearPlane { get; set; } = 0.1f;
         public float FarPlane { get; set; } = 1000f;
         public Color ClearColor { get; set; } = Color.CornflowerBlue;
@@ -53,7 +65,41 @@ namespace Vertex.Rendering
 
         public Matrix4x4 GetProjectionMatrix(float aspectRatio)
         {
+            if (Projection == CameraProjection.Orthographic)
+            {
+                float height = MathF.Max(OrthographicSize, 0.001f) * 2f;
+                return Matrix4x4.CreateOrthographic(height * aspectRatio, height, NearPlane, FarPlane);
+            }
+
             return Matrix4x4.CreatePerspectiveFieldOfView(MathHelper.ToRadians(FieldOfView), aspectRatio, NearPlane, FarPlane);
+        }
+
+        /// <summary>
+        /// Where the line through a point of a screen of <paramref name="screenSize"/> (from its top-left, in the same units
+        /// as <paramref name="screenPoint"/>) starts and which way it goes: what the mouse is pointing at, to raycast along.
+        /// </summary>
+        public (Vector3 Origin, Vector3 Direction) ScreenToRay(Vector2 screenPoint, Vector2 screenSize)
+        {
+            var device = new Vector2(screenPoint.X / MathF.Max(screenSize.X, 1f) * 2f - 1f, 1f - screenPoint.Y / MathF.Max(screenSize.Y, 1f) * 2f);
+            Matrix4x4.Invert(ViewMatrix * GetProjectionMatrix(screenSize.X / MathF.Max(screenSize.Y, 1f)), out Matrix4x4 inverse);
+            Vector4 near = Vector4.Transform(new Vector4(device, 0f, 1f), inverse);
+            Vector4 far = Vector4.Transform(new Vector4(device, 1f, 1f), inverse);
+            Vector3 from = new Vector3(near.X, near.Y, near.Z) / near.W;
+            Vector3 to = new Vector3(far.X, far.Y, far.Z) / far.W;
+            return (from, Vector3.Normalize(to - from));
+        }
+
+        /// <summary>
+        /// The point in the world under a point of the screen, on the flat plane facing the camera at <paramref name="depth"/>
+        /// in front of it: where a 2D game's mouse is, in its world.
+        /// </summary>
+        public Vector3 ScreenToWorld(Vector2 screenPoint, Vector2 screenSize, float depth)
+        {
+            (Vector3 origin, Vector3 direction) = ScreenToRay(screenPoint, screenSize);
+            Vector3 forward = Transform.Forward;
+            float along = Vector3.Dot(direction, forward);
+            float distance = MathF.Abs(along) > 1e-6f ? (depth - Vector3.Dot(origin - Transform.WorldPosition, forward)) / along : 0f;
+            return origin + direction * distance;
         }
 
         /// <summary>
@@ -64,11 +110,22 @@ namespace Vertex.Rendering
         {
             if (screenSize.X <= 0f || screenSize.Y <= 0f) return null;
 
+            // Behind the camera, or nearer than it sees, isn't on the screen.
+            if (-Vector3.Transform(point, ViewMatrix).Z < NearPlane) return null;
             Vector4 clip = Vector4.Transform(new Vector4(point, 1f), ViewMatrix * GetProjectionMatrix(screenSize.X / screenSize.Y));
-            if (clip.W <= NearPlane) return null;
 
             var device = new Vector2(clip.X, clip.Y) / clip.W;
             return new Vector2((device.X + 1f) * 0.5f * screenSize.X, (1f - device.Y) * 0.5f * screenSize.Y);
         }
+    }
+
+    /// <summary>How a <see cref="Camera"/> sees: with perspective, or orthographic (flat, for 2D).</summary>
+    public enum CameraProjection
+    {
+        /// <summary>Further away looks smaller, as eyes see.</summary>
+        Perspective,
+
+        /// <summary>The same size at any distance: for 2D games, and maps and plans seen straight on.</summary>
+        Orthographic
     }
 }

@@ -76,7 +76,45 @@ namespace Vertex.UI
             _fonts.GetFont(size).DrawText(FontRenderer.Instance, text, position, color);
         }
 
+        /// <summary>
+        /// One letter laid out by <see cref="Layout"/>: its corners in pixels from the line's top-left (y down), and where
+        /// it is in the letters' texture. The texture is premultiplied, white where there's ink.
+        /// </summary>
+        internal readonly record struct Glyph(Texture Texture, Vector2 TopLeft, Vector2 TopRight, Vector2 BottomRight, Vector2 BottomLeft, Vector2 UvMin, Vector2 UvMax);
+
+        /// <summary>
+        /// Lays out one line of <paramref name="text"/> at <paramref name="size"/> pixels into <paramref name="into"/>, without
+        /// drawing it: for text placed in the world rather than on the screen.
+        /// </summary>
+        internal void Layout(string text, float size, List<Glyph> into)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            GlyphCollector.Instance.Into = into;
+            _fonts.GetFont(size).DrawText(GlyphCollector.Instance, text, Vector2.Zero, FSColor.White);
+            GlyphCollector.Instance.Into = null;
+        }
+
         public void Dispose() => _fonts.Dispose();
+
+        /// <summary>Takes the letters FontStashSharp lays out as glyphs, rather than canvas quads. Shares the canvas's textures.</summary>
+        private sealed class GlyphCollector : IFontStashRenderer2
+        {
+            public static readonly GlyphCollector Instance = new();
+
+            public List<Glyph>? Into;
+
+            public ITexture2DManager TextureManager => FontRenderer.Instance;
+
+            public void DrawQuad(object texture, ref VertexPositionColorTexture topLeft, ref VertexPositionColorTexture topRight,
+                ref VertexPositionColorTexture bottomLeft, ref VertexPositionColorTexture bottomRight)
+            {
+                Into?.Add(new Glyph((Texture)texture, Flat(topLeft), Flat(topRight), Flat(bottomRight), Flat(bottomLeft),
+                    topLeft.TextureCoordinate, bottomRight.TextureCoordinate));
+            }
+
+            private static Vector2 Flat(in VertexPositionColorTexture vertex) => new(vertex.Position.X, vertex.Position.Y);
+        }
 
         /// <summary>
         /// How FontStashSharp gets at the engine: its glyph textures are ordinary <see cref="Texture"/>s,

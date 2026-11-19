@@ -182,7 +182,7 @@ namespace Vertex.Rendering.Shaders
         public float Threshold;
         public float Time;
         public Vector2 Direction;
-        public float Pad0;
+        public float Orthographic;   // 1 for an orthographic camera: depth is then linear
         public float Pad1;
 
         /// <summary>
@@ -203,6 +203,7 @@ namespace Vertex.Rendering.Shaders
             return new PostUniforms
             {
                 Projection = new Vector4(projection.M11, projection.M22, projection.M33, projection.M43),
+                Orthographic = projection.M44 > 0.5f ? 1f : 0f,
                 Exposure = environment.Exposure,
                 Outlines = environment.Outlines,
                 Vignette = environment.Vignette,

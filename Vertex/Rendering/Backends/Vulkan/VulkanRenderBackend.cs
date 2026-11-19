@@ -83,9 +83,10 @@ namespace Vertex.Rendering.Vulkan
         private PipelineLayout _shadowLayout;
         private PipelineLayout _gpuParticleLayout;
         private PipelineLayout _canvasLayout;
+        private PipelineLayout _spriteLayout;
         private PipelineLayout _postLayout;
 
-        private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas;
+        private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites;
         private Pipeline _bloomDown, _bloomUp, _occlusion, _occlusionBlur;
         private Pipeline _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture;
         private readonly List<ShaderModule> _shaders = new();
@@ -93,6 +94,11 @@ namespace Vertex.Rendering.Vulkan
         private Sampler _repeatSampler;
         private Sampler _clampSampler;
         private Sampler _shadowSampler;
+
+        // Sprites stop at their pictures' edges rather than repeating them, so one frame of a sheet doesn't bleed into the
+        // next; and pixel art is sampled in sharp, square pixels.
+        private Sampler _spriteSampler;
+        private Sampler _pixelSampler;
 
         private VkShadowMaps _shadowMaps = null!;
         private VkViewTargets _screenViews = null!;
@@ -106,6 +112,9 @@ namespace Vertex.Rendering.Vulkan
         // Descriptor sets made this frame, to use again for every draw (and view) that wants the same one.
         private readonly Dictionary<Material, DescriptorSet> _materialSets = new();
         private readonly Dictionary<Texture, DescriptorSet> _textureSets = new();
+        private readonly Dictionary<(Texture, bool), DescriptorSet> _spriteSets = new();
+        private float[] _spriteVertices = new float[6 * 10 * 256];
+        private readonly List<(Texture? Texture, bool Pixelated, int First, int Count)> _spriteBatches = new();
 
         private float[] _particleVertices = new float[6 * _particleFloats * 256];
         private float[] _canvasVertices = new float[6 * CanvasQuad.FloatsPerVertex * 256];
@@ -159,6 +168,8 @@ namespace Vertex.Rendering.Vulkan
             _repeatSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.Repeat, mipmaps: true, anisotropic: true);
             _clampSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.ClampToEdge, mipmaps: false);
             _shadowSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.ClampToBorder, mipmaps: false, compare: true);
+            _spriteSampler = _context.CreateSampler(Filter.Linear, SamplerAddressMode.ClampToEdge, mipmaps: true);
+            _pixelSampler = _context.CreateSampler(Filter.Nearest, SamplerAddressMode.ClampToEdge, mipmaps: true);
 
             CreateLayouts();
             _gpuParticlePool = new VkGpuParticles(_context, _compiler);
@@ -210,6 +221,7 @@ namespace Vertex.Rendering.Vulkan
             _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), ShaderStageFlags.VertexBit);
             _shadowLayout = VkDescriptors.CreatePipelineLayout(_context, [], (uint)sizeof(Matrix4x4), ShaderStageFlags.VertexBit);
             _canvasLayout = VkDescriptors.CreatePipelineLayout(_context, [_textureSetLayout], (uint)sizeof(Vector2), ShaderStageFlags.VertexBit);
+            _spriteLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], 0, 0);
             _postLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout], (uint)sizeof(PostUniforms), fragment);
         }
 
@@ -240,6 +252,8 @@ namespace Vertex.Rendering.Vulkan
             ShaderModule particleVertex = Shader("particle.vert", vertex, ShaderLibrary.ParticleVertex);
             ShaderModule gpuParticleVertex = Shader("gpuparticle.vert", vertex, ShaderLibrary.GpuParticleVertex);
             ShaderModule particleFragment = Shader("particle.frag", fragment, ShaderLibrary.ParticleFragment);
+            ShaderModule spriteVertex = Shader("sprite.vert", vertex, ShaderLibrary.SpriteVertex);
+            ShaderModule spriteFragment = Shader("sprite.frag", fragment, ShaderLibrary.SpriteFragment);
             ShaderModule canvasVertex = Module("canvas.vert", vertex, VkShaderSources.CanvasVertex);
             ShaderModule canvasFragment = Module("canvas.frag", fragment, VkShaderSources.CanvasFragment);
             ShaderModule fullscreen = Shader("fullscreen.vert", vertex, ShaderLibrary.FullscreenVertex);
@@ -345,6 +359,26 @@ namespace Vertex.Rendering.Vulkan
                 DepthFormat = _context.DepthFormat
             });
 
+            // Sprites and world text: tested against the scene's depth but not writing it, like particles.
+            _sprites = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+            {
+                Layout = _spriteLayout,
+                Vertex = spriteVertex,
+                Fragment = spriteFragment,
+                VertexStride = 10 * sizeof(float),
+                Attributes =
+                [
+                    (0, Format.R32G32B32Sfloat, 0),
+                    (1, Format.R32G32Sfloat, 12),
+                    (2, Format.R32G32B32A32Sfloat, 20),
+                    (3, Format.R32Sfloat, 36)
+                ],
+                DepthTest = true,
+                Blend = VkBlend.Premultiplied,
+                ColorFormats = sceneFormats,
+                DepthFormat = _context.DepthFormat
+            });
+
             _canvas = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
             {
                 Layout = _canvasLayout,
@@ -432,6 +466,7 @@ namespace Vertex.Rendering.Vulkan
             ReadTimestamps();
             _materialSets.Clear();
             _textureSets.Clear();
+            _spriteSets.Clear();
 
             uint? image = _swapchain.Acquire(_frame.ImageAvailable);
             if (image == null)
@@ -699,6 +734,11 @@ namespace Vertex.Rendering.Vulkan
             }
 
             foreach (CanvasQuad quad in frame.CanvasQuads)
+            {
+                if (quad.Texture != null) GetTexture(commands, quad.Texture);
+            }
+
+            foreach (WorldQuad quad in frame.WorldQuads)
             {
                 if (quad.Texture != null) GetTexture(commands, quad.Texture);
             }
@@ -1004,6 +1044,7 @@ namespace Vertex.Rendering.Vulkan
                 _context.Vk.CmdDraw(commands, 6, 1, 0, 0);
             }
 
+            DrawSprites(commands, frame, frameSet);
             DrawCpuParticles(commands, frame);
 
             if (_gpuParticlePool.DrawCount > 0)
@@ -1021,6 +1062,57 @@ namespace Vertex.Rendering.Vulkan
             _context.Transition(commands, views.Ambient!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
             _context.Transition(commands, views.Glow!, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
             _context.Transition(commands, views.Depth!, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
+        }
+
+        /// <summary>Sprites and world text, in the frame's order, batched while quads share a texture and sampling.</summary>
+        private void DrawSprites(CommandBuffer commands, RenderFrame frame, DescriptorSet frameSet)
+        {
+            IReadOnlyList<WorldQuad> quads = frame.WorldQuads;
+            if (quads.Count == 0) return;
+
+            int floats = WorldQuad.FloatsPerVertex;
+            int needed = quads.Count * 6 * floats;
+            if (needed > _spriteVertices.Length) Array.Resize(ref _spriteVertices, Math.Max(needed, _spriteVertices.Length * 2));
+
+            _spriteBatches.Clear();
+            int vertex = 0;
+            foreach (WorldQuad quad in quads)
+            {
+                if (_spriteBatches.Count == 0 || _spriteBatches[^1].Texture != quad.Texture || _spriteBatches[^1].Pixelated != quad.Pixelated)
+                {
+                    _spriteBatches.Add((quad.Texture, quad.Pixelated, vertex, 0));
+                }
+
+                vertex = quad.Write(_spriteVertices, vertex);
+                var batch = _spriteBatches[^1];
+                _spriteBatches[^1] = batch with { Count = batch.Count + 6 };
+            }
+
+            (VkBuffer buffer, ulong offset) = _frame.Uploads.Write<float>(_spriteVertices.AsSpan(0, vertex * floats));
+            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _sprites);
+            _context.Vk.CmdBindVertexBuffers(commands, 0, 1, &buffer, &offset);
+            _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _spriteLayout, 0, 1, &frameSet, 0, null);
+
+            foreach ((Texture? texture, bool pixelated, int first, int count) in _spriteBatches)
+            {
+                DescriptorSet set = SpriteSet(texture ?? _whiteKey, pixelated);
+                _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _spriteLayout, 1, 1, &set, 0, null);
+                _context.Vk.CmdDraw(commands, (uint)count, 1, (uint)first, 0);
+            }
+
+            // What's drawn after (particles) uses the scene's layout, whose sets this replaced.
+            _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 0, 1, &frameSet, 0, null);
+        }
+
+        private DescriptorSet SpriteSet(Texture texture, bool pixelated)
+        {
+            if (_spriteSets.TryGetValue((texture, pixelated), out DescriptorSet set)) return set;
+
+            set = _frame.Descriptors.Allocate(_textureSetLayout);
+            VkImageResource image = texture == _whiteKey ? _white.Image : TextureImage(texture);
+            VkDescriptors.WriteImage(_context, set, 0, image.View, pixelated ? _pixelSampler : _spriteSampler);
+            _spriteSets.Add((texture, pixelated), set);
+            return set;
         }
 
         /// <summary>CPU-simulated particles: camera-facing quads built here, sent in one batch.</summary>
@@ -1286,16 +1378,16 @@ namespace Vertex.Rendering.Vulkan
 
             Pipeline[] pipelines =
             [
-                _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
+                _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
                 _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture
             ];
             foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
             foreach (ShaderModule shader in _shaders) _context.Vk.DestroyShaderModule(_context.Device, shader, null);
-            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _postLayout })
+            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _spriteLayout, _postLayout })
                 _context.Vk.DestroyPipelineLayout(_context.Device, layout, null);
             foreach (DescriptorSetLayout layout in new[] { _frameSetLayout, _materialSetLayout, _textureSetLayout, _postSetLayout })
                 _context.Vk.DestroyDescriptorSetLayout(_context.Device, layout, null);
-            foreach (Sampler sampler in new[] { _repeatSampler, _clampSampler, _shadowSampler })
+            foreach (Sampler sampler in new[] { _repeatSampler, _clampSampler, _shadowSampler, _spriteSampler, _pixelSampler })
                 _context.Vk.DestroySampler(_context.Device, sampler, null);
 
             _swapchain.Dispose();
