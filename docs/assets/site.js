@@ -19,10 +19,11 @@ const Site = (() => {
             { href: "csharp.html", title: "C# scripting", icon: "{}" },
             { href: "visual-scripting.html", title: "Visual scripting", icon: "⌁" },
             { href: "effects.html", title: "Particles and VFX graphs", icon: "✺" },
+            { href: "audio.html", title: "Sound and audio graphs", icon: "♪" },
             { href: "multiplayer.html", title: "Multiplayer", icon: "⇆" }
         ] },
         { group: "Reference", items: [
-            { href: "nodes.html", title: "Visual scripting nodes", icon: "◇" },
+            { href: "nodes.html", title: "Nodes", icon: "◇" },
             { href: "api.html", title: "C# API", icon: "≡" }
         ] }
     ];
@@ -341,7 +342,7 @@ const Site = (() => {
         const libraries = window.VertexNodes?.libraries ?? {};
         for (const [kind, library] of Object.entries(libraries)) {
             for (const node of library.nodes) {
-                entries.push({ kind: kind === "vfx" ? "VFX node" : "Node", title: node.title, sub: `${node.category} · ${node.description}`,
+                entries.push({ kind: { vfx: "VFX node", audio: "Audio node" }[kind] ?? "Node", title: node.title, sub: `${node.category} · ${node.description}`,
                     href: `nodes.html?kind=${kind}#${encodeURIComponent(node.id)}`, icon: "◇", words: node.keywords });
             }
         }

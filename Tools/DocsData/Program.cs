@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 using Vertex;
+using Vertex.Audio;
 using Vertex.Effects;
 using Vertex.Graphs;
 using Vertex.Scripting;
@@ -49,14 +50,14 @@ JsonNode Nodes()
 {
     var types = new JsonObject();
     var libraries = new JsonObject();
-    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library })
+    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library })
     {
         var categories = new JsonObject();
         var nodes = new JsonArray();
         foreach (NodeType node in library.All)
         {
             if (!categories.ContainsKey(node.Category)) categories[node.Category] = Hex(library.CategoryColor(node.Category));
-            foreach (Port port in node.Inputs.Concat(node.Outputs)) types[port.Type.Name] = Hex(port.Type.WireColor);
+            foreach (Port port in node.Inputs.Concat(node.Outputs).Concat(node.Repeated is { } r ? [r] : [])) types[port.Type.Name] = Hex(port.Type.WireColor);
 
             var entry = new JsonObject
             {
@@ -70,6 +71,12 @@ JsonNode Nodes()
             };
             if (node is ScriptNode { Event: { } @event }) entry["event"] = @event;
             if (node is VfxNode vfx) entry["role"] = vfx.Role.ToString();
+            if (node.Repeated is { } repeated)
+            {
+                JsonNode port = PortJson(repeated);
+                port["atLeast"] = node.RepeatedAtLeast;
+                entry["repeated"] = port;
+            }
             nodes.Add(entry);
         }
 
@@ -118,7 +125,96 @@ JsonNode Graphs()
 
     // A VFX graph to show: the one a new VFX graph starts as.
     graphs["Embers (VFX)"] = JsonNode.Parse(VfxNodes.Starter().ToJson());
+
+    // Audio graphs to show, made as they would be in the editor.
+    graphs["Footsteps (Audio)"] = JsonNode.Parse(Footsteps().ToJson());
+    graphs["Gunshot (Audio)"] = JsonNode.Parse(Gunshot().ToJson());
+    graphs["Rain (Audio)"] = JsonNode.Parse(Rain().ToJson());
     return graphs;
+}
+
+// A Sound node playing Sounds/<name>.wav.
+static GraphNode SoundFile(Graph graph, string name, float x, float y)
+{
+    GraphNode node = graph.AddNode("Sounds/Sound", new Vector2(x, y));
+    node.Values["Sound"] = $"Sounds/{name}.wav";
+    return node;
+}
+
+static GraphNode Node(Graph graph, string type, float x, float y, params (string Port, object Value)[] values)
+{
+    GraphNode node = graph.AddNode(type, new Vector2(x, y));
+    foreach ((string port, object value) in values) node.Values[port] = value;
+    return node;
+}
+
+// One of four footsteps, never the same twice running, a little higher or lower and louder or quieter each time.
+static Graph Footsteps()
+{
+    var graph = new Graph(AudioNodes.Kind);
+    GraphNode random = Node(graph, "Choose/Random", 300f, 120f);
+    for (int i = 1; i <= 4; i++) graph.Link(SoundFile(graph, $"Step {i}", 0f, (i - 1) * 100f).Id, "Sound", random.Id, $"Sound {i}");
+    GraphNode pitch = Node(graph, "Change/Random Pitch", 560f, 120f, ("Min", 0.92f), ("Max", 1.08f));
+    GraphNode volume = Node(graph, "Change/Random Volume", 800f, 120f, ("Min", 0.75f), ("Max", 1f));
+    GraphNode output = Node(graph, "Output/Output", 1040f, 120f);
+    graph.Link(random.Id, "Sound", pitch.Id, "Sound");
+    graph.Link(pitch.Id, "Sound", volume.Id, "Sound");
+    graph.Link(volume.Id, "Sound", output.Id, "Sound");
+    return graph;
+}
+
+// A crack (one of two), a body, and an echo a moment later, played together at a slightly different pitch each time.
+static Graph Gunshot()
+{
+    var graph = new Graph(AudioNodes.Kind);
+    GraphNode crack = Node(graph, "Choose/Random", 300f, 0f);
+    graph.Link(SoundFile(graph, "Crack 1", 0f, 0f).Id, "Sound", crack.Id, "Sound 1");
+    graph.Link(SoundFile(graph, "Crack 2", 0f, 100f).Id, "Sound", crack.Id, "Sound 2");
+    GraphNode body = SoundFile(graph, "Body", 300f, 200f);
+    GraphNode delay = Node(graph, "Timing/Delay", 300f, 320f, ("Seconds", 0.12f));
+    GraphNode echo = SoundFile(graph, "Echo", 0f, 300f);
+    echo.Values["Volume"] = 0.5f;
+    graph.Link(echo.Id, "Sound", delay.Id, "Sound");
+    GraphNode layer = Node(graph, "Combine/Layer", 580f, 120f);
+    graph.Link(crack.Id, "Sound", layer.Id, "Sound 1");
+    graph.Link(body.Id, "Sound", layer.Id, "Sound 2");
+    graph.Link(delay.Id, "Sound", layer.Id, "Sound 3");
+    GraphNode pitch = Node(graph, "Change/Random Pitch", 820f, 120f, ("Min", 0.95f), ("Max", 1.05f));
+    GraphNode output = Node(graph, "Output/Output", 1060f, 120f);
+    graph.Link(layer.Id, "Sound", pitch.Id, "Sound");
+    graph.Link(pitch.Id, "Sound", output.Id, "Sound");
+    return graph;
+}
+
+// Rain that fades in and loops, with a roll of thunder now and then: a chance of one every 4 to 9 seconds.
+static Graph Rain()
+{
+    var graph = new Graph(AudioNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Storminess", PortType.Number, 0.3f));
+    GraphNode rain = SoundFile(graph, "Rain", 0f, 0f);
+    GraphNode loopRain = Node(graph, "Timing/Loop", 280f, 0f);
+    GraphNode fade = Node(graph, "Change/Fade In", 540f, 0f, ("Seconds", 3f));
+    graph.Link(rain.Id, "Sound", loopRain.Id, "Sound");
+    graph.Link(loopRain.Id, "Sound", fade.Id, "Sound");
+
+    GraphNode thunder = Node(graph, "Choose/Random", 280f, 180f);
+    graph.Link(SoundFile(graph, "Thunder 1", 0f, 140f).Id, "Sound", thunder.Id, "Sound 1");
+    graph.Link(SoundFile(graph, "Thunder 2", 0f, 240f).Id, "Sound", thunder.Id, "Sound 2");
+    GraphNode chance = Node(graph, "Choose/Chance", 540f, 180f);
+    GraphNode storminess = Node(graph, "Properties/Get Property", 280f, 340f, ("Variable", "Storminess"));
+    graph.Link(thunder.Id, "Sound", chance.Id, "Sound");
+    graph.Link(storminess.Id, "Value", chance.Id, "Chance");
+    GraphNode gap = Node(graph, "Math/Random Number", 540f, 340f, ("Min", 4f), ("Max", 9f));
+    GraphNode loopThunder = Node(graph, "Timing/Loop", 800f, 180f);
+    graph.Link(chance.Id, "Sound", loopThunder.Id, "Sound");
+    graph.Link(gap.Id, "Value", loopThunder.Id, "Gap");
+
+    GraphNode layer = Node(graph, "Combine/Layer", 1040f, 80f);
+    graph.Link(fade.Id, "Sound", layer.Id, "Sound 1");
+    graph.Link(loopThunder.Id, "Sound", layer.Id, "Sound 2");
+    GraphNode output = Node(graph, "Output/Output", 1280f, 80f);
+    graph.Link(layer.Id, "Sound", output.Id, "Sound");
+    return graph;
 }
 
 JsonNode Samples()

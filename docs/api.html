@@ -76,7 +76,7 @@
         function overview() {
             const start = ["Vertex.Game", "Vertex.GameObject", "Vertex.Component", "Vertex.Transform", "Vertex.Scene", "Vertex.Time", "Vertex.Input.InputSystem",
                 "Vertex.Physics.Rigidbody", "Vertex.Physics.CharacterController", "Vertex.Physics.PhysicsWorld", "Vertex.Prefab", "Vertex.Assets",
-                "Vertex.Audio.Sound", "Vertex.UI.Canvas", "Vertex.Networking.NetworkScene", "Vertex.Networking.NetworkManager", "Vertex.Scripting.VisualScript", "Vertex.Log"];
+                "Vertex.Audio.Sound", "Vertex.Audio.AudioSource", "Vertex.UI.Canvas", "Vertex.Networking.NetworkScene", "Vertex.Networking.NetworkManager", "Vertex.Scripting.VisualScript", "Vertex.Log"];
             const count = api.namespaces.reduce((s, n) => s + n.types.length, 0);
             page.innerHTML = `<div class="api-type"><span class="eyebrow">Reference</span><h1>C# API</h1>
                 <p class="lead">All ${count} public types in the engine, with their doc comments, taken from the engine itself. Pick one on the left, filter by name, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search every member.</p>

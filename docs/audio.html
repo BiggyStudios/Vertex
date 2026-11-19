@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sound and audio graphs · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Sound and audio graphs</h1>
+    <p class="lead">An <strong>Audio Source</strong> plays a sound from an object. Give it an <strong>audio graph</strong> instead of a single file and it can play a random one of several sounds, at a slightly different pitch each time, layered, in sequence or looping, so nothing sounds the same twice.</p>
+
+    <h2>Try one</h2>
+    <p>Press <strong>Play</strong> and listen: each time, the graph is worked out again, and the path it took lights up. Here, tones stand in for the sound files (each file its own note), so you can hear the choices and pitches change. Hover a node to see what it does.</p>
+    <p class="chips" id="graph-picks"></p>
+    <div id="graph-demo"></div>
+
+    <h2>Playing a sound</h2>
+    <p>Add an <strong>Audio Source</strong> component to an object (<strong>Add Component › Audio › Audio Source</strong>) and choose what it plays:</p>
+    <table>
+        <tr><th>Setting</th><th></th></tr>
+        <tr><td>Sound</td><td>A sound file (a <code>.wav</code>) to play.</td></tr>
+        <tr><td>Audio Graph</td><td>An audio graph (a <code>.audiograph</code> file) to play instead. <strong>New Audio Graph</strong>, under the component, makes one for it and opens it.</td></tr>
+        <tr><td>Volume, Pitch</td><td>On top of the sound's own. Changing them changes what's playing, too: an engine's pitch rising with its speed.</td></tr>
+        <tr><td>Play On Start</td><td>Plays as soon as the game starts. Off, it waits to be played.</td></tr>
+        <tr><td>Loop</td><td>Plays again each time it ends, until it's stopped. An audio graph chooses again each time round.</td></tr>
+        <tr><td>In World</td><td>Comes from the object, and follows it as it moves, getting quieter further from the camera. Off, it's the same everywhere: music, menus, the player's own footsteps.</td></tr>
+        <tr><td>Full Volume Distance</td><td>Within this many metres it plays at full volume; beyond, it halves each time the distance doubles.</td></tr>
+    </table>
+    <p>Playing it again before it's over doesn't cut it off: the two overlap, as quick gunshots and footsteps should. <strong>Stop</strong> stops everything it's playing.</p>
+    <div class="note"><p>Sounds in the world should be <strong>mono</strong>: a stereo file plays the same from everywhere. Vertex reads uncompressed WAV files.</p></div>
+
+    <h2>Making an audio graph</h2>
+    <ol>
+        <li>In the Assets panel, press <strong>+</strong> and choose <strong>New Audio Graph</strong> (or press <strong>New Audio Graph</strong> under an Audio Source). It opens in a tab, already set up: a <strong>Random</strong>, into a <strong>Random Pitch</strong>, into the <strong>Output</strong>.</li>
+        <li>Drag sound files from the Assets panel onto the <strong>Random</strong> node. Each becomes a <strong>Sound</strong> node linked into the Random's next input, lined up to its left. Drop 3, 5 or 20: there's always one more input for the next.</li>
+        <li>Press <strong>▶</strong> in the graph's toolbar to listen. Press it again for another choice. The sound that was chosen, and its wire, light up.</li>
+        <li>Choose the file as an Audio Source's <strong>Audio Graph</strong>, or drag more nodes in: right-click or <kbd>Space</kbd> on the graph to add one.</li>
+    </ol>
+    <div class="figure reveal"><img src="images/audio-graph.jpg" alt="An audio graph in the editor: four footstep sounds into a Random node, then Random Pitch, then the Output, with the chosen sound lit up"><figcaption>Footsteps: four sounds dropped onto a Random. Just played: Step 2 was chosen, and lights up with the path to the Output.</figcaption></div>
+    <p>Graphs save themselves as you edit, like visual scripts, and the change is heard the next time the graph is played, in the editor or in the game.</p>
+
+    <h2>The nodes</h2>
+    <p>Sounds flow along the <span style="color:#57ccdb">teal</span> wires, from Sound nodes on the left towards the Output on the right. Every node in between decides which play, when, and how. Each time the graph's played, it's worked out again from the Output back.</p>
+    <table>
+        <tr><th>Node</th><th>Does</th></tr>
+        <tr><td><strong>Sound</strong></td><td>Plays a sound file, at a volume of its own (to even out sounds that were recorded louder or quieter).</td></tr>
+        <tr><td><strong>Random</strong></td><td>Plays one of the sounds linked to it. <em>Mode</em>: <em>Random</em> (any), <em>No Repeats</em> (never the last one again), <em>Shuffle</em> (each once before any again) or <em>In Turn</em> (1, 2, 3, 1…). It remembers across everything playing the graph, so two players' footsteps don't repeat either.</td></tr>
+        <tr><td><strong>Switch</strong></td><td>Plays the sound whose number it's given: footsteps for each kind of ground, chosen by a property.</td></tr>
+        <tr><td><strong>Chance</strong></td><td>Plays the sound only some of the time: 0.3 is three times in ten.</td></tr>
+        <tr><td><strong>Sequence</strong></td><td>Plays its sounds one after another, with a <em>Gap</em> between: a reload's click, slide and clack.</td></tr>
+        <tr><td><strong>Layer</strong></td><td>Plays its sounds all at once: a gunshot's crack, body and tail.</td></tr>
+        <tr><td><strong>Delay</strong></td><td>Waits, then plays the sound: an echo.</td></tr>
+        <tr><td><strong>Loop</strong></td><td>Plays the sound again each time it ends, <em>Times</em> times (0 for until it's stopped), choosing again each time round. A <em>Gap</em> linked to a Random Number is different each time: thunder now and then. One sound file looped with no gap loops seamlessly.</td></tr>
+        <tr><td><strong>Volume</strong>, <strong>Pitch</strong></td><td>Louder or quieter; higher or lower (and faster or slower with it: 2 is an octave up).</td></tr>
+        <tr><td><strong>Random Pitch</strong>, <strong>Random Volume</strong></td><td>A different pitch or volume each time, between <em>Min</em> and <em>Max</em>. 0.9 to 1.1 is a good start for pitch.</td></tr>
+        <tr><td><strong>Fade In</strong></td><td>Starts silent and comes up to full volume over some seconds: rain, wind, music.</td></tr>
+        <tr><td><strong>Random Number</strong>, <strong>Add</strong>, <strong>Multiply</strong></td><td>Numbers for the other nodes' inputs, worked out each time they're needed.</td></tr>
+        <tr><td><strong>Get Property</strong></td><td>One of the graph's properties (see below).</td></tr>
+    </table>
+    <p>The <a href="nodes.html?kind=audio">node reference</a> has every input of every one. A node that can't play (a Sound with no file chosen) is outlined red with what's wrong, and the rest of the graph still plays.</p>
+
+    <h2>Properties</h2>
+    <p>An audio graph's <strong>Properties</strong> (the button in its toolbar) are values the graph reads with Get Property nodes, that each Audio Source can set for itself: which ground a footstep's on, how stormy the rain is.</p>
+    <ul>
+        <li><strong>In the inspector:</strong> under an Audio Source, its graph's properties are listed. Set one there and it's this object's own (with a ↶ to put it back).</li>
+        <li><strong>From C#:</strong> <code>source.SetProperty("Surface", 2)</code>.</li>
+        <li><strong>From a visual script:</strong> the <strong>Set Audio Property</strong> node.</li>
+    </ul>
+    <p>A change is used from the next choice on: the next footstep, the next time round a loop.</p>
+
+    <h2>From C#</h2>
+    <pre class="cs">// An object's Audio Source: play it (again), or stop it.
+var steps = GetComponent&lt;AudioSource&gt;()!;
+steps.SetProperty("Surface", onMetal ? 2 : 1);
+steps.Play();
+
+// A clip, once, without a component: at a point in the world, or everywhere the same.
+Sound.PlayAt(hitClip, Transform.WorldPosition, volume: 0.8f, pitch: 0.95f + Random.Shared.NextSingle() * 0.1f);
+Sound.Play(clickClip);
+
+// An audio graph, without a component. What it returns can be stopped, or moved as it plays.
+AudioPlayback explosion = Sound.PlayAt(Assets.LoadGraph(Application.AssetPath("Audio", "Explosion.audiograph")), position);
+    <p>The <a href="api.html#Vertex.Audio.AudioSource">AudioSource</a>, <a href="api.html#Vertex.Audio.Sound">Sound</a> and <a href="api.html#Vertex.Audio.AudioPlayback">AudioPlayback</a> pages have the rest.</p>
+
+    <h2>From visual scripts</h2>
+    <table>
+        <tr><th>Node</th><th>Does</th></tr>
+        <tr><td>Play Audio</td><td>Plays an object's Audio Source (its sound or audio graph).</td></tr>
+        <tr><td>Stop Audio</td><td>Stops it, and its looping.</td></tr>
+        <tr><td>Set Audio Property</td><td>Sets one of its audio graph's properties.</td></tr>
+        <tr><td>Play Sound</td><td>Plays a sound file once, without a component.</td></tr>
+    </table>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (async () => {
+        await Site.load("data/nodes.js");
+        await Site.load("data/graphs.js");
+        const names = Object.keys(window.VertexGraphs).filter(n => n.includes("(Audio)"));
+        const picks = document.getElementById("graph-picks");
+        const demo = document.getElementById("graph-demo");
+        const pick = name => {
+            picks.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.name === name));
+            GraphView.mount(demo, name);
+        };
+        picks.innerHTML = names.map(n => `<button class="chip" data-name="${n}">${n.replace(" (Audio)", "")}</button>`).join("");
+        picks.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => pick(c.dataset.name)));
+        pick(names[0]);
+    })();
+</script>
+</body>
+</html>

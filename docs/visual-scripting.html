@@ -97,7 +97,7 @@
         const shown = ["Flow", "Number", "Boolean", "Text", "Vector", "Color", "Object", "Prefab", "Sound", "Any"];
         legend.innerHTML = shown.map(t => `<span class="chip"><i style="background:${GraphView.color(t)}"></i>${t}</span>`).join("");
 
-        const names = Object.keys(window.VertexGraphs).filter(n => !n.includes("VFX"));
+        const names = Object.keys(window.VertexGraphs).filter(n => !/\((VFX|Audio)\)$/.test(n));
         const picks = document.getElementById("graph-picks");
         const demo = document.getElementById("graph-demo");
         const pick = name => {

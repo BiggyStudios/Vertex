@@ -14,7 +14,7 @@
     <p class="lead">Every node there is, taken from the engine itself. Search by name or what it's for, pick a category, and open a node for what each port means.</p>
 
     <div class="ref-tools">
-        <span class="track-switch" id="kinds" data-own><button data-kind="script">Visual scripts</button><button data-kind="vfx">VFX graphs</button></span>
+        <span class="track-switch" id="kinds" data-own><button data-kind="script">Visual scripts</button><button data-kind="vfx">VFX graphs</button><button data-kind="audio">Audio graphs</button></span>
         <input class="ref-search" id="search" placeholder="Search nodes: raycast, jump, score, colour…" aria-label="Search nodes">
     </div>
     <div class="chips" id="categories"></div>
@@ -29,7 +29,7 @@
     (() => {
         const data = window.VertexNodes;
         const params = new URLSearchParams(location.search);
-        let kind = params.get("kind") === "vfx" ? "vfx" : "script";
+        let kind = ["vfx", "audio"].includes(params.get("kind")) ? params.get("kind") : "script";
         let category = null;
         const grid = document.getElementById("grid"), search = document.getElementById("search");
 
@@ -69,7 +69,7 @@
             return ports.filter(p => !p.variable).map(p => {
                 const type = p.type === "Flow" ? "flow" : p.type;
                 const extra = [p.setting ? "set on the node" : null, !out && p.default != null && p.default !== "" && p.type !== "Flow" ? `default ${Site.escape(GraphView.show(p.default))}` : null,
-                    p.choices ? `one of ${p.choices.slice(0, 6).join(", ")}${p.choices.length > 6 ? "…" : ""}` : null].filter(Boolean).join(" · ");
+                    p.choices ? `one of ${p.choices.slice(0, 6).map(GraphView.show).join(", ")}${p.choices.length > 6 ? "…" : ""}` : null].filter(Boolean).join(" · ");
                 return `<dt>${p.name === "In" || p.name === "Then" ? (out ? "Then" : "In") : Site.escape(p.name)}</dt><dd><span style="color:${GraphView.color(p.type)}">${type}</span>${extra ? ` <span style="color:var(--text-faint)">(${extra})</span>` : ""}${p.tooltip ? `<br>${Site.escape(p.tooltip)}` : ""}</dd>`;
             }).join("");
         }
@@ -85,7 +85,7 @@
                     <p>${Site.escape(n.description || "")}</p>
                     <div class="meta">${n.event ? '<span class="badge">event</span>' : ""}${n.role ? `<span class="badge">${n.role} step</span>` : ""}<span class="badge">${n.category}</span></div>
                     <details><summary>Ports</summary>
-                        ${n.inputs.some(p => !p.variable) ? `<b style="font-size:12.5px;color:var(--text-faint)">INPUTS</b><dl>${portRows(n.inputs, false)}</dl>` : ""}
+                        ${n.inputs.some(p => !p.variable) || n.repeated ? `<b style="font-size:12.5px;color:var(--text-faint)">INPUTS</b><dl>${portRows(n.inputs.concat(n.repeated ? [{ ...n.repeated, name: `${n.repeated.name} 1, 2, 3…` }] : []), false)}</dl>` : ""}
                         ${n.outputs.length ? `<b style="font-size:12.5px;color:var(--text-faint);display:block;margin-top:8px">OUTPUTS</b><dl>${portRows(n.outputs, true)}</dl>` : ""}
                     </details>
                 </div>`).join("") || `<p style="color:var(--text-faint)">No nodes match. Try a different word.</p>`;
@@ -95,6 +95,9 @@
         chips();
         show();
         requestAnimationFrame(placePill);
+        // Again once the fonts are in, and when the page is resized: the buttons' widths change with them.
+        document.fonts?.ready.then(placePill);
+        addEventListener("resize", placePill);
 
         // Linked to one node: show it, open its ports, and light it up.
         const target = decodeURIComponent(location.hash.slice(1));

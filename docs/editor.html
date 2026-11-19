@@ -19,9 +19,9 @@
     <table>
         <tr><th>Panel</th><th>What it's for</th></tr>
         <tr><td><strong>Outliner</strong></td><td>Every object in the scene, as a tree. Click to select (<kbd>Ctrl</kbd> and <kbd>Shift</kbd> for more than one), drag one onto another to put it under it, double-click or <kbd>F2</kbd> to rename, right-click for more. The search box at the top filters by name. Click the scene's own row to edit its lighting and sky.</td></tr>
-        <tr><td><strong>Scene view</strong></td><td>The world, to look round and arrange. Its tabs also hold the <strong>Game</strong> view (what the game's camera sees, and where UI is arranged), and any visual scripts, VFX graphs and prefabs you open.</td></tr>
+        <tr><td><strong>Scene view</strong></td><td>The world, to look round and arrange. Its tabs also hold the <strong>Game</strong> view (what the game's camera sees, and where UI is arranged), and any visual scripts, VFX graphs, audio graphs and prefabs you open.</td></tr>
         <tr><td><strong>Inspector</strong></td><td>What's selected: its name, transform and components, with all their settings. Add components here.</td></tr>
-        <tr><td><strong>Assets</strong></td><td>The project's <code>Assets</code> folder: scenes, prefabs, materials, textures, models, sounds, fonts, scripts, visual scripts and VFX graphs.</td></tr>
+        <tr><td><strong>Assets</strong></td><td>The project's <code>Assets</code> folder: scenes, prefabs, materials, textures, models, sounds, fonts, scripts, visual scripts, VFX graphs and audio graphs.</td></tr>
         <tr><td><strong>Console</strong></td><td>Messages from the editor and the game: <code>Log.Info</code>, warnings, errors, and build errors in your C# code. Double-click an error to open the code at its line.</td></tr>
     </table>
     <p>Panels can be dragged to rearrange them and shown or hidden from the <strong>View</strong> menu; <strong>View › Reset Layout</strong> puts them back. <strong>View › Bigger Interface</strong> (<kbd>Ctrl</kbd>+<kbd>=</kbd>) scales the whole editor.</p>
@@ -59,7 +59,7 @@
     <p>Components are what objects do. <strong>Add Component</strong> lists the engine's (rendering, physics, audio, UI, networking, effects…) and your game's own, with a search box. Typing a name that isn't there offers <strong>New Script</strong>, which writes a C# component of that name, builds it and adds it.</p>
     <p>Each component's <strong>⋯</strong> menu moves it up or down or removes it. Settings are edited by dragging numbers sideways or typing in them, picking colours, choosing from lists, and filling <strong>slots</strong>:</p>
     <ul>
-        <li><strong>File slots</strong> (a texture, material, prefab, sound, font, visual script, VFX graph): click to pick from the project's files, or drag one in from Assets.</li>
+        <li><strong>File slots</strong> (a texture, material, prefab, sound, font, visual script, VFX graph, audio graph): click to pick from the project's files, or drag one in from Assets.</li>
         <li><strong>Object slots</strong> (another object, or one of its components): click to pick from the scene's objects that fit, or drag one in from the outliner. While you drag a row out of the outliner, the inspector keeps showing what you had selected, so you can drop it there.</li>
     </ul>
     <p>Select several objects to edit them together: values that differ show a dash, and whatever you set goes on all of them.</p>
