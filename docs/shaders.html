@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Post effects and shaders · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Post effects and shaders</h1>
+    <p class="lead">A <strong>post effect</strong> changes the finished picture: a colour grade, film grain, big pixels, a dithered look. You write it as a short shader in GLSL, and a <strong>Post Effect</strong> component on a camera runs it, in Vulkan and OpenGL alike.</p>
+
+    <h2>Making one</h2>
+    <ol>
+        <li>In the Assets panel, choose <strong>New Post Effect</strong>. It makes a <code>.glsl</code> file that starts as a simple colour grade.</li>
+        <li>Select the camera, <strong>Add Component › Post Effect</strong>, and pick the file as its <em>Shader</em>.</li>
+        <li>Its settings show below it in the inspector. Change them there, or open the file in your code editor: each time you save, the scene shows the change.</li>
+    </ol>
+    <p>The scene view shows the game camera's post effects too, so you see the scene as the game will. The button beside the grid's in its toolbar (or <strong>View › Post Effects</strong>) turns that off and on.</p>
+    <p>A camera can have several Post Effects. They run in the order they're on it, each on what the one before made. Untick one to turn it off.</p>
+
+    <h2>Writing the shader</h2>
+    <p>A post effect is a function, <code>effect</code>, that's given a place on the screen and returns the colour to show there. It runs once for every pixel. This one makes the picture into big square pixels with fewer shades:</p>
+    <pre class="cs" data-file="Pixels.glsl">// Big square pixels and fewer shades: a low-resolution look.
+property float Lines = 240 [60, 720];   // How many rows of pixels fill the screen
+property int Shades = 6 [2, 32];        // How many levels each colour has
+
+vec4 effect(vec2 uv)
+{
+    // Which big pixel this is, and the colour at its middle.
+    float size = max(1.0, floor(screenSize.y / Lines + 0.5));
+    vec2 cell = floor(uv * screenSize / size);
+    vec3 colour = picture((cell + 0.5) * size / screenSize).rgb;
+
+    float steps = float(Shades - 1);
+    return vec4(floor(colour * steps + 0.5) / steps, 1.0);
+}</pre>
+    <p>What an effect can use:</p>
+    <table>
+        <tr><th>Name</th><th>What it is</th></tr>
+        <tr><td><code>uv</code></td><td>Where on the screen, from 0 to 1 across and down, starting at the top-left corner.</td></tr>
+        <tr><td><code>picture(uv)</code></td><td>The picture so far at any place on the screen, in screen colours from 0 to 1. Lighting, fog, bloom, tone mapping and anti-aliasing have all been done.</td></tr>
+        <tr><td><code>distanceAt(uv)</code></td><td>How far from the camera what's drawn there is, in metres along its view. Very large for the sky.</td></tr>
+        <tr><td><code>screenSize</code></td><td>The size of the picture in pixels, as a <code>vec2</code>.</td></tr>
+        <tr><td><code>time</code></td><td>Seconds since the game started, for things that move.</td></tr>
+    </table>
+    <p>Everything else is ordinary GLSL: functions of your own, loops, <code>mix</code>, <code>smoothstep</code> and the rest.</p>
+
+    <h2>Settings</h2>
+    <p>Each line starting with <code>property</code> is a setting. It shows in the inspector of the Post Effect using the shader, and the shader reads it by its name:</p>
+    <pre class="plain" data-file="GLSL">property float Strength = 0.5 [0, 1];   // How strong it is
+property color Tint = #FFB070;           // A warm orange
+property bool Flicker = false;</pre>
+    <p>After the type and name come its starting value, an optional range in square brackets (the inspector shows a slider for it), and a comment, which becomes its tooltip.</p>
+    <table>
+        <tr><th>Type</th><th>Written like</th><th>In the inspector</th></tr>
+        <tr><td><code>float</code></td><td><code>1.5</code></td><td>A number, or a slider with a range</td></tr>
+        <tr><td><code>int</code></td><td><code>4</code></td><td>A whole number, or a slider with a range</td></tr>
+        <tr><td><code>bool</code></td><td><code>true</code> or <code>false</code></td><td>A tick box</td></tr>
+        <tr><td><code>vec2</code>, <code>vec3</code>, <code>vec4</code></td><td><code>(1, 0.5, 0)</code></td><td>A box for each part</td></tr>
+        <tr><td><code>color</code></td><td><code>#FF8800</code>, or <code>(1, 0.5, 0, 1)</code> from 0 to 1</td><td>A colour picker</td></tr>
+    </table>
+    <p>A shader can have up to 16 settings. Settings changed on a Post Effect are saved with the scene; those left alone follow the shader's starting values, so changing one in the file changes every effect that hasn't set its own.</p>
+
+    <h2>From code</h2>
+    <p>Settings can change while the game runs, to fade an effect in or make it react to what happens:</p>
+    <pre class="cs">var effect = Camera.Main!.GetComponent&lt;PostEffect&gt;()!;
+effect.Set("Strength", 0.8f);
+effect.Set("Tint", new Color(1f, 0.3f, 0.3f));
+effect.Enabled = false;   // off for now</pre>
+    <p>A Post Effect can be added in code as well: <code>camera.AddComponent&lt;PostEffect&gt;().Shader = Assets.LoadShader("Shaders/Pixels.glsl")</code>.</p>
+
+    <h2>When it doesn't compile</h2>
+    <p>The game keeps running without the effect, and the Console says what's wrong and on which line of the file, such as <code>Pixels.glsl:9: 'colur' : undeclared identifier</code>. The effect's inspector shows the same. Fix it and save, and it comes back.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+</body>
+</html>

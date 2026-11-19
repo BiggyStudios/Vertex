@@ -18,6 +18,7 @@ const Site = (() => {
             { href: "csharp.html", title: "C# scripting", icon: "{}" },
             { href: "visual-scripting.html", title: "Visual scripting", icon: "⌁" },
             { href: "effects.html", title: "Particles and VFX graphs", icon: "✺" },
+            { href: "shaders.html", title: "Post effects and shaders", icon: "▦" },
             { href: "audio.html", title: "Sound and audio graphs", icon: "♪" },
             { href: "multiplayer.html", title: "Multiplayer", icon: "⇆" },
             { href: "workflows.html", title: "Code and the editor", icon: "⊞" }
