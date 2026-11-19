@@ -1,0 +1,46 @@
+# Tests the engine and the editor on Windows, Linux and macOS, on every push and pull request. The tests don't open a
+# window, so they run on GitHub's machines; they check the engine's own native libraries (physics, models, shaders)
+# load and work on each.
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Engine
+        run: dotnet test Vertex.Tests -c Release --logger trx --results-directory TestResults
+
+      - name: Editor
+        if: always()
+        run: dotnet test Vertex.Editor.Tests -c Release --logger trx --results-directory TestResults
+
+      # Each failed test as an annotation on the run, so it shows on the run's page without opening the log.
+      - name: Failures
+        if: failure()
+        shell: pwsh
+        run: |
+          foreach ($file in Get-ChildItem TestResults -Filter *.trx -ErrorAction SilentlyContinue)
+          {
+              [xml]$trx = Get-Content $file.FullName
+              foreach ($result in $trx.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq "Failed" })
+              {
+                  $message = ($result.Output.ErrorInfo.Message + " " + ($result.Output.ErrorInfo.StackTrace -split "`n" | Select-Object -First 3) -join " ") -replace "[`r`n]+", " "
+                  Write-Host "::error title=$($result.testName)::$($message.Substring(0, [Math]::Min(900, $message.Length)))"
+              }
+          }
