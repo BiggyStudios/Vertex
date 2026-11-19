@@ -121,7 +121,7 @@ namespace Vertex.Rendering.Shaders
                 mat4 shadowMatrices[4];
                 vec4 cascadeSplits;     // how far ahead of the camera each cascade reaches
                 vec4 cascadeTexels;     // the world size of one shadow-map texel in each
-                vec4 shadow;            // x: 1 / shadow map size, y: index of the light casting shadows (-1 for none), z: cascades
+                vec4 shadow;            // x: 1 / shadow map size, y: index of the light casting shadows (-1 for none), z: cascades; w: 1 if the editor grid stands in the X-Y plane (2D)
                 vec4 cameraPosition;    // w: seconds since the game started
                 vec4 cameraForward;
                 vec4 skyLight;          // light from above (linear); w: ambient intensity
@@ -892,9 +892,20 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                // Only as big as it can be seen (see the fade below): smaller triangles keep their depth exact.
-                vec2 corner = CORNERS[VERTEX_ID] * min(2000.0, 160.0 + abs(frame.cameraPosition.y) * 14.0);
-                vWorld = vec3(frame.cameraPosition.x + corner.x, 0.0, frame.cameraPosition.z + corner.y);
+                // On the ground, or (2D) standing in the X-Y plane behind the game. Only as big as it can be seen (see the
+                // fade below): smaller triangles keep their depth exact.
+                vec3 eye = frame.cameraPosition.xyz;
+                if (frame.shadow.w > 0.5)
+                {
+                    vec2 corner = CORNERS[VERTEX_ID] * 2000.0;
+                    vWorld = vec3(eye.x + corner.x, eye.y + corner.y, 0.0);
+                }
+                else
+                {
+                    vec2 corner = CORNERS[VERTEX_ID] * min(2000.0, 160.0 + abs(eye.y) * 14.0);
+                    vWorld = vec3(eye.x + corner.x, 0.0, eye.z + corner.y);
+                }
+
                 gl_Position = frame.projection * frame.view * vec4(vWorld, 1.0);
             }
             """;
@@ -917,7 +928,8 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                vec2 position = vWorld.xz;
+                bool flat2D = frame.shadow.w > 0.5;
+                vec2 position = flat2D ? vWorld.xy : vWorld.xz;
                 vec2 metresPerPixel = fwidth(position);
                 float crowding = max(metresPerPixel.x, metresPerPixel.y);
 
@@ -925,26 +937,30 @@ namespace Vertex.Rendering.Shaders
                 float major = lines(position, 10.0) * (1.0 - smoothstep(0.4, 2.0, crowding));
                 float alpha = max(minor * 0.22, major * 0.42);
 
-                // The axes, a little bolder.
+                // The axes, a little bolder: X red, and Z blue on the ground or Y green in 2D.
                 float xAxis = 1.0 - min(abs(position.y) / max(metresPerPixel.y * 1.5, 1e-5), 1.0);
-                float zAxis = 1.0 - min(abs(position.x) / max(metresPerPixel.x * 1.5, 1e-5), 1.0);
+                float otherAxis = 1.0 - min(abs(position.x) / max(metresPerPixel.x * 1.5, 1e-5), 1.0);
                 vec3 color = vec3(0.8);
                 color = mix(color, vec3(0.85, 0.16, 0.12), xAxis);
-                color = mix(color, vec3(0.14, 0.32, 0.95), zAxis);
-                alpha = max(alpha, max(xAxis, zAxis) * 0.75);
+                color = mix(color, flat2D ? vec3(0.3, 0.75, 0.2) : vec3(0.14, 0.32, 0.95), otherAxis);
+                alpha = max(alpha, max(xAxis, otherAxis) * 0.75);
 
-                // Fades out with distance, further when the camera is higher up.
-                float height = abs(frame.cameraPosition.y);
-                float distance = length(frame.cameraPosition.xyz - vWorld);
-                alpha *= 1.0 - smoothstep(30.0 + height * 4.0, 120.0 + height * 12.0, distance);
+                // On the ground, it fades out with distance, further when the camera is higher up. In 2D it's seen flat on.
+                if (!flat2D)
+                {
+                    float height = abs(frame.cameraPosition.y);
+                    float distance = length(frame.cameraPosition.xyz - vWorld);
+                    alpha *= 1.0 - smoothstep(30.0 + height * 4.0, 120.0 + height * 12.0, distance);
+                }
 
                 FragColor = vec4(color * alpha, alpha);
                 AmbientColor = vec4(0.0);
                 GlowColor = vec4(0.0);
 
-                // Its depth worked out exactly here, and a little nearer than it is (a fifth of a percent of the way to the
-                // camera), so it shows on a floor at the same height instead of flickering against it.
-                vec4 clip = frame.projection * frame.view * vec4(mix(vWorld, frame.cameraPosition.xyz, 0.002), 1.0);
+                // Its depth worked out exactly here. On the ground, a little nearer than it is (a fifth of a percent of the
+                // way to the camera), so it shows on a floor at the same height instead of flickering against it; in 2D a
+                // little further, so it stays behind what's in the plane.
+                vec4 clip = frame.projection * frame.view * vec4(mix(vWorld, frame.cameraPosition.xyz, flat2D ? -0.0005 : 0.002), 1.0);
                 gl_FragDepth = STORED_DEPTH(clip.z / clip.w);
             }
             """;

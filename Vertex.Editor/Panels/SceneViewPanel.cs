@@ -64,7 +64,7 @@ namespace Vertex.Editor.Panels
             {
                 if (_graph != null) return [];
                 if (_gameTab) return _gameTexture != null && Vertex.Rendering.Camera.Main is { } main ? [new RenderView(main, _gameTexture)] : [];
-                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid)] : [];
+                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid, Camera.Is2D)] : [];
             }
         }
 
@@ -696,7 +696,10 @@ namespace Vertex.Editor.Panels
                 else
                 {
                     Ui.ActiveId = id;
-                    if (Alt) Camera.Zoom(-Ui.MouseDelta.Y * 0.02f);
+
+                    // In 2D there's nothing to look round at: the right mouse drags the view about instead.
+                    if (Camera.Is2D) Camera.Pan(Ui.MouseDelta, viewport.Height);
+                    else if (Alt) Camera.Zoom(-Ui.MouseDelta.Y * 0.02f);
                     else Camera.Look(-Ui.MouseDelta.X * lookSpeed, -Ui.MouseDelta.Y * lookSpeed);
 
                     var direction = new Vector3(
@@ -1003,21 +1006,26 @@ namespace Vertex.Editor.Panels
         {
             Transform t = camera.Transform;
             float depth = MathF.Min(camera.FarPlane, 4f);
-            float halfHeight = MathF.Tan(camera.FieldOfView * MathF.PI / 360f) * depth;
+            bool flat = camera.Projection == CameraProjection.Orthographic;
+            float halfHeight = flat ? camera.OrthographicSize : MathF.Tan(camera.FieldOfView * MathF.PI / 360f) * depth;
             float halfWidth = halfHeight * 16f / 9f;
             Vector3 eye = t.WorldPosition;
-            Vector3 centre = eye + t.Forward * depth;
-            Vector3[] corners =
+
+            Vector3[] Corners(Vector3 centre) =>
             [
                 centre + t.Right * halfWidth + t.Up * halfHeight, centre - t.Right * halfWidth + t.Up * halfHeight,
                 centre - t.Right * halfWidth - t.Up * halfHeight, centre + t.Right * halfWidth - t.Up * halfHeight
             ];
 
+            // A pyramid from the eye for perspective; for an orthographic camera, a box as wide at the eye as further on.
+            Vector3[] corners = Corners(eye + t.Forward * depth);
+            Vector3[] back = flat ? Corners(eye) : [eye, eye, eye, eye];
             Color color = Color.White.WithAlpha(0.55f);
             for (int i = 0; i < 4; i++)
             {
-                view.Line(eye, corners[i], color, 1f);
+                view.Line(back[i], corners[i], color, 1f);
                 view.Line(corners[i], corners[(i + 1) % 4], color, 1f);
+                if (flat) view.Line(back[i], back[(i + 1) % 4], color, 1f);
             }
         }
 
@@ -1049,7 +1057,7 @@ namespace Vertex.Editor.Panels
         private void DrawToolbar(Rect viewport)
         {
             // Move, turn and scale, world or local axes, snapping and the grid, floating in the corner.
-            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 3f * 30f + 8f + 62f + 9f + 30f + 18f + 9f + 30f, 36f);
+            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 3f * 30f + 8f + 62f + 9f + 30f + 18f + 9f + 30f + 9f + 34f, 36f);
             Ui.Shadow(bar, 8f, 14f, 0.5f);
             Ui.Rect(bar, Theme.Panel.WithAlpha(0.92f), 8f);
             Ui.Outline(bar, Theme.Border, 8f);
@@ -1110,6 +1118,16 @@ namespace Vertex.Editor.Panels
             {
                 _context.Preferences.ShowGrid = !showGrid;
             }
+
+            // 2D: looking flat on at the X-Y plane, without perspective, as a 2D game's camera does.
+            Ui.Rect(new Rect(grid.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
+            var flat = new Rect(grid.Right + 9f, bar.Y + 4f, 32f, 28f);
+            bool is2D = Camera.Is2D;
+            if (Widgets.IconButton(Ui.Id("sceneView.2d"), flat, (c, s, col) => Ui.Text(new Rect(c.X - 16f, c.Y - 10f, 32f, 20f), "2D", col, 0.5f, Theme.SmallTextSize, bold: true),
+                is2D ? "Back to 3D" : "2D: look flat on at the X-Y plane, for 2D games", selected: is2D))
+            {
+                Camera.Set2D(!is2D);
+            }
         }
 
         private PropertyGrid _snapGrid => _snapGridValue ??= new PropertyGrid(new UndoHistory(), _context.Notify);
@@ -1117,6 +1135,9 @@ namespace Vertex.Editor.Panels
 
         private void DrawAxes(Rect viewport)
         {
+            // In 2D the view is always along -Z: there's nothing to turn to.
+            if (Camera.Is2D) return;
+
             // Which way the world's axes point from here. Click one to look along it.
             var centre = new Vector2(viewport.Right - 52f, viewport.Y + 52f);
             const float radius = 30f;

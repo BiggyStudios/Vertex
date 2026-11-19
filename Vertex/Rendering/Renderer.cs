@@ -12,9 +12,10 @@ namespace Vertex.Rendering
     /// </summary>
     /// <summary>
     /// A picture of the scene from a camera, drawn into a texture: see <see cref="Renderer.Render(Scene, Camera?, ReadOnlySpan{RenderView})"/>.
-    /// With <paramref name="Grid"/>, a grid on the ground (y = 0) shows where things stand, as in an editor.
+    /// With <paramref name="Grid"/>, a grid on the ground (y = 0) shows where things stand, as in an editor; with
+    /// <paramref name="Grid2D"/> as well, it stands in the X-Y plane (z = 0) instead, behind a 2D game.
     /// </summary>
-    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false);
+    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false);
 
     public sealed class Renderer : IDisposable
     {
@@ -146,6 +147,7 @@ namespace Vertex.Rendering
             {
                 Collect(scene, view.Camera, view.Target.Width, view.Target.Height, view.Target);
                 _frame.Grid = view.Grid;
+                _frame.Grid2D = view.Grid2D;
                 Backend.Render(_frame);
             }
 

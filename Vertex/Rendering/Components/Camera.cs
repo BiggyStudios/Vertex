@@ -37,7 +37,8 @@ namespace Vertex.Rendering
 
         /// <summary>
         /// Perspective (further away looks smaller, as eyes see) or orthographic (the same size at any distance: for 2D
-        /// games, and maps and plans seen straight on).
+        /// games, and maps and plans seen straight on). An orthographic camera has no distance fog: how far back it stands
+        /// doesn't change what it shows.
         /// </summary>
         [Tooltip("Perspective: further away looks smaller. Orthographic: the same size at any distance, for 2D games")]
         public CameraProjection Projection { get; set; } = CameraProjection.Perspective;

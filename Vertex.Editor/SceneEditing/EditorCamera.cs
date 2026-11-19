@@ -12,6 +12,8 @@ namespace Vertex.Editor.SceneEditing
     /// <item>Alt and left mouse: orbit round the pivot; middle mouse: pan; the wheel: zoom towards the pivot;</item>
     /// <item>F: fly to frame what's selected.</item>
     /// </list>
+    /// In 2D (see <see cref="Is2D"/>) it looks straight along -Z without perspective, as a 2D game's camera does: the right
+    /// or middle mouse pans and the wheel zooms.
     /// </summary>
     public sealed class EditorCamera
     {
@@ -37,6 +39,18 @@ namespace Vertex.Editor.SceneEditing
 
         /// <summary>How quickly moves ease to where they're going: higher is snappier.</summary>
         public float Smoothing { get; set; } = 16f;
+
+        /// <summary>
+        /// Whether it's looking at the X-Y plane flat on, without perspective, for 2D: turning is off, and how far away it
+        /// is sets how much it sees.
+        /// </summary>
+        public bool Is2D { get; private set; }
+
+        // How it was turned before going 2D, to turn back to.
+        private float _yaw3D = -35f, _pitch3D = -22f;
+
+        /// <summary>How far in front of the X-Y plane the camera stands in 2D: far enough that nothing in a 2D scene is behind it.</summary>
+        private const float _standOff2D = 500f;
 
         /// <summary>The point the camera turns and zooms around: where it's headed, not where it's got to.</summary>
         public Vector3 Pivot => _target.Pivot;
@@ -66,9 +80,37 @@ namespace Vertex.Editor.SceneEditing
 
         private static Vector3 PositionOf(in View view) => view.Pivot - Direction(view.Yaw, view.Pitch) * view.Distance;
 
-        /// <summary>Turns the camera where it stands, by degrees: looking around.</summary>
+        /// <summary>
+        /// Goes 2D (looking flat on at the X-Y plane, without perspective, at the same point) or back to 3D, turned as it was.
+        /// </summary>
+        public void Set2D(bool on)
+        {
+            if (on == Is2D) return;
+            EndLook();
+            Is2D = on;
+
+            if (on)
+            {
+                (_yaw3D, _pitch3D) = (_target.Yaw, _target.Pitch);
+                _target.Yaw = 0f;
+                _target.Pitch = 0f;
+                _target.Pivot.Z = 0f;
+            }
+            else
+            {
+                _target.Yaw = _yaw3D;
+                _target.Pitch = _pitch3D;
+            }
+
+            // The turn is too sudden to ease while the picture goes flat or back, so it's made at once.
+            _current = _target;
+            Apply();
+        }
+
+        /// <summary>Turns the camera where it stands, by degrees: looking around. Not in 2D.</summary>
         public void Look(float yaw, float pitch)
         {
+            if (Is2D) return;
             _anchor ??= Camera.Transform.Position;
             _target.Yaw += yaw;
             _target.Pitch = Math.Clamp(_target.Pitch + pitch, -89f, 89f);
@@ -81,9 +123,10 @@ namespace Vertex.Editor.SceneEditing
             _flyVelocity = Vector3.Zero;
         }
 
-        /// <summary>Swings the camera round the pivot, by degrees.</summary>
+        /// <summary>Swings the camera round the pivot, by degrees. Not in 2D.</summary>
         public void Orbit(float yaw, float pitch)
         {
+            if (Is2D) return;
             _target.Yaw += yaw;
             _target.Pitch = Math.Clamp(_target.Pitch + pitch, -89f, 89f);
         }
@@ -111,6 +154,14 @@ namespace Vertex.Editor.SceneEditing
         public void Zoom(float notches)
         {
             float distance = _target.Distance * MathF.Pow(0.82f, notches);
+
+            // In 2D, nearer only shows less, so it stops at a close look rather than pushing on.
+            if (Is2D)
+            {
+                _target.Distance = Math.Clamp(distance, 0.25f, 4000f);
+                return;
+            }
+
             if (distance < 0.25f)
             {
                 // Out of room: carry on forwards, taking the pivot along.
@@ -124,6 +175,7 @@ namespace Vertex.Editor.SceneEditing
         /// <summary>Flies in <paramref name="direction"/> (camera-relative: X right, Y up, Z back) at <see cref="FlySpeed"/>, easing in and out.</summary>
         public void Fly(Vector3 direction, float deltaTime, bool fast)
         {
+            if (Is2D) return;
             _anchor ??= Camera.Transform.Position;
 
             Vector3 forward = Direction(_target.Yaw, _target.Pitch);
@@ -141,7 +193,7 @@ namespace Vertex.Editor.SceneEditing
         public void Frame(Vector3 centre, float radius)
         {
             EndLook();
-            _target.Pivot = centre;
+            _target.Pivot = Is2D ? centre with { Z = 0f } : centre;
             float fit = MathF.Max(radius, 0.25f) / MathF.Sin(Camera.FieldOfView * MathF.PI / 360f);
             _target.Distance = Math.Clamp(fit * 1.1f, 0.5f, 4000f);
         }
@@ -149,6 +201,7 @@ namespace Vertex.Editor.SceneEditing
         /// <summary>Swings round the pivot to look along <paramref name="direction"/>: for the axis buttons (look down, look along X).</summary>
         public void LookAlong(Vector3 direction)
         {
+            if (Is2D) return;
             EndLook();
             direction = Vector3.Normalize(direction);
             float pitch = MathF.Asin(Math.Clamp(direction.Y, -1f, 1f)) * 180f / MathF.PI;
@@ -192,18 +245,19 @@ namespace Vertex.Editor.SceneEditing
         }
 
         /// <summary>Where the camera is headed, to come back to later: each tab of the scene view keeps its own.</summary>
-        public readonly record struct Placement(Vector3 Pivot, float Yaw, float Pitch, float Distance);
+        public readonly record struct Placement(Vector3 Pivot, float Yaw, float Pitch, float Distance, bool Is2D = false);
 
         public Placement Remember()
         {
             EndLook();
-            return new Placement(_target.Pivot, _target.Yaw, _target.Pitch, _target.Distance);
+            return new Placement(_target.Pivot, _target.Yaw, _target.Pitch, _target.Distance, Is2D);
         }
 
         /// <summary>Puts the camera straight back where it was when <paramref name="placement"/> was remembered.</summary>
         public void Restore(Placement placement)
         {
             EndLook();
+            if (placement.Is2D != Is2D) Set2D(placement.Is2D);
             _target = new View { Pivot = placement.Pivot, Yaw = placement.Yaw, Pitch = placement.Pitch, Distance = placement.Distance };
             _current = _target;
             _flyVelocity = Vector3.Zero;
@@ -220,8 +274,21 @@ namespace Vertex.Editor.SceneEditing
 
         private void Apply()
         {
-            Camera.Transform.Position = PositionOf(_current);
             Camera.Transform.Rotation = Quaternion.CreateFromYawPitchRoll(_current.Yaw * MathF.PI / 180f, _current.Pitch * MathF.PI / 180f, 0f);
+
+            if (Is2D)
+            {
+                // Flat on: it sees as much as perspective would at its distance, from far enough back that nothing's behind it.
+                Camera.Projection = CameraProjection.Orthographic;
+                Camera.OrthographicSize = _current.Distance * MathF.Tan(Camera.FieldOfView * MathF.PI / 360f);
+                Camera.Transform.Position = _current.Pivot - Direction(_current.Yaw, _current.Pitch) * _standOff2D;
+                Camera.NearPlane = 0.1f;
+                Camera.FarPlane = _standOff2D * 4f;
+                return;
+            }
+
+            Camera.Projection = CameraProjection.Perspective;
+            Camera.Transform.Position = PositionOf(_current);
 
             // Close in, see small things clearly; far out, see far.
             Camera.NearPlane = Math.Clamp(_current.Distance * 0.005f, 0.02f, 1f);
@@ -239,7 +306,9 @@ namespace Vertex.Editor.SceneEditing
             Vector4 far = Vector4.Transform(new Vector4(ndc, 1f, 1f), inverse);
             Vector3 from = new Vector3(near.X, near.Y, near.Z) / near.W;
             Vector3 to = new Vector3(far.X, far.Y, far.Z) / far.W;
-            return (Camera.Transform.Position, Vector3.Normalize(to - from));
+
+            // Without perspective every ray goes the same way, from its own point on the near plane.
+            return (Is2D ? from : Camera.Transform.Position, Vector3.Normalize(to - from));
         }
     }
 }

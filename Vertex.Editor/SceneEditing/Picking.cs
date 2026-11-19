@@ -28,6 +28,33 @@ namespace Vertex.Editor.SceneEditing
                 }
             }
 
+            // Sprites and world text, by the pictures they draw. Where several are as near (in 2D, they're all in one plane),
+            // the one drawn on top: the highest sorting order.
+            Vector3 right = Vector3.Cross(direction, Vector3.UnitY);
+            right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : Vector3.UnitX;
+            var view = new ViewAxes(origin, right, Vector3.Cross(right, direction), direction);
+            int bestOrder = int.MinValue;
+            var quads = new List<WorldQuad>();
+            foreach (FlatRenderer flat in scene.FindComponents<FlatRenderer>())
+            {
+                quads.Clear();
+                flat.Collect(quads, view);
+                foreach (WorldQuad quad in quads)
+                {
+                    float? hit = RayTriangle(origin, direction, quad.TopLeft, quad.TopRight, quad.BottomRight)
+                                 ?? RayTriangle(origin, direction, quad.TopLeft, quad.BottomRight, quad.BottomLeft);
+                    if (hit is not float distance) continue;
+
+                    bool nearer = distance < best - 1e-3f;
+                    bool onTop = MathF.Abs(distance - best) <= 1e-3f && flat.SortingOrder > bestOrder;
+                    if (!nearer && !onTop) continue;
+
+                    best = distance;
+                    bestOrder = flat.SortingOrder;
+                    nearest = (flat.GameObject, distance);
+                }
+            }
+
             return nearest;
         }
 

@@ -206,6 +206,9 @@ namespace Vertex.Rendering
         /// <summary>Whether to draw the editor's grid on the ground: see <see cref="RenderView.Grid"/>.</summary>
         public bool Grid { get; internal set; }
 
+        /// <summary>Whether the grid stands in the X-Y plane, for 2D, rather than lying on the ground.</summary>
+        public bool Grid2D { get; internal set; }
+
         public Color ClearColor { get; internal set; }
         public EnvironmentData Environment { get; internal set; }
 
@@ -268,6 +271,7 @@ namespace Vertex.Rendering
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
             Grid = false;
+            Grid2D = false;
         }
     }
 }

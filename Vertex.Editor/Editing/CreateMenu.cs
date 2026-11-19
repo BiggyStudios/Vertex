@@ -66,6 +66,17 @@ namespace Vertex.Editor.Editing
                 })) { Icon = Icons.Light },
                 new MenuItem("Camera", () => Make("Camera", gameObject => gameObject.AddComponent<Camera>())) { Icon = Icons.Camera },
                 MenuItem.Separator,
+                new MenuItem("Sprite", () => Make("Sprite", gameObject => gameObject.AddComponent<SpriteRenderer>())) { Icon = Icons.Sprite },
+                new MenuItem("World Text", () => Make("World Text", gameObject => gameObject.AddComponent<WorldText>())) { Icon = Icons.WorldText },
+                new MenuItem("2D Camera", () => Make("2D Camera", gameObject =>
+                {
+                    // Looking along -Z at the X-Y plane, without perspective, ten units back.
+                    Camera camera = gameObject.AddComponent<Camera>();
+                    camera.Projection = CameraProjection.Orthographic;
+                    camera.ClearColor = new Color(0.16f, 0.17f, 0.2f);
+                    gameObject.Transform.Position = gameObject.Transform.Position with { Z = 10f };
+                })) { Icon = Icons.Camera },
+                MenuItem.Separator,
                 new MenuItem("UI")
                 {
                     Icon = Icons.UI,

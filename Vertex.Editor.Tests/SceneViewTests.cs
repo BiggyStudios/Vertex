@@ -130,5 +130,64 @@ namespace Vertex.Editor.Tests
             Vector3? plane = TransformHandles.PlaneHit(Vector3.Zero, Vector3.UnitY, new Vector3(1f, 4f, 2f), Vector3.Normalize(new Vector3(0f, -1f, 1f)));
             Assert.True(Vector3.Distance(new Vector3(1f, 0f, 6f), plane!.Value) < 1e-4f);
         }
+
+        [Fact]
+        public void The_2D_view_looks_flat_on_at_the_plane_and_back_to_3D_turned_as_it_was()
+        {
+            var camera = new EditorCamera(new Scene());
+            camera.Settle();
+            Vector3 forward3D = camera.Forward;
+
+            camera.Set2D(true);
+            Assert.True(camera.Is2D);
+            Assert.Equal(CameraProjection.Orthographic, camera.Camera.Projection);
+            Assert.True(Vector3.Distance(camera.Forward, -Vector3.UnitZ) < 1e-4f);
+            Assert.Equal(0f, camera.Pivot.Z);
+
+            // Rays go straight along -Z, from where they cross the screen.
+            (Vector3 leftOrigin, Vector3 leftDirection) = camera.Ray(new Vector2(0f, 0.5f), 16f / 9f);
+            (Vector3 rightOrigin, Vector3 rightDirection) = camera.Ray(new Vector2(1f, 0.5f), 16f / 9f);
+            Assert.True(Vector3.Distance(leftDirection, -Vector3.UnitZ) < 1e-4f && Vector3.Distance(rightDirection, -Vector3.UnitZ) < 1e-4f);
+            Assert.Equal(2f * camera.Camera.OrthographicSize * 16f / 9f, rightOrigin.X - leftOrigin.X, 0.01f);
+
+            // Zooming in shows less; there's no turning.
+            float size = camera.Camera.OrthographicSize;
+            camera.Zoom(2f);
+            camera.Look(30f, 30f);
+            camera.Orbit(30f, 30f);
+            for (int i = 0; i < 120; i++) camera.Update(1f / 60f);
+            Assert.True(camera.Camera.OrthographicSize < size * 0.7f);
+            Assert.True(Vector3.Distance(camera.Forward, -Vector3.UnitZ) < 1e-4f);
+
+            // Remembered, and back to 3D turned as before.
+            EditorCamera.Placement placement = camera.Remember();
+            Assert.True(placement.Is2D);
+            camera.Set2D(false);
+            Assert.Equal(CameraProjection.Perspective, camera.Camera.Projection);
+            Assert.True(Vector3.Distance(camera.Forward, forward3D) < 1e-3f);
+            camera.Restore(placement);
+            Assert.True(camera.Is2D);
+        }
+
+        [Fact]
+        public void Clicking_picks_sprites_too_and_the_one_drawn_on_top_where_they_overlap()
+        {
+            GameObject Sprite(string name, Vector3 position, int order)
+            {
+                var gameObject = new GameObject(name);
+                gameObject.Transform.Position = position;
+                gameObject.AddComponent<SpriteRenderer>().SortingOrder = order;
+                return gameObject;
+            }
+
+            Sprite("Back", Vector3.Zero, order: 0);
+            Sprite("Front", new Vector3(0.3f, 0f, 0f), order: 2);
+            Sprite("Middle", new Vector3(-0.3f, 0f, 0f), order: 1);
+            Scene.Active.ApplyChanges();
+
+            Assert.Equal("Front", Picking.Pick(Scene.Active, new Vector3(0f, 0f, 10f), -Vector3.UnitZ)?.GameObject.Name);
+            Assert.Equal("Middle", Picking.Pick(Scene.Active, new Vector3(-0.6f, 0f, 10f), -Vector3.UnitZ)?.GameObject.Name);
+            Assert.Null(Picking.Pick(Scene.Active, new Vector3(3f, 0f, 10f), -Vector3.UnitZ));
+        }
     }
 }

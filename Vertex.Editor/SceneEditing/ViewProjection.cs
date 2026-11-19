@@ -46,6 +46,9 @@ namespace Vertex.Editor.SceneEditing
         /// <summary>How many metres one UI unit covers at <paramref name="world"/>: for handles that stay the same size on screen however far away.</summary>
         public float MetresPerUnit(Vector3 world)
         {
+            // Without perspective, the same everywhere.
+            if (Camera.Camera.Projection == Rendering.CameraProjection.Orthographic) return 2f * Camera.Camera.OrthographicSize / MathF.Max(Viewport.Height, 1f);
+
             float depth = MathF.Max(Vector3.Dot(world - Camera.Position, Camera.Forward), 0.01f);
             return 2f * depth * MathF.Tan(Camera.Camera.FieldOfView * MathF.PI / 360f) / MathF.Max(Viewport.Height, 1f);
         }
