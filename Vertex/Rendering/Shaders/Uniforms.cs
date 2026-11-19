@@ -29,11 +29,20 @@ namespace Vertex.Rendering.Shaders
         public Vector4 SunDirection;
         public Vector4 SunColor;
         public Vector4 ClearColor;
-        public int DirectionalCount, PointCount, Unused0, Unused1;
+        public int DirectionalCount, PointCount, FogVolumeCount, Unused1;
         public Vectors4 DirectionalDirection;
         public Vectors4 DirectionalColor;
-        public Vectors8 PointPositionRange;
-        public Vectors8 PointColor;
+        public LightVectors PointPositionRange;
+        public LightVectors PointColor;
+        public LightVectors PointSpot;
+        public Matrix4x4 PreviousViewProjection;
+        public Vector4 FogShape;
+        public Vector4 FogColor;
+        public Vector4 FogReach;
+        public Vector4 FogWind;
+        public Vector4 FogGrid;
+        public FogMatrices FogBoxes;
+        public FogVectors FogBoxParams;
 
         /// <summary>
         /// The uniforms for <paramref name="frame"/>. <paramref name="cascades"/> are where the shadow maps were drawn, or
@@ -116,7 +125,7 @@ namespace Vertex.Rendering.Shaders
                 if (atmosphere && i == sunIndex) color *= Atmosphere.SunlightTint(sun.Y);
 
                 data.DirectionalDirection[i] = new Vector4(light.Direction, 0f);
-                data.DirectionalColor[i] = new Vector4(color, 1f);
+                data.DirectionalColor[i] = new Vector4(color, light.FogStrength);
             }
 
             data.PointCount = Math.Min(frame.PointLights.Count, ShaderLibrary.MaxPointLights);
@@ -124,11 +133,46 @@ namespace Vertex.Rendering.Shaders
             {
                 PointLightData light = frame.PointLights[i];
                 data.PointPositionRange[i] = new Vector4(light.Position, light.Range);
-                data.PointColor[i] = new Vector4(light.Color.R, light.Color.G, light.Color.B, 1f);
+                data.PointColor[i] = new Vector4(light.Color.R, light.Color.G, light.Color.B, light.FogStrength);
+
+                // The cone packed so the shader needs one dot product: see ShaderLibrary's pointLight.
+                if (light.IsSpot)
+                {
+                    float scale = 1f / MathF.Max(light.SpotInner - light.SpotOuter, 1e-4f);
+                    data.PointSpot[i] = new Vector4(Vector3.Normalize(light.Direction) * scale, -light.SpotOuter * scale);
+                }
+                else
+                {
+                    data.PointSpot[i] = new Vector4(0f, 0f, 0f, 1f);
+                }
+            }
+
+            // Volumetric fog. Not for orthographic cameras, for the same reason as the fog above. Where it was last
+            // frame, and how much of that to keep, are the backend's to fill in (see VolumetricFog).
+            if (environment.VolumetricFog && !orthographic)
+            {
+                data.FogShape = new Vector4(environment.VolumetricDensity, environment.VolumetricHeight, environment.VolumetricFalloff, environment.VolumetricNoise);
+                data.FogColor = Linear(environment.VolumetricColor, environment.VolumetricForwardScattering);
+                data.FogReach = new Vector4(environment.VolumetricDistance, environment.VolumetricAmbient, 1f, 0f);
+
+                // How far the wind has carried the fog, wrapped where the noise repeats so it stays precise.
+                Vector3 carried = environment.VolumetricWind * frame.Time;
+                const float repeat = CloudNoise.Period / 0.09f * 10f;
+                data.FogWind = new Vector4(Wrap(carried.X, repeat), Wrap(carried.Y, repeat), Wrap(carried.Z, repeat), 0f);
+
+                data.FogVolumeCount = Math.Min(frame.FogVolumes.Count, ShaderLibrary.MaxFogVolumes);
+                for (int i = 0; i < data.FogVolumeCount; i++)
+                {
+                    FogVolumeData volume = frame.FogVolumes[i];
+                    data.FogBoxes[i] = volume.WorldToBox;
+                    data.FogBoxParams[i] = new Vector4(volume.Density, volume.Softness, 0f, 0f);
+                }
             }
 
             return data;
         }
+
+        private static float Wrap(float value, float period) => value - MathF.Floor(value / period) * period;
 
         public static Vector3 ToLinear(Color color) =>
             new(MathF.Pow(MathF.Max(color.R, 0f), 2.2f), MathF.Pow(MathF.Max(color.G, 0f), 2.2f), MathF.Pow(MathF.Max(color.B, 0f), 2.2f));
@@ -143,7 +187,13 @@ namespace Vertex.Rendering.Shaders
     internal struct Vectors4 { private Vector4 _first; }
 
     [InlineArray(ShaderLibrary.MaxPointLights)]
-    internal struct Vectors8 { private Vector4 _first; }
+    internal struct LightVectors { private Vector4 _first; }
+
+    [InlineArray(ShaderLibrary.MaxFogVolumes)]
+    internal struct FogMatrices { private Matrix4x4 _first; }
+
+    [InlineArray(ShaderLibrary.MaxFogVolumes)]
+    internal struct FogVectors { private Vector4 _first; }
 
     /// <summary>A material as <see cref="ShaderLibrary.Material"/>'s MaterialData has it.</summary>
     [StructLayout(LayoutKind.Sequential)]

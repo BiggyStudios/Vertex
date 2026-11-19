@@ -27,6 +27,11 @@ namespace Vertex.Tests
             public List<DrawCall> LastDraws = new();
             public List<List<DrawCall>> LastShadowCasters = new();
 
+            /// <summary>The point and spot lights and fog volumes in the last frame, and the shaders' data made from it.</summary>
+            public List<PointLightData> LastPointLights = new();
+            public List<FogVolumeData> LastFogVolumes = new();
+            internal Rendering.Shaders.FrameUniforms LastUniforms;
+
             public string Name => "Recording";
             public bool SupportsGpuParticles => GpuParticles;
             public WindowOptions ConfigureWindow(WindowOptions options) => options;
@@ -44,6 +49,9 @@ namespace Vertex.Tests
                 LastParticles = frame.Particles.ToList();
                 LastWorldQuads = frame.WorldQuads.ToList();
                 LastDraws = frame.DrawCalls.ToList();
+                LastPointLights = frame.PointLights.ToList();
+                LastFogVolumes = frame.FogVolumes.ToList();
+                if (frame.HasCamera) LastUniforms = Rendering.Shaders.FrameUniforms.Create(frame, frame.HasShadows ? frame.Cascades : null);
                 LastShadowCasters = frame.HasShadows
                     ? Enumerable.Range(0, Rendering.Shaders.ShadowCascades.Count).Select(i => frame.ShadowCasters(i).ToList()).ToList()
                     : new List<List<DrawCall>>();

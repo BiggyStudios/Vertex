@@ -92,5 +92,54 @@ namespace Vertex.Rendering
 
         /// <summary>Draw the sky. Off, the screen is cleared to the camera's ClearColor, and fog fades into that instead.</summary>
         public bool DrawSky { get; set; } = true;
+
+        /// <summary>
+        /// Fog that light shines through: lights glow in it, spot lights show their cones, and the sun casts shafts of
+        /// light through gaps, with shadows falling through it. Worked out near the camera (see
+        /// <see cref="VolumetricDistance"/>); further off, things fade into the sky as <see cref="FogDensity"/> has them.
+        /// It covers particles, sprites and the sky as well as surfaces. Leave it off for scenes that don't need it: it
+        /// takes a little time each frame.
+        /// </summary>
+        [Header("Volumetric Fog")]
+        public bool VolumetricFog { get; set; }
+
+        /// <summary>
+        /// How thick the fog is. At 0.02, half the light from something 35 units away is lost on the way; at 0.1, half
+        /// is gone in 7. See <see cref="FogVolume"/> for thicker or clearer places.
+        /// </summary>
+        public float VolumetricDensity { get; set; } = 0.02f;
+
+        /// <summary>The fog's own colour: white takes on the colours of the lights in it, a tint colours all of them.</summary>
+        public Color VolumetricColor { get; set; } = new(0.92f, 0.94f, 1f);
+
+        /// <summary>The height up to which the fog is at its full thickness. Above it, it thins (see <see cref="VolumetricFalloff"/>).</summary>
+        public float VolumetricHeight { get; set; }
+
+        /// <summary>How quickly the fog thins above <see cref="VolumetricHeight"/>: at 0.1, a tenth as thick 23 units up. 0 is just as thick all the way up.</summary>
+        public float VolumetricFalloff { get; set; } = 0.08f;
+
+        /// <summary>How patchy the fog is, from 0 (even all through) to 1 (wisps and clear gaps).</summary>
+        [Range(0f, 1f)]
+        public float VolumetricNoise { get; set; } = 0.5f;
+
+        /// <summary>Which way, and how fast in units a second, the patches drift.</summary>
+        public System.Numerics.Vector3 VolumetricWind { get; set; } = new(0.6f, 0f, 0.25f);
+
+        /// <summary>
+        /// How much more light the fog sends on in the direction it was going than back the way it came, from 0 (the
+        /// same every way) to just under 1. Higher makes bright halos round lights seen through the fog, and the sun's
+        /// shafts strongest looking towards it.
+        /// </summary>
+        [Range(0f, 0.95f)]
+        public float VolumetricForwardScattering { get; set; } = 0.6f;
+
+        /// <summary>
+        /// How strongly the light from the sky (see <see cref="AmbientIntensity"/>) lights the fog, as well as the scene's
+        /// Lights. 0 leaves it dark but for them, for night scenes lit by lamps.
+        /// </summary>
+        public float VolumetricAmbient { get; set; } = 1f;
+
+        /// <summary>How far from the camera the fog is worked out. Nearer is sharper, as it's worked out in the same number of steps.</summary>
+        public float VolumetricDistance { get; set; } = 80f;
     }
 }

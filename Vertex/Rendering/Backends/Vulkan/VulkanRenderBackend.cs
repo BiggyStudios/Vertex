@@ -85,8 +85,9 @@ namespace Vertex.Rendering.Vulkan
         private PipelineLayout _canvasLayout;
         private PipelineLayout _spriteLayout;
         private PipelineLayout _postLayout;
+        private PipelineLayout _fogLayout;
 
-        private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites;
+        private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites, _fogLight, _fogTotal;
         private Pipeline _bloomDown, _bloomUp, _occlusion, _occlusionBlur;
         private Pipeline _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture;
         private readonly List<ShaderModule> _shaders = new();
@@ -104,6 +105,10 @@ namespace Vertex.Rendering.Vulkan
         private VkViewTargets _screenViews = null!;
         private VkGpuParticles _gpuParticlePool = null!;
         private VkTexture _white = null!;
+
+        // Stands in for the volumetric fog where a view has none, or while it's being worked out (the shaders don't look
+        // at it then, but every image they could read has to be there).
+        private VkImageResource _noFog = null!;
 
         private readonly ConditionalWeakTable<Mesh, VkMesh> _meshes = new();
         private readonly ConditionalWeakTable<Texture, VkTexture> _textures = new();
@@ -182,6 +187,8 @@ namespace Vertex.Rendering.Vulkan
             // maps start fully lit, so they're ready to be read before anything's drawn into them.
             _white = new VkTexture(_context.CreateImage(1, 1, Format.R8G8B8A8Unorm,
                 ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.TransferSrcBit), 0);
+            // Two layers, so it's viewed as an array, as the shaders read the fog.
+            _noFog = _context.CreateImage(1, 1, Format.R8G8B8A8Unorm, ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit, layers: 2);
             _context.RunNow(commands =>
             {
                 Upload(commands, _white.Image, [255, 255, 255, 255], deleteLater: null);
@@ -192,6 +199,13 @@ namespace Vertex.Rendering.Vulkan
                 ImageSubresourceRange range = new(ImageAspectFlags.DepthBit, 0, 1, 0, shadows.Layers);
                 _context.Vk.CmdClearDepthStencilImage(commands, shadows.Image, ImageLayout.TransferDstOptimal, &clear, 1, &range);
                 _context.Transition(commands, shadows, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
+
+                // No fog: nothing added, everything shows through.
+                _context.Transition(commands, _noFog, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
+                ClearColorValue clearFog = new(0f, 0f, 0f, 1f);
+                ImageSubresourceRange fogRange = new(ImageAspectFlags.ColorBit, 0, 1, 0, _noFog.Layers);
+                _context.Vk.CmdClearColorImage(commands, _noFog.Image, ImageLayout.TransferDstOptimal, &clearFog, 1, &fogRange);
+                _context.Transition(commands, _noFog, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
             });
 
             Log.Info($"Rendering with Vulkan on {_context.DeviceName}.");
@@ -204,6 +218,7 @@ namespace Vertex.Rendering.Vulkan
 
             _frameSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, vertexAndFragment),
+                (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
@@ -223,6 +238,7 @@ namespace Vertex.Rendering.Vulkan
             _canvasLayout = VkDescriptors.CreatePipelineLayout(_context, [_textureSetLayout], (uint)sizeof(Vector2), ShaderStageFlags.VertexBit);
             _spriteLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], 0, 0);
             _postLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout], (uint)sizeof(PostUniforms), fragment);
+            _fogLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], (uint)sizeof(Vector4), fragment);
         }
 
         /// <summary>One of the shared shaders, built for Vulkan.</summary>
@@ -404,6 +420,25 @@ namespace Vertex.Rendering.Vulkan
                     ColorFormats = [format]
                 });
 
+            // The volumetric fog's passes, each drawing several slices at once (see ShaderLibrary.FogLightFragment).
+            ShaderModule fogLight = Shader("foglight.frag", fragment, ShaderLibrary.FogLightFragment);
+            ShaderModule fogTotal = Shader("fogtotal.frag", fragment, ShaderLibrary.FogTotalFragment);
+            Format[] fogFormats = Enumerable.Repeat(VkViewTargets.FogFormat, ShaderLibrary.FogSlicesPerPass).ToArray();
+            _fogLight = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+            {
+                Layout = _fogLayout,
+                Vertex = fullscreen,
+                Fragment = fogLight,
+                ColorFormats = fogFormats
+            });
+            _fogTotal = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+            {
+                Layout = _fogLayout,
+                Vertex = fullscreen,
+                Fragment = fogTotal,
+                ColorFormats = fogFormats
+            });
+
             _bloomDown = Post(bloomDown, _context.LightFormat);
             _bloomUp = Post(bloomUp, _context.LightFormat, VkBlend.Additive);
             _occlusion = Post(occlusion, VkViewTargets.OcclusionFormat);
@@ -583,8 +618,31 @@ namespace Vertex.Rendering.Vulkan
                 }
 
                 FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
-                DescriptorSet frameSet = WriteFrameData(in uniforms);
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
+
+                VkImageResource fogImage = _noFog;
+                if (uniforms.FogReach.Z > 0.5f)
+                {
+                    (int fogWidth, int fogHeight) = VolumetricFog.GridSize(frame.Width, frame.Height);
+                    bool fresh = views.EnsureFog(_context, fogWidth, fogHeight, _frame.DeleteLater);
+                    if (fresh)
+                    {
+                        // Last frame's fog is read before anything's written to it (though not used): it has to be readable.
+                        foreach (VkImageResource image in new[] { views.FogLight[0]!, views.FogLight[1]!, views.FogTotal! })
+                            _context.Transition(commands, image, ImageLayout.ShaderReadOnlyOptimal, Stage.None, Stage.FragmentRead, discard: true);
+                    }
+
+                    views.Fog.Prepare(ref uniforms, frame, fogWidth, fogHeight, fresh);
+                    Mark(commands, "Volumetric fog");
+                    DrawFog(commands, views, WriteFrameData(in uniforms, _noFog));
+                    fogImage = views.FogTotal!;
+                }
+                else
+                {
+                    views.Fog.Forget();
+                }
+
+                DescriptorSet frameSet = WriteFrameData(in uniforms, fogImage);
                 Mark(commands, "Scene");
                 DrawScene(commands, frame, views, frameSet, in uniforms);
 
@@ -954,14 +1012,53 @@ namespace Vertex.Rendering.Vulkan
             _context.Vk.CmdBindIndexBuffer(commands, buffer, mesh.IndexOffset, IndexType.Uint32);
         }
 
-        private DescriptorSet WriteFrameData(in FrameUniforms data)
+        private DescriptorSet WriteFrameData(in FrameUniforms data, VkImageResource fog)
         {
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write(in data);
             DescriptorSet set = _frame.Descriptors.Allocate(_frameSetLayout);
             VkDescriptors.WriteBuffer(_context, set, 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)sizeof(FrameUniforms));
             VkDescriptors.WriteImage(_context, set, 1, _shadowMaps.Array.View, _shadowSampler);
             VkDescriptors.WriteImage(_context, set, 2, TextureImage(CloudNoise.Texture).View, _repeatSampler);
+            VkDescriptors.WriteImage(_context, set, 3, fog.View, _clampSampler);
             return set;
+        }
+
+        /// <summary>
+        /// The volumetric fog over the view (see <see cref="ShaderLibrary.FogLightFragment"/>): the lit fog in each cell,
+        /// carried on from last frame's, then added up from the camera out, a few slices a pass.
+        /// </summary>
+        private void DrawFog(CommandBuffer commands, VkViewTargets views, DescriptorSet frameSet)
+        {
+            int current = views.Fog.Current;
+            RunFogPasses(commands, _fogLight, views.FogLight[current]!, views.FogLightLayers[current], views.FogLight[1 - current]!, frameSet);
+            RunFogPasses(commands, _fogTotal, views.FogTotal!, views.FogTotalLayers, views.FogLight[current]!, frameSet);
+        }
+
+        private void RunFogPasses(CommandBuffer commands, Pipeline pipeline, VkImageResource target, List<VkImageResource> layers,
+            VkImageResource source, DescriptorSet frameSet)
+        {
+            _context.Transition(commands, target, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
+
+            DescriptorSet sourceSet = _frame.Descriptors.Allocate(_textureSetLayout);
+            VkDescriptors.WriteImage(_context, sourceSet, 0, source.View, _clampSampler);
+
+            const int perPass = ShaderLibrary.FogSlicesPerPass;
+            var outputs = new (VkImageResource, ClearColorValue?)[perPass];
+            for (int pass = 0; pass < layers.Count / perPass; pass++)
+            {
+                for (int i = 0; i < perPass; i++) outputs[i] = (layers[pass * perPass + i], null);
+                VkPipelines.BeginRendering(_context, commands, target.Width, target.Height, outputs);
+                VkPipelines.SetViewport(_context, commands, target.Width, target.Height, flipped: false);
+                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
+                _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _fogLayout, 0, 1, &frameSet, 0, null);
+                _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _fogLayout, 1, 1, &sourceSet, 0, null);
+                var settings = new Vector4(pass * perPass, 0f, 0f, 0f);
+                _context.Vk.CmdPushConstants(commands, _fogLayout, ShaderStageFlags.FragmentBit, 0, (uint)sizeof(Vector4), &settings);
+                _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
+                _context.Vk.CmdEndRendering(commands);
+            }
+
+            _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
         }
 
         private DescriptorSet MaterialSet(Material material)
@@ -1374,16 +1471,17 @@ namespace Vertex.Rendering.Vulkan
             _screenViews.Release(delete => delete());
             _shadowMaps.Destroy(_context);
             _white.Image.Destroy(_context);
+            _noFog.Destroy(_context);
             _gpuParticlePool.Dispose();
 
             Pipeline[] pipelines =
             [
-                _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
+                _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites, _fogLight, _fogTotal, _bloomDown, _bloomUp, _occlusion, _occlusionBlur,
                 _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture
             ];
             foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
             foreach (ShaderModule shader in _shaders) _context.Vk.DestroyShaderModule(_context.Device, shader, null);
-            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _spriteLayout, _postLayout })
+            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _spriteLayout, _postLayout, _fogLayout })
                 _context.Vk.DestroyPipelineLayout(_context.Device, layout, null);
             foreach (DescriptorSetLayout layout in new[] { _frameSetLayout, _materialSetLayout, _textureSetLayout, _postSetLayout })
                 _context.Vk.DestroyDescriptorSetLayout(_context.Device, layout, null);

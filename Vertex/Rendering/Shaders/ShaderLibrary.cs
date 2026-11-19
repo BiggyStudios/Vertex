@@ -22,8 +22,15 @@ namespace Vertex.Rendering.Shaders
     internal static class ShaderLibrary
     {
         public const int MaxDirectionalLights = 4;
-        public const int MaxPointLights = 8;
+        public const int MaxPointLights = 64;
         public const int MaxCascades = 4;
+        public const int MaxFogVolumes = 8;
+
+        /// <summary>How many slices deep the volumetric fog is worked out in (see <see cref="FogLightFragment"/>).</summary>
+        public const int FogSlices = 64;
+
+        /// <summary>How many of the fog's slices each fog pass draws at once, one into each of its outputs.</summary>
+        public const int FogSlicesPerPass = 8;
 
         /// <summary>
         /// How much of a canvas pixel a quad covers, 0 to 1: its rounded-rectangle shape (a smooth edge, so curves don't
@@ -132,14 +139,26 @@ namespace Vertex.Rendering.Shaders
                 vec4 sunDirection;      // towards the sun; w: 1 if there is one
                 vec4 sunColor;          // w: how bright the atmosphere is for it
                 vec4 clearColor;        // what's behind everything with no sky
-                ivec4 lightCounts;      // x: directional, y: point
+                ivec4 lightCounts;      // x: directional, y: point and spot, z: fog volumes
                 vec4 directionalDirection[4];
-                vec4 directionalColor[4];
-                vec4 pointPositionRange[8];
-                vec4 pointColor[8];
+                vec4 directionalColor[4];   // w: how brightly it shows in volumetric fog
+                vec4 pointPositionRange[64];
+                vec4 pointColor[64];    // w: how brightly it shows in volumetric fog
+                vec4 pointSpot[64];     // a spot light's cone: see pointLight
+                mat4 previousViewProjection;   // last frame's, for the fog to find where it was
+                vec4 fogShape;          // x: density, y: the height it thins above, z: how quickly, w: how patchy
+                vec4 fogColor;          // linear; w: forward scattering
+                vec4 fogReach;          // x: how far it's worked out, y: how much the sky lights it, z: 1 if on, w: how much of last frame's to keep
+                vec4 fogWind;           // xyz: how far the wind has carried it, w: which frame (for each to sample differently)
+                vec4 fogGrid;           // xyz: how many cells across, down and deep it's worked out in
+                mat4 fogBoxes[8];       // into each fog volume's box
+                vec4 fogBoxParams[8];   // x: its density, y: how soft its sides are
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
+
+            // The volumetric fog between the camera and each slice of the view (see FogTotalFragment).
+            TEXTURE(0, 3) sampler2DArray fogVolume;
 
             const float PI = 3.14159265;
 
@@ -235,6 +254,284 @@ namespace Vertex.Rendering.Shaders
                 return mix(frame.groundLight.rgb, frame.skyLight.rgb, normal.y * 0.5 + 0.5);
             }
 
+            // How much of point or spot light i reaches a point, in its colour, and which way it comes from (L). It fades
+            // out over its range; a spot light's cone too, from full inside its soft edge to nothing outside it. The cone
+            // is packed as the way it shines times 1 / (cos inner - cos outer), and -cos outer times that, so it's one
+            // dot product here; a point light has 0, 0, 0, 1, which is full every way.
+            vec3 pointLight(int i, vec3 position, out vec3 L)
+            {
+                vec3 toLight = frame.pointPositionRange[i].xyz - position;
+                float range = frame.pointPositionRange[i].w;
+                float distanceSquared = dot(toLight, toLight);
+                L = toLight * inversesqrt(max(distanceSquared, 1e-8));
+                if (distanceSquared >= range * range) return vec3(0.0);
+
+                float falloff = 1.0 - sqrt(distanceSquared) / range;
+                vec4 spot = frame.pointSpot[i];
+                float cone = clamp(dot(-L, spot.xyz) + spot.w, 0.0, 1.0);
+                return frame.pointColor[i].rgb * (falloff * falloff * cone * cone);
+            }
+
+            // ---- Volumetric fog ---------------------------------------------------------------------------------
+            // What's between the camera and a point `depth` in front of it, seen through `uv` (0 to 1 across the view,
+            // as images are read): the light the fog adds there (rgb), and how much of what's behind still shows (a).
+            // Worked out over the view in slices, closer together near the camera (see FogTotalFragment); layer k
+            // holds the fog up to the far side of slice k.
+            vec4 fogBetween(vec2 uv, float depth)
+            {
+                if (frame.fogReach.z < 0.5) return vec4(0.0, 0.0, 0.0, 1.0);
+
+                float slices = frame.fogGrid.z;
+                float layer = sqrt(clamp(depth / frame.fogReach.x, 0.0, 1.0)) * slices - 1.0;
+                float below = floor(layer);
+                vec4 near = below < 0.0 ? vec4(0.0, 0.0, 0.0, 1.0) : texture(fogVolume, vec3(uv, below));
+                vec4 far = texture(fogVolume, vec3(uv, min(below + 1.0, slices - 1.0)));
+                return mix(near, far, layer - below);
+            }
+
+            vec4 fogAtPoint(vec3 position)
+            {
+                if (frame.fogReach.z < 0.5) return vec4(0.0, 0.0, 0.0, 1.0);
+
+                // With perspective, w is how far in front of the camera it is.
+                vec4 clip = frame.projection * frame.view * vec4(position, 1.0);
+                return fogBetween(NDC_TO_UV(clip.xy / clip.w), clip.w);
+            }
+
+            """;
+
+        // ---- Volumetric fog ------------------------------------------------------------------------------------------
+        // Worked out before the scene is drawn, in a grid of cells over the view (a few pixels across, and slices deep,
+        // closer together near the camera), each a layer of an image array. Two passes, each drawing several slices at
+        // once into its outputs: FogLightFragment works out how thick the fog is in each cell and how much light it
+        // sends towards the camera; FogTotalFragment adds them up from the camera outwards. The scene's shaders then
+        // look up what's in front of each thing they draw (fogBetween).
+
+        // Which slices a fog pass draws: push constants in Vulkan, a uniform struct in OpenGL.
+        public const string FogPass = """
+            #ifdef VERTEX_VULKAN
+            layout (push_constant) uniform FogPassBlock { vec4 settings; } fogPass;
+            #else
+            struct FogPassBlock { vec4 settings; };
+            uniform FogPassBlock fogPass;
+            #endif
+
+            // How far in front of the camera slice boundary t is (t from 0 to the number of slices).
+            float sliceDepth(float t)
+            {
+                float s = t / frame.fogGrid.z;
+                return frame.fogReach.x * s * s;
+            }
+
+            // Which way the view looks through uv (0 to 1 across it, as images are read).
+            vec3 rayThrough(vec2 uv)
+            {
+                vec2 ndc = UV_TO_NDC(uv);
+                vec4 near = frame.inverseViewProjection * vec4(ndc, 0.0, 1.0);
+                vec4 far = frame.inverseViewProjection * vec4(ndc, 1.0, 1.0);
+                return normalize(far.xyz / far.w - near.xyz / near.w);
+            }
+
+            VARYING(0) in vec2 vUV;
+            layout (location = 0) out vec4 Slice0;
+            layout (location = 1) out vec4 Slice1;
+            layout (location = 2) out vec4 Slice2;
+            layout (location = 3) out vec4 Slice3;
+            layout (location = 4) out vec4 Slice4;
+            layout (location = 5) out vec4 Slice5;
+            layout (location = 6) out vec4 Slice6;
+            layout (location = 7) out vec4 Slice7;
+
+            void writeSlices(vec4 results[8])
+            {
+                Slice0 = results[0]; Slice1 = results[1]; Slice2 = results[2]; Slice3 = results[3];
+                Slice4 = results[4]; Slice5 = results[5]; Slice6 = results[6]; Slice7 = results[7];
+            }
+
+            """;
+
+        // How thick the fog is in each cell and how much light it sends towards the camera (rgb: that light times the
+        // density; a: the density). Each cell samples a different point within itself every frame, and is blended with
+        // what it was last frame (found where it was in last frame's view), so over a few frames each cell becomes the
+        // average over all of it: smooth, without needing many cells.
+        public const string FogLightFragment = Frame + FogPass + """
+            TEXTURE(0, 2) sampler2D cloudNoise;
+            TEXTURE(1, 0) sampler2DArray fogHistory;
+
+            // Smooth noise in 3D from the 2D cloud noise: layers a unit apart, each shifted by a different amount,
+            // blended between.
+            float fogNoise(vec3 p)
+            {
+                float layer = floor(p.y);
+                float f = p.y - layer;
+                f = f * f * (3.0 - 2.0 * f);
+                vec2 a = p.xz + vec2(37.0, 17.0) * layer;
+                return mix(textureLod(cloudNoise, a / 64.0, 0.0).r, textureLod(cloudNoise, (a + vec2(37.0, 17.0)) / 64.0, 0.0).r, f);
+            }
+
+            float fogDensity(vec3 p)
+            {
+                // Full up to its height, thinning above it.
+                float density = frame.fogShape.x * exp(-max(p.y - frame.fogShape.y, 0.0) * frame.fogShape.z);
+
+                // Fog volumes, thicker or thinner inside, fading in from their sides.
+                for (int i = 0; i < frame.lightCounts.z; i++)
+                {
+                    vec3 local = (frame.fogBoxes[i] * vec4(p, 1.0)).xyz;
+                    vec3 inside = 0.5 - abs(local);
+                    float depthInside = min(inside.x, min(inside.y, inside.z));
+                    if (depthInside <= 0.0) continue;
+                    density += frame.fogBoxParams[i].x * smoothstep(0.0, max(frame.fogBoxParams[i].y * 0.5, 1e-3), depthInside);
+                }
+
+                // Thicker and thinner patches, drifting with the wind; at full noise, gaps of clear air between. The
+                // volumes' fog too, so their edges are broken up rather than straight.
+                float patches = 1.0;
+                if (frame.fogShape.w > 0.0)
+                {
+                    vec3 q = (p - frame.fogWind.xyz) * 0.09;
+                    float n = fogNoise(q) * 0.65 + fogNoise(q * 2.7 + vec3(11.0, 5.0, 3.0)) * 0.35;
+                    patches = mix(1.0, smoothstep(0.2, 0.8, n) * 2.0, frame.fogShape.w);
+                }
+
+                return max(density, 0.0) * patches;
+            }
+
+            // How much light carries on at an angle (cosine) from the way it was going (Henyey-Greenstein), times pi to
+            // match the scene's lights, which light a white surface facing them fully.
+            float scattering(float cosine)
+            {
+                float g = frame.fogColor.w;
+                float g2 = g * g;
+                return 0.25 * (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * g * cosine, 1e-4), 1.5);
+            }
+
+            // How much sun reaches a point in the fog: one lookup in its cascade, so its shadows fall through it.
+            float sunAt(vec3 p)
+            {
+                int cascades = int(frame.shadow.z);
+                float depth = dot(p - frame.cameraPosition.xyz, frame.cameraForward.xyz);
+                for (int i = 0; i < cascades; i++)
+                {
+                    if (depth >= frame.cascadeSplits[i]) continue;
+
+                    vec4 lightSpace = frame.shadowMatrices[i] * vec4(p, 1.0);
+                    vec3 s = lightSpace.xyz / lightSpace.w;
+                    vec2 uv = NDC_TO_UV(s.xy);
+                    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || s.z >= 1.0) return 1.0;
+                    return texture(shadowMap, vec4(uv, float(i), STORED_DEPTH(s.z) - 0.0005));
+                }
+                return 1.0;
+            }
+
+            vec3 lightAt(vec3 p, vec3 view)
+            {
+                vec3 light = frame.skyLight.rgb * frame.skyLight.w * frame.fogReach.y;
+
+                int shadowLight = int(frame.shadow.y);
+                for (int i = 0; i < frame.lightCounts.x; i++)
+                {
+                    vec3 L = normalize(-frame.directionalDirection[i].xyz);
+                    vec3 color = frame.directionalColor[i].rgb * (frame.directionalColor[i].w * scattering(dot(L, view)));
+                    if (i == shadowLight) color *= sunAt(p);
+                    light += color;
+                }
+
+                for (int i = 0; i < frame.lightCounts.y; i++)
+                {
+                    if (frame.pointColor[i].w <= 0.0) continue;
+                    vec3 L;
+                    vec3 color = pointLight(i, p, L);
+                    light += color * (frame.pointColor[i].w * scattering(dot(L, view)));
+                }
+
+                return light;
+            }
+
+            void main()
+            {
+                vec2 grid = frame.fogGrid.xy;
+                float slices = frame.fogGrid.z;
+                vec2 cell = floor(gl_FragCoord.xy);
+                vec3 eye = frame.cameraPosition.xyz;
+                vec3 forward = frame.cameraForward.xyz;
+
+                // Where in the cell to sample this frame: a different spot each frame (an R3 sequence), and each cell
+                // starting at a different place in it (interleaved gradient noise), so neighbours don't move together.
+                float start = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+                vec3 jitter = fract(vec3(0.8191725, 0.6710436, 0.5497005) * frame.fogWind.w + start);
+
+                vec3 view = rayThrough((cell + jitter.xy) / grid);
+                float along = 1.0 / max(dot(view, forward), 1e-4);
+                vec3 middle = rayThrough((cell + 0.5) / grid);
+                float middleAlong = 1.0 / max(dot(middle, forward), 1e-4);
+
+                vec4 results[8];
+                for (int s = 0; s < 8; s++)
+                {
+                    float slice = fogPass.settings.x + float(s);
+                    vec3 p = eye + view * (sliceDepth(slice + jitter.z) * along);
+                    float density = fogDensity(p);
+                    vec3 light = density > 0.0 ? lightAt(p, view) : vec3(0.0);
+                    vec4 cellNow = vec4(light * frame.fogColor.rgb * density, density);
+
+                    // What this cell's middle was last frame, where it was then: kept mostly, so the samples add up.
+                    float keep = frame.fogReach.w;
+                    if (keep > 0.0)
+                    {
+                        vec4 before = frame.previousViewProjection * vec4(eye + middle * (sliceDepth(slice + 0.5) * middleAlong), 1.0);
+                        if (before.w > 1e-4)
+                        {
+                            vec2 uv = NDC_TO_UV(before.xy / before.w);
+                            float layer = sqrt(clamp(before.w / frame.fogReach.x, 0.0, 1.0)) * slices - 0.5;
+                            if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))) && layer <= slices - 0.5)
+                            {
+                                layer = max(layer, 0.0);
+                                float below = floor(layer);
+                                vec4 then = mix(texture(fogHistory, vec3(uv, below)),
+                                                texture(fogHistory, vec3(uv, min(below + 1.0, slices - 1.0))), layer - below);
+                                cellNow = mix(cellNow, then, keep);
+                            }
+                        }
+                    }
+
+                    results[s] = cellNow;
+                }
+
+                writeSlices(results);
+            }
+            """;
+
+        // The fog from the camera out to the far side of each slice: the light it adds (rgb), and how much of what's
+        // behind still shows through (a). Each pass adds up every slice from the camera to its last.
+        public const string FogTotalFragment = Frame + FogPass + """
+            TEXTURE(1, 0) sampler2DArray fogLight;
+
+            void main()
+            {
+                ivec2 cell = ivec2(gl_FragCoord.xy);
+                // How much longer the view's path is through each slice than the slice is deep, looking this way.
+                float along = 1.0 / max(dot(rayThrough((vec2(cell) + 0.5) / frame.fogGrid.xy), frame.cameraForward.xyz), 1e-4);
+
+                int first = int(fogPass.settings.x + 0.5);
+                vec3 light = vec3(0.0);
+                float through = 1.0;
+                vec4 results[8];
+                for (int k = 0; k < first + 8; k++)
+                {
+                    vec4 s = texelFetch(fogLight, ivec3(cell, k), 0);
+                    float extinction = max(s.a, 1e-6);
+                    float span = (sliceDepth(float(k + 1)) - sliceDepth(float(k))) * along;
+                    float kept = exp(-extinction * span);
+
+                    // The light the slice sends on, less what the slice itself takes out of it on the way (Hillaire's).
+                    light += through * s.rgb * (1.0 - kept) / extinction;
+                    through *= kept;
+                    if (k >= first) results[k - first] = vec4(light, through);
+                }
+
+                writeSlices(results);
+            }
             """;
 
         // A surface's look. Matches MaterialUniforms.
@@ -483,10 +780,9 @@ namespace Vertex.Rendering.Shaders
 
                 for (int i = 0; i < frame.lightCounts.y; i++)
                 {
-                    vec3 toLight = frame.pointPositionRange[i].xyz - vWorldPosition;
-                    float lightDistance = length(toLight);
-                    float falloff = clamp(1.0 - lightDistance / frame.pointPositionRange[i].w, 0.0, 1.0);
-                    addLight(N, V, toLight / max(lightDistance, 1e-4), frame.pointColor[i].rgb * falloff * falloff, F0, roughness);
+                    vec3 L;
+                    vec3 color = pointLight(i, vWorldPosition, L);
+                    if (color.r + color.g + color.b > 0.0) addLight(N, V, L, color, F0, roughness);
                 }
 
                 // Light from all around, and the sky reflected: sharply in smooth surfaces, blurred to the average
@@ -501,11 +797,13 @@ namespace Vertex.Rendering.Shaders
                 vec3 emission = material.emission.rgb;
                 vec3 color = diffuseColor * diffuseLight + specularLight + ambient + emission;
 
-                // Fades into the sky with distance. Done last, so far-off things match the sky behind them.
+                // Fades into the sky with distance. Done last, so far-off things match the sky behind them. Then the
+                // volumetric fog in front of it, if there is any: what it hides, and the light it adds.
                 float fog = fogAmount(distance);
-                FragColor = vec4(mix(color, fogColor(-V), fog), 1.0);
-                AmbientColor = vec4(ambient * (1.0 - fog), 1.0);
-                GlowColor = vec4(emission * GLOW_STRENGTH * (1.0 - fog), 1.0);
+                vec4 haze = fogAtPoint(vWorldPosition);
+                FragColor = vec4(mix(color, fogColor(-V), fog) * haze.a + haze.rgb, 1.0);
+                AmbientColor = vec4(ambient * ((1.0 - fog) * haze.a), 1.0);
+                GlowColor = vec4(emission * (GLOW_STRENGTH * (1.0 - fog) * haze.a), 1.0);
             }
             """;
 
@@ -530,9 +828,10 @@ namespace Vertex.Rendering.Shaders
                 vec3 toCamera = frame.cameraPosition.xyz - vWorldPosition;
                 float distance = length(toCamera);
                 float fog = fogAmount(distance);
-                FragColor = vec4(mix(color, fogColor(-toCamera / max(distance, 1e-4)), fog), 1.0);
+                vec4 haze = fogAtPoint(vWorldPosition);
+                FragColor = vec4(mix(color, fogColor(-toCamera / max(distance, 1e-4)), fog) * haze.a + haze.rgb, 1.0);
                 AmbientColor = vec4(0.0, 0.0, 0.0, 1.0);
-                GlowColor = vec4(material.emission.rgb * GLOW_STRENGTH * (1.0 - fog), 1.0);
+                GlowColor = vec4(material.emission.rgb * (GLOW_STRENGTH * (1.0 - fog) * haze.a), 1.0);
             }
             """;
 
@@ -649,7 +948,9 @@ namespace Vertex.Rendering.Shaders
 
                 color = addClouds(color, direction);
 
-                FragColor = vec4(color, 1.0);
+                // Seen through all of the volumetric fog.
+                vec4 haze = fogBetween(NDC_TO_UV(vScreen), 1e9);
+                FragColor = vec4(color * haze.a + haze.rgb, 1.0);
                 AmbientColor = vec4(0.0, 0.0, 0.0, 1.0);
                 GlowColor = vec4(0.0, 0.0, 0.0, 1.0);
             }
@@ -818,9 +1119,12 @@ namespace Vertex.Rendering.Shaders
                 vec3 linearColor = toLinear(vColor.rgb);
                 vec3 color = mix(linearColor, fogColor(-vToCamera / max(distance, 1e-4)), fog * (1.0 - vAdditive)) * mix(1.0, 1.0 - fog, vAdditive);
 
-                FragColor = vec4(color * alpha, covers);
+                // Volumetric fog in front: it hides some of the particle, and adds its own light where the particle
+                // covers what's behind (which already has the fog in front of it).
+                vec4 haze = fogAtPoint(frame.cameraPosition.xyz - vToCamera);
+                FragColor = vec4(color * alpha * haze.a + haze.rgb * covers, covers);
                 AmbientColor = vec4(0.0, 0.0, 0.0, covers);
-                GlowColor = vec4(linearColor * vGlow * alpha * (1.0 - fog), covers);
+                GlowColor = vec4(linearColor * (vGlow * alpha * (1.0 - fog) * haze.a), covers);
             }
             """;
 
@@ -875,7 +1179,8 @@ namespace Vertex.Rendering.Shaders
                 float fog = fogAmount(distance);
                 color = mix(color, fogColor(-vToCamera / max(distance, 1e-4)), fog);
 
-                FragColor = vec4(color * alpha, alpha);
+                vec4 haze = fogAtPoint(frame.cameraPosition.xyz - vToCamera);
+                FragColor = vec4((color * haze.a + haze.rgb) * alpha, alpha);
                 AmbientColor = vec4(0.0, 0.0, 0.0, alpha);
                 GlowColor = vec4(0.0, 0.0, 0.0, alpha);
             }

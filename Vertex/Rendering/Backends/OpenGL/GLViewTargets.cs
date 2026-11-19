@@ -39,6 +39,22 @@ namespace Vertex.Rendering.OpenGL
         public int Width { get; private set; }
         public int Height { get; private set; }
 
+        /// <summary>
+        /// The volumetric fog's images, made the first time the view has fog: its lit fog, twice (this frame's and last
+        /// frame's, taking turns), and the fog added up from the camera. Each is a layer per slice, with a framebuffer
+        /// for each pass's worth of slices.
+        /// </summary>
+        public uint[] FogLight { get; } = new uint[2];
+        public uint FogTotal { get; private set; }
+        public uint[][] FogLightFramebuffers { get; } = new uint[2][];
+        public uint[] FogTotalFramebuffers { get; private set; } = [];
+        public int FogWidth { get; private set; }
+        public int FogHeight { get; private set; }
+        public Shaders.VolumetricFog Fog { get; } = new();
+
+        private readonly List<uint> _fogTextures = new();
+        private readonly List<uint> _fogFramebuffers = new();
+
         public GLViewTargets(GL gl)
         {
             _gl = gl;
@@ -88,6 +104,79 @@ namespace Vertex.Rendering.OpenGL
             }
 
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        }
+
+        /// <summary>Makes the fog's images <paramref name="width"/> by <paramref name="height"/> cells. True if they were just made.</summary>
+        public bool EnsureFog(int width, int height)
+        {
+            if (width == FogWidth && height == FogHeight && FogTotal != 0) return false;
+
+            DeleteFog();
+            FogWidth = width;
+            FogHeight = height;
+            for (int i = 0; i < 2; i++)
+            {
+                FogLight[i] = CreateFogTexture(width, height);
+                FogLightFramebuffers[i] = CreateFogFramebuffers(FogLight[i]);
+            }
+
+            FogTotal = CreateFogTexture(width, height);
+            FogTotalFramebuffers = CreateFogFramebuffers(FogTotal);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            return true;
+        }
+
+        private uint CreateFogTexture(int width, int height)
+        {
+            uint texture = _gl.GenTexture();
+            _gl.ActiveTexture(TextureUnit.Texture0);
+            _gl.BindTexture(TextureTarget.Texture2DArray, texture);
+            _gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.Rgba16f, (uint)width, (uint)height, Shaders.ShaderLibrary.FogSlices, 0,
+                PixelFormat.Rgba, PixelType.Float, null);
+            _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+            _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            _gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+            _gl.BindTexture(TextureTarget.Texture2DArray, 0);
+            _fogTextures.Add(texture);
+            return texture;
+        }
+
+        // One framebuffer per pass, drawing into that pass's slices, one layer for each output.
+        private uint[] CreateFogFramebuffers(uint texture)
+        {
+            const int perPass = Shaders.ShaderLibrary.FogSlicesPerPass;
+            var framebuffers = new uint[Shaders.ShaderLibrary.FogSlices / perPass];
+            GLEnum* buffers = stackalloc GLEnum[perPass];
+            for (int pass = 0; pass < framebuffers.Length; pass++)
+            {
+                uint framebuffer = _gl.GenFramebuffer();
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                for (int i = 0; i < perPass; i++)
+                {
+                    _gl.FramebufferTextureLayer(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0 + i, texture, 0, pass * perPass + i);
+                    buffers[i] = GLEnum.ColorAttachment0 + i;
+                }
+                _gl.DrawBuffers((uint)perPass, buffers);
+
+                GLEnum status = _gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+                if (status != GLEnum.FramebufferComplete) throw new InvalidOperationException($"Fog framebuffer is incomplete: {status}");
+
+                framebuffers[pass] = framebuffer;
+                _fogFramebuffers.Add(framebuffer);
+            }
+
+            return framebuffers;
+        }
+
+        private void DeleteFog()
+        {
+            foreach (uint framebuffer in _fogFramebuffers) _gl.DeleteFramebuffer(framebuffer);
+            foreach (uint texture in _fogTextures) _gl.DeleteTexture(texture);
+            _fogFramebuffers.Clear();
+            _fogTextures.Clear();
+            FogTotal = 0;
+            FogWidth = FogHeight = 0;
         }
 
         private uint CreateTexture(int width, int height, InternalFormat format, PixelFormat pixelFormat, PixelType type, bool nearest = false)
@@ -142,6 +231,10 @@ namespace Vertex.Rendering.OpenGL
             Width = Height = 0;
         }
 
-        public void Dispose() => Delete();
+        public void Dispose()
+        {
+            Delete();
+            DeleteFog();
+        }
     }
 }

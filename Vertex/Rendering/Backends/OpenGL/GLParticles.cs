@@ -25,6 +25,7 @@ namespace Vertex.Rendering.OpenGL
             _gl = gl;
             _shader = GLShader.FromLibrary(gl, ShaderLibrary.ParticleVertex, ShaderLibrary.ParticleFragment);
             _shader.BindBlock("FrameData", 0);
+            _shader.SetSamplers(("fogVolume", GLRenderBackend.FogUnit));
 
             _vao = gl.GenVertexArray();
             gl.BindVertexArray(_vao);

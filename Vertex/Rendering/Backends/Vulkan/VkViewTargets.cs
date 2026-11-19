@@ -16,6 +16,9 @@ namespace Vertex.Rendering.Vulkan
         /// <summary>Ambient occlusion: how open each point is, and how far away (see ShaderLibrary.OcclusionFragment).</summary>
         public const Format OcclusionFormat = Format.R16G16Sfloat;
 
+        /// <summary>The volumetric fog's cells: light (rgb) and density or what shows through (a).</summary>
+        public const Format FogFormat = Format.R16G16B16A16Sfloat;
+
         /// <summary>The finished picture: render textures, and the one anti-aliasing reads.</summary>
         public const Format OutputFormat = Format.R8G8B8A8Unorm;
 
@@ -34,6 +37,17 @@ namespace Vertex.Rendering.Vulkan
         public List<VkImageResource> BloomLevels { get; } = new();
         public int Width { get; private set; }
         public int Height { get; private set; }
+
+        /// <summary>
+        /// The volumetric fog's images, made the first time the view has fog: its lit fog, twice (this frame's and last
+        /// frame's, taking turns), and the fog added up from the camera. Each is a layer per slice, with a view of each
+        /// layer to draw into.
+        /// </summary>
+        public VkImageResource?[] FogLight { get; } = new VkImageResource?[2];
+        public VkImageResource? FogTotal { get; private set; }
+        public List<VkImageResource>[] FogLightLayers { get; } = [new(), new()];
+        public List<VkImageResource> FogTotalLayers { get; } = new();
+        public Shaders.VolumetricFog Fog { get; } = new();
 
         public VkViewTargets(VkContext context)
         {
@@ -71,8 +85,49 @@ namespace Vertex.Rendering.Vulkan
             }
         }
 
+        /// <summary>
+        /// Makes the fog's images <paramref name="width"/> by <paramref name="height"/> cells, in no particular layout.
+        /// True if they were just made.
+        /// </summary>
+        public bool EnsureFog(VkContext context, int width, int height, Action<Action> deleteLater)
+        {
+            if (FogTotal != null && FogTotal.Width == width && FogTotal.Height == height) return false;
+
+            ReleaseFog(deleteLater);
+            for (int i = 0; i < 2; i++) FogLight[i] = CreateFogImage(context, width, height, FogLightLayers[i]);
+            FogTotal = CreateFogImage(context, width, height, FogTotalLayers);
+            return true;
+        }
+
+        private static VkImageResource CreateFogImage(VkContext context, int width, int height, List<VkImageResource> layers)
+        {
+            VkImageResource image = context.CreateImage(width, height, FogFormat, ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit,
+                layers: ShaderLibrary.FogSlices);
+            for (uint i = 0; i < ShaderLibrary.FogSlices; i++) layers.Add(context.CreateLayerView(image, i));
+            return image;
+        }
+
+        private void ReleaseFog(Action<Action> deleteLater)
+        {
+            var images = new List<VkImageResource>();
+            foreach (List<VkImageResource> layers in new[] { FogLightLayers[0], FogLightLayers[1], FogTotalLayers })
+            {
+                images.AddRange(layers);
+                layers.Clear();
+            }
+
+            foreach (VkImageResource? image in new[] { FogLight[0], FogLight[1], FogTotal })
+            {
+                if (image != null) images.Add(image);
+            }
+
+            FogLight[0] = FogLight[1] = FogTotal = null;
+            if (images.Count > 0) deleteLater(() => images.ForEach(image => image.Destroy(_context)));
+        }
+
         public void Release(Action<Action> deleteLater)
         {
+            ReleaseFog(deleteLater);
             var images = new List<VkImageResource>(BloomLevels);
             foreach (VkImageResource? image in new[] { Color, Ambient, Glow, Depth, Occlusion, OcclusionBlur, Finished })
             {

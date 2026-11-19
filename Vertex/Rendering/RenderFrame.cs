@@ -23,6 +23,16 @@ namespace Vertex.Rendering
         public float AmbientOcclusionRadius { get; init; }
         public bool AntiAliasing { get; init; }
         public float Vignette { get; init; }
+        public bool VolumetricFog { get; init; }
+        public float VolumetricDensity { get; init; }
+        public Color VolumetricColor { get; init; }
+        public float VolumetricHeight { get; init; }
+        public float VolumetricFalloff { get; init; }
+        public float VolumetricNoise { get; init; }
+        public Vector3 VolumetricWind { get; init; }
+        public float VolumetricForwardScattering { get; init; }
+        public float VolumetricAmbient { get; init; }
+        public float VolumetricDistance { get; init; }
 
         /// <summary>A snapshot of <paramref name="lighting"/>, with its settings kept in range.</summary>
         public static EnvironmentData From(Lighting lighting) => new()
@@ -41,15 +51,49 @@ namespace Vertex.Rendering
             AmbientOcclusion = Math.Clamp(lighting.AmbientOcclusion, 0f, 1f),
             AmbientOcclusionRadius = MathF.Max(lighting.AmbientOcclusionRadius, 0.01f),
             AntiAliasing = lighting.AntiAliasing,
-            Vignette = Math.Clamp(lighting.Vignette, 0f, 1f)
+            Vignette = Math.Clamp(lighting.Vignette, 0f, 1f),
+            VolumetricFog = lighting.VolumetricFog,
+            VolumetricDensity = MathF.Max(lighting.VolumetricDensity, 0f),
+            VolumetricColor = lighting.VolumetricColor,
+            VolumetricHeight = lighting.VolumetricHeight,
+            VolumetricFalloff = MathF.Max(lighting.VolumetricFalloff, 0f),
+            VolumetricNoise = Math.Clamp(lighting.VolumetricNoise, 0f, 1f),
+            VolumetricWind = lighting.VolumetricWind,
+            VolumetricForwardScattering = Math.Clamp(lighting.VolumetricForwardScattering, 0f, 0.95f),
+            VolumetricAmbient = MathF.Max(lighting.VolumetricAmbient, 0f),
+            VolumetricDistance = Math.Clamp(lighting.VolumetricDistance, 1f, 2000f)
         };
     }
 
     /// <summary>A directional light. Color already includes intensity.</summary>
-    public readonly record struct DirectionalLightData(Vector3 Direction, Color Color);
+    public readonly record struct DirectionalLightData(Vector3 Direction, Color Color)
+    {
+        /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
+        public float FogStrength { get; init; } = 1f;
+    }
 
-    /// <summary>A point light. Color already includes intensity.</summary>
-    public readonly record struct PointLightData(Vector3 Position, Color Color, float Range);
+    /// <summary>
+    /// A point or spot light. Color already includes intensity. A spot light shines along <see cref="Direction"/> in a
+    /// cone: fully inside <see cref="SpotInner"/> and not at all outside <see cref="SpotOuter"/> (the cosines of the
+    /// angles from its middle). A point light has a <see cref="SpotOuter"/> below -1, so it shines every way.
+    /// </summary>
+    public readonly record struct PointLightData(Vector3 Position, Color Color, float Range)
+    {
+        public Vector3 Direction { get; init; } = -Vector3.UnitZ;
+        public float SpotOuter { get; init; } = -2f;
+        public float SpotInner { get; init; } = -1f;
+
+        /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
+        public float FogStrength { get; init; } = 1f;
+
+        public bool IsSpot => SpotOuter >= -1f;
+    }
+
+    /// <summary>
+    /// A box of thicker or thinner volumetric fog (see <see cref="FogVolume"/>): <see cref="WorldToBox"/> takes the world
+    /// into the box, which is then from -0.5 to 0.5 on every axis.
+    /// </summary>
+    public readonly record struct FogVolumeData(Matrix4x4 WorldToBox, float Density, float Softness);
 
     /// <summary>
     /// One particle, facing the camera. Velocity is the stretch: it's drawn that much longer along that direction
@@ -176,6 +220,7 @@ namespace Vertex.Rendering
         internal readonly List<ParticleData> ParticleList = new();
         internal readonly List<CanvasQuad> CanvasQuadList = new();
         internal readonly List<WorldQuad> WorldQuadList = new();
+        internal readonly List<FogVolumeData> FogVolumeList = new();
 
         /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
         internal readonly Shaders.ShadowCascades Cascades = new();
@@ -246,7 +291,11 @@ namespace Vertex.Rendering
 
         public IReadOnlyList<DrawCall> DrawCalls => DrawCallList;
         public IReadOnlyList<DirectionalLightData> DirectionalLights => DirectionalLightList;
+        /// <summary>Point and spot lights that reach into the view: the nearest <see cref="Shaders.ShaderLibrary.MaxPointLights"/>, if there are more.</summary>
         public IReadOnlyList<PointLightData> PointLights => PointLightList;
+
+        /// <summary>Boxes of thicker or thinner volumetric fog, nearest the camera first.</summary>
+        public IReadOnlyList<FogVolumeData> FogVolumes => FogVolumeList;
 
         /// <summary>Particles, furthest from the camera first, so the nearer ones cover them.</summary>
         public IReadOnlyList<ParticleData> Particles => ParticleList;
@@ -268,6 +317,7 @@ namespace Vertex.Rendering
             ParticleList.Clear();
             CanvasQuadList.Clear();
             WorldQuadList.Clear();
+            FogVolumeList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
             Grid = false;

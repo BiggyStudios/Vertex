@@ -25,7 +25,15 @@ namespace Vertex.Rendering.OpenGL
         private const int _normalUnit = 2;
         private const int _cloudUnit = 3;
 
+        /// <summary>Where the scene's shaders find the volumetric fog in front of what they draw.</summary>
+        internal const int FogUnit = 5;
+
+        // Where the fog passes find what the other pass (or last frame) made.
+        private const int _fogSourceUnit = 6;
+
         private GL _gl = null!;
+        private GLShader _fogLight = null!;
+        private GLShader _fogTotal = null!;
         private GLShader _litShader = null!;
         private GLShader _unlitShader = null!;
         private GLShader _skyShader = null!;
@@ -120,6 +128,8 @@ namespace Vertex.Rendering.OpenGL
             _skyShader = SceneShader(ShaderLibrary.SkyVertex, ShaderLibrary.SkyFragment);
             _gridShader = SceneShader(ShaderLibrary.GridVertex, ShaderLibrary.GridFragment);
             _shadowShader = GLShader.FromLibrary(_gl, ShaderLibrary.ShadowVertex, ShaderLibrary.EmptyFragment);
+            _fogLight = FogShader(ShaderLibrary.FogLightFragment);
+            _fogTotal = FogShader(ShaderLibrary.FogTotalFragment);
 
             _bloomDown = PostShader(ShaderLibrary.BloomDownsampleFragment);
             _bloomUp = PostShader(ShaderLibrary.BloomUpsampleFragment);
@@ -148,7 +158,16 @@ namespace Vertex.Rendering.OpenGL
             GLShader shader = GLShader.FromLibrary(_gl, vertex, fragment);
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
-            shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit));
+            shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
+                ("fogVolume", FogUnit));
+            return shader;
+        }
+
+        private GLShader FogShader(string fragment)
+        {
+            GLShader shader = GLShader.FromLibrary(_gl, ShaderLibrary.FullscreenVertex, fragment);
+            shader.BindBlock("FrameData", _frameBinding);
+            shader.SetSamplers(("shadowMap", _shadowUnit), ("cloudNoise", _cloudUnit), ("fogHistory", _fogSourceUnit), ("fogLight", _fogSourceUnit));
             return shader;
         }
 
@@ -188,11 +207,34 @@ namespace Vertex.Rendering.OpenGL
                 }
 
                 FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
+                views.Ensure(frame.Width, frame.Height);
+
+                bool fog = uniforms.FogReach.Z > 0.5f;
+                if (fog)
+                {
+                    (int fogWidth, int fogHeight) = VolumetricFog.GridSize(frame.Width, frame.Height);
+                    bool fresh = views.EnsureFog(fogWidth, fogHeight);
+                    views.Fog.Prepare(ref uniforms, frame, fogWidth, fogHeight, fresh);
+                }
+                else
+                {
+                    views.Fog.Forget();
+                }
+
                 _gl.BindBuffer(BufferTargetARB.UniformBuffer, _frameBuffer);
                 _gl.BufferData(BufferTargetARB.UniformBuffer, (nuint)sizeof(FrameUniforms), &uniforms, BufferUsageARB.StreamDraw);
                 _gl.BindBufferBase(BufferTargetARB.UniformBuffer, _frameBinding, _frameBuffer);
 
-                views.Ensure(frame.Width, frame.Height);
+                if (fog)
+                {
+                    Mark("Volumetric fog");
+                    DrawFog(views);
+                }
+
+                // What the scene's shaders read the fog from; nothing when there's none (they don't look then).
+                _gl.ActiveTexture(TextureUnit.Texture0 + FogUnit);
+                _gl.BindTexture(TextureTarget.Texture2DArray, fog ? views.FogTotal : 0);
+
                 UploadMaterials(frame);
                 Mark("Scene");
                 DrawScene(frame, views, uniforms.ClearColor);
@@ -252,6 +294,48 @@ namespace Vertex.Rendering.OpenGL
             }
 
             _gl.CullFace(TriangleFace.Back);
+        }
+
+        /// <summary>
+        /// The volumetric fog over the view (see <see cref="ShaderLibrary.FogLightFragment"/>): the lit fog in each cell,
+        /// carried on from last frame's, then added up from the camera out, a few slices a pass.
+        /// </summary>
+        private void DrawFog(GLViewTargets views)
+        {
+            _gl.Disable(EnableCap.DepthTest);
+            _gl.DepthMask(false);
+            _gl.Disable(EnableCap.Blend);
+            _gl.BindVertexArray(_emptyVertexArray);
+            _shadowMaps.Bind(_shadowUnit);
+            GetTexture(CloudNoise.Texture).Bind(_cloudUnit);
+
+            // Nothing the passes write may be bound where the scene's shaders read the fog.
+            _gl.ActiveTexture(TextureUnit.Texture0 + FogUnit);
+            _gl.BindTexture(TextureTarget.Texture2DArray, 0);
+
+            int current = views.Fog.Current;
+            RunFogPasses(_fogLight, views, views.FogLightFramebuffers[current], views.FogLight[1 - current]);
+            RunFogPasses(_fogTotal, views, views.FogTotalFramebuffers, views.FogLight[current]);
+
+            _gl.ActiveTexture(TextureUnit.Texture0 + _fogSourceUnit);
+            _gl.BindTexture(TextureTarget.Texture2DArray, 0);
+            _gl.Enable(EnableCap.DepthTest);
+            _gl.DepthMask(true);
+        }
+
+        private void RunFogPasses(GLShader shader, GLViewTargets views, uint[] framebuffers, uint source)
+        {
+            shader.Use();
+            _gl.ActiveTexture(TextureUnit.Texture0 + _fogSourceUnit);
+            _gl.BindTexture(TextureTarget.Texture2DArray, source);
+
+            for (int pass = 0; pass < framebuffers.Length; pass++)
+            {
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffers[pass]);
+                _gl.Viewport(0, 0, (uint)views.FogWidth, (uint)views.FogHeight);
+                shader.SetVector4("fogPass.settings", new Vector4(pass * ShaderLibrary.FogSlicesPerPass, 0f, 0f, 0f));
+                _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            }
         }
 
         /// <summary>
@@ -570,7 +654,7 @@ namespace Vertex.Rendering.OpenGL
             _textures.Clear();
             _renderTargets.Clear();
 
-            foreach (GLShader shader in new[] { _litShader, _unlitShader, _skyShader, _gridShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
+            foreach (GLShader shader in new[] { _fogLight, _fogTotal, _litShader, _unlitShader, _skyShader, _gridShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
                 shader.Dispose();
             _shadowMaps.Dispose();
             _screenViews.Dispose();

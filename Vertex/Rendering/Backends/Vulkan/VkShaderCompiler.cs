@@ -72,7 +72,7 @@ namespace Vertex.Rendering.Vulkan
             return spirv;
         }
 
-        private byte[] CompileNow(string name, ShaderKind kind, string source)
+        internal byte[] CompileNow(string name, ShaderKind kind, string source)
         {
             if (_shaderc == null)
             {

@@ -169,11 +169,88 @@ namespace Vertex.Rendering
             if (light.Type == LightType.Directional)
             {
                 if (light.CastShadows && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
-                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color));
+                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color) { FogStrength = MathF.Max(light.FogStrength, 0f) });
+            }
+            else if (light.Type == LightType.Spot)
+            {
+                // Full inside the soft edge, fading to nothing at the cone's edge.
+                float half = Math.Clamp(light.SpotAngle, 1f, 179f) * 0.5f * MathF.PI / 180f;
+                float inner = half * (1f - Math.Clamp(light.SpotSoftness, 0f, 1f));
+                _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range)
+                {
+                    Direction = light.Transform.Forward,
+                    SpotOuter = MathF.Cos(half),
+                    SpotInner = MathF.Max(MathF.Cos(inner), MathF.Cos(half) + 1e-4f),
+                    FogStrength = MathF.Max(light.FogStrength, 0f)
+                });
             }
             else
             {
-                _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range));
+                _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range)
+                {
+                    FogStrength = MathF.Max(light.FogStrength, 0f)
+                });
+            }
+        }
+
+        private readonly List<PointLightData> _nearLights = new();
+
+        /// <summary>
+        /// Leaves only the point and spot lights that reach into the view, and of those, if there are more than the shaders
+        /// take, the ones that reach nearest the camera.
+        /// </summary>
+        private void KeepLightsInView(in Frustum frustum)
+        {
+            List<PointLightData> lights = _frame.PointLightList;
+            _nearLights.Clear();
+            foreach (PointLightData light in lights)
+            {
+                if (light.Range > 0f && frustum.Intersects(light.Position, new Vector3(light.Range))) _nearLights.Add(light);
+            }
+
+            if (_nearLights.Count > Shaders.ShaderLibrary.MaxPointLights)
+            {
+                Vector3 eye = _frame.CameraPosition;
+                _nearLights.Sort((a, b) => (Vector3.Distance(a.Position, eye) - a.Range).CompareTo(Vector3.Distance(b.Position, eye) - b.Range));
+                _nearLights.RemoveRange(Shaders.ShaderLibrary.MaxPointLights, _nearLights.Count - Shaders.ShaderLibrary.MaxPointLights);
+            }
+
+            lights.Clear();
+            lights.AddRange(_nearLights);
+        }
+
+        /// <summary>The boxes of fog the view reaches into, nearest first, as many as the shaders take.</summary>
+        private void CollectFogVolumes(Scene scene, in Frustum frustum)
+        {
+            if (!_frame.Environment.VolumetricFog) return;
+
+            Vector3 eye = _frame.CameraPosition;
+            float reach = _frame.Environment.VolumetricDistance;
+            foreach (FogVolume volume in scene.FindComponents<FogVolume>())
+            {
+                if (!volume.Enabled || volume.Density == 0f) continue;
+
+                Matrix4x4 world = volume.Transform.WorldMatrix;
+                Culling.WorldBounds(Primitives.Cube, world, out Vector3 centre, out Vector3 extents);
+                if (!frustum.Intersects(centre, extents) || !Matrix4x4.Invert(world, out Matrix4x4 toBox)) continue;
+
+                // Beyond where the fog is worked out, it wouldn't show.
+                Vector3 nearest = Vector3.Clamp(eye, centre - extents, centre + extents);
+                if (Vector3.Distance(nearest, eye) > reach) continue;
+
+                _frame.FogVolumeList.Add(new FogVolumeData(toBox, volume.Density, Math.Clamp(volume.Softness, 0f, 1f)));
+            }
+
+            if (_frame.FogVolumeList.Count > Shaders.ShaderLibrary.MaxFogVolumes)
+            {
+                _frame.FogVolumeList.Sort((a, b) => Distance(a).CompareTo(Distance(b)));
+                _frame.FogVolumeList.RemoveRange(Shaders.ShaderLibrary.MaxFogVolumes, _frame.FogVolumeList.Count - Shaders.ShaderLibrary.MaxFogVolumes);
+            }
+
+            float Distance(FogVolumeData volume)
+            {
+                Matrix4x4.Invert(volume.WorldToBox, out Matrix4x4 world);
+                return Vector3.Distance(world.Translation, eye);
             }
         }
 
@@ -217,6 +294,8 @@ namespace Vertex.Rendering
             // checked against each cascade instead.
             var frustum = new Frustum(_frame.ViewMatrix * _frame.ProjectionMatrix);
             List<DrawCall>[] casters = _frame.ShadowCasterLists;
+            KeepLightsInView(frustum);
+            CollectFogVolumes(scene, frustum);
 
             // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
             // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
