@@ -187,8 +187,10 @@ const Site = (() => {
             const file = pre.dataset.file ?? (pre.dataset.sample ? pre.dataset.sample.split("/").pop() : pre.classList.contains("sh") ? "Terminal" : "C#");
             block.innerHTML = `<div class="code-head"><span class="dot"></span><span class="file">${file}</span><button class="copy">Copy</button></div><pre><code></code></pre>`;
             block.querySelector("code").innerHTML = pre.classList.contains("cs") ? highlight(source) : escape(source);
+            // Its id goes with it, for pages that fill it in later; Copy copies what it shows then.
+            if (pre.id) block.querySelector("code").id = pre.id;
             block.querySelector(".copy").addEventListener("click", e => {
-                navigator.clipboard?.writeText(source);
+                navigator.clipboard?.writeText(block.querySelector("code").textContent);
                 e.target.textContent = "Copied";
                 e.target.classList.add("done");
                 setTimeout(() => { e.target.textContent = "Copy"; e.target.classList.remove("done"); }, 1400);

@@ -174,8 +174,7 @@ window.GraphView = (() => {
         const bar = document.createElement("div");
         bar.className = "graph-bar";
         const kindName = { vfx: "VFX graph", audio: "Audio graph" }[kind] ?? "Visual script";
-        const runButton = kind === "script" ? '<button class="run" title="Send the flow along the wires, as the script runs">▶ Run</button>'
-            : kind === "audio" ? '<button class="run" title="Work it out as the game would (a different choice each time), with tones standing in for the sound files">▶ Play</button>' : "";
+        const runButton = kind === "script" ? '<button class="run" title="Send the flow along the wires, as the script runs">▶ Run</button>' : "";
         bar.innerHTML = `<div class="graph-title">${Site.escape(name)}<span>${kindName} · ${graph.nodes.length} nodes</span></div><div class="spacer"></div>
             ${runButton}<button class="fit" title="Fit the graph in view">Fit</button>`;
         if (!options.bare) container.append(bar);
@@ -247,7 +246,7 @@ window.GraphView = (() => {
             apply();
         }, { passive: false });
 
-        const run = () => kind === "audio" ? playAudio(drawn, graph) : runFlow(drawn, graph);
+        const run = () => runFlow(drawn, graph);
         bar.querySelector(".run")?.addEventListener("click", run);
         if (options.autoplay) {
             const loop = () => { if (container.isConnected) run().then(() => setTimeout(loop, 900)); };
@@ -306,152 +305,6 @@ window.GraphView = (() => {
         };
 
         await Promise.all(starts.map(id => walk(id, new Set())));
-    }
-
-    // ---------------------------------------------------------------- Audio graphs
-
-    let audio = null;
-    const lastChoice = new Map();
-
-    /**
-     * Plays an audio graph as the engine works it out: from the Output back, a Random choosing one of its sounds (not
-     * the last one again), a pitch picked between Min and Max, a sequence one after another. Each node lights up and its
-     * wire pulses as it starts, and a tone stands in for each sound file (its note from its name, at its pitch). A loop
-     * that would go on until stopped goes round four times here, with its gaps a quarter as long, to keep it short.
-     */
-    function playAudio(drawn, graph) {
-        audio ??= new (window.AudioContext || window.webkitAudioContext)();
-        audio.resume?.();
-        const begin = audio.currentTime + 0.06;
-        const byId = new Map(graph.nodes.map(n => [n.id, n]));
-        const into = (node, port) => drawn.links.find(l => l.link.to === node.id && l.link.in === port);
-        const defaultOf = (node, port) => {
-            const p = find("audio", node.type)?.inputs.find(i => i.name === port);
-            return p?.default != null ? +p.default : 0;
-        };
-        let end = begin;
-
-        // When something starts: light its node, and pulse the wire it goes along.
-        const at = (time, id, wire) => setTimeout(() => {
-            const g = drawn.nodeEls.get(id);
-            if (g) { g.classList.add("lit"); setTimeout(() => g.classList.remove("lit"), 600); }
-            if (wire) pulseAlong(drawn, wire.path);
-        }, Math.max(0, (time - audio.currentTime) * 1000));
-
-        const number = (node, port, time) => {
-            const wire = into(node, port);
-            if (!wire) return node.values?.[port] != null ? +node.values[port] : defaultOf(node, port);
-            const from = byId.get(wire.link.from);
-            at(time, from.id, wire);
-            switch (from.type) {
-                case "Math/Random Number": { const min = number(from, "Min", time), max = number(from, "Max", time); return min + Math.random() * (max - min); }
-                case "Math/Add": return number(from, "A", time) + number(from, "B", time);
-                case "Math/Multiply": return number(from, "A", time) * number(from, "B", time);
-                case "Properties/Get Property": return +(graph.variables?.find(v => v.name === from.values?.Variable)?.value ?? 0);
-                default: return 0;
-            }
-        };
-
-        const repeated = node => (graph.links ?? []).filter(l => l.to === node.id && /^Sound \d+$/.test(l.in))
-            .map(l => +l.in.slice(6)).sort((a, b) => a - b);
-
-        // Plays what's linked into a node's input from `time`, with the volume and pitch from the nodes it's gone
-        // through; returns when it ends.
-        const input = (node, port, time, volume, pitch) => {
-            const wire = into(node, port);
-            if (!wire) return time;
-            at(time, wire.link.from, wire);
-            return play(byId.get(wire.link.from), time, volume, pitch);
-        };
-
-        const play = (node, time, volume, pitch) => {
-            switch (node.type) {
-                case "Sounds/Sound": {
-                    const length = 0.32 / pitch;
-                    tone(String(node.values?.Sound ?? ""), time, pitch, volume * (node.values?.Volume ?? 1), length);
-                    return time + length;
-                }
-                case "Choose/Random": {
-                    const choices = repeated(node);
-                    if (!choices.length) return time;
-                    const mode = node.values?.Mode ?? "NoRepeats", last = lastChoice.get(node);
-                    let pick = choices[Math.floor(Math.random() * choices.length)];
-                    if (mode === "InTurn") pick = choices.find(c => c > (last ?? 0)) ?? choices[0];
-                    else if (mode !== "Random") while (choices.length > 1 && pick === last) pick = choices[Math.floor(Math.random() * choices.length)];
-                    lastChoice.set(node, pick);
-                    return input(node, `Sound ${pick}`, time, volume, pitch);
-                }
-                case "Choose/Switch": {
-                    const choices = repeated(node);
-                    if (!choices.length) return time;
-                    const which = Math.min(Math.max(Math.round(number(node, "Which", time)), 1), choices[choices.length - 1]);
-                    return input(node, `Sound ${which}`, time, volume, pitch);
-                }
-                case "Choose/Chance": return Math.random() < number(node, "Chance", time) ? input(node, "Sound", time, volume, pitch) : time;
-                case "Combine/Sequence": {
-                    const gap = Math.max(0, number(node, "Gap", time));
-                    let t = time;
-                    repeated(node).forEach((i, n) => { t = input(node, `Sound ${i}`, t + (n ? gap : 0), volume, pitch); });
-                    return t;
-                }
-                case "Combine/Layer": return Math.max(time, ...repeated(node).map(i => input(node, `Sound ${i}`, time, volume, pitch)));
-                case "Timing/Delay": return input(node, "Sound", time + Math.max(0, number(node, "Seconds", time)), volume, pitch);
-                case "Timing/Loop": {
-                    const times = Math.round(number(node, "Times", time)) || 4;
-                    let t = time;
-                    for (let i = 0; i < times; i++) {
-                        const ended = input(node, "Sound", t, volume, pitch);
-                        t = Math.max(ended, t + 0.05) + Math.max(0, number(node, "Gap", ended)) * 0.25;
-                    }
-                    return t;
-                }
-                case "Change/Volume": return input(node, "Sound", time, volume * number(node, "Volume", time), pitch);
-                case "Change/Pitch": return input(node, "Sound", time, volume, pitch * number(node, "Pitch", time));
-                case "Change/Random Pitch": { const min = number(node, "Min", time), max = number(node, "Max", time); return input(node, "Sound", time, volume, pitch * (min + Math.random() * (max - min))); }
-                case "Change/Random Volume": { const min = number(node, "Min", time), max = number(node, "Max", time); return input(node, "Sound", time, volume * (min + Math.random() * (max - min)), pitch); }
-                case "Change/Fade In": return input(node, "Sound", time, volume, pitch);
-                default: return time;
-            }
-        };
-
-        const output = graph.nodes.find(n => n.type === "Output/Output");
-        if (output) {
-            at(begin, output.id);
-            end = input(output, "Sound", begin, 1, 1);
-        }
-
-        return new Promise(resolve => setTimeout(resolve, Math.max(0, (end - audio.currentTime) * 1000)));
-    }
-
-    /** A tone standing in for a sound file: its note from its name (Step 1 and Step 2 differ), shaped like a pluck. */
-    function tone(name, time, pitch, volume, length) {
-        const notes = [262, 294, 330, 392, 440, 523, 587, 659];
-        let hash = 0;
-        for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-        const low = /thunder|body|rain|thud|echo/i.test(name);
-        const oscillator = audio.createOscillator(), gain = audio.createGain();
-        oscillator.type = low ? "sawtooth" : "triangle";
-        oscillator.frequency.value = notes[hash % notes.length] * (low ? 0.25 : 1) * pitch;
-        gain.gain.setValueAtTime(0.0001, time);
-        gain.gain.exponentialRampToValueAtTime(0.0001 + 0.2 * Math.min(volume, 2), time + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
-        oscillator.connect(gain).connect(audio.destination);
-        oscillator.start(time);
-        oscillator.stop(time + length + 0.05);
-    }
-
-    /** A pulse running along a wire, from its output to its input. */
-    function pulseAlong(drawn, path) {
-        const length = path.getTotalLength();
-        const p = el("path", { d: path.getAttribute("d"), class: "g-pulse", "stroke-dasharray": `26 ${length + 30}` }, drawn.pulses);
-        const start = performance.now(), duration = Math.min(600, 220 + length * 0.8);
-        const step = now => {
-            const t = Math.min(1, (now - start) / duration);
-            p.setAttribute("stroke-dashoffset", String(26 - (length + 26) * (t * (2 - t))));
-            if (t < 1) requestAnimationFrame(step);
-            else p.remove();
-        };
-        requestAnimationFrame(step);
     }
 
     /** One node on its own, as HTML: its header in its category's colour, its inputs and outputs. */

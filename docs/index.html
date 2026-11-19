@@ -87,7 +87,7 @@
             <a href="effects.html">Particles and VFX graphs →</a>
         </div>
         <div class="reveal" data-delay="100">
-            <div class="mini-graph" id="audio-graph"><button class="button listen">▶ Listen</button></div>
+            <div class="mini-graph" id="audio-graph"></div>
             <h3>Audio graphs</h3>
             <p>A sound made of sounds: a random one of several, at a different pitch each time, layered, in sequence or looping. An Audio Source plays it from an object.</p>
             <a href="audio.html">Sound and audio graphs →</a>
@@ -160,14 +160,10 @@
         tabs.forEach((t, i) => t.addEventListener("click", () => show(i)));
         show(0);
 
-        // The graphs further down: the Duel's health script, an effect, and footsteps to listen to.
+        // The graphs further down: the Duel's health script, an effect, and footsteps.
         GraphView.mount(document.getElementById("script-graph"), "Health", { bare: true });
         GraphView.mount(document.getElementById("vfx-graph"), "Embers (VFX)", { bare: true });
-        const audio = document.getElementById("audio-graph"), listen = audio.querySelector(".listen");
-        GraphView.mount(audio, "Footsteps (Audio)", { bare: true, whole: true }).then(view => {
-            audio.append(listen);
-            listen.addEventListener("click", () => view.run());
-        });
+        GraphView.mount(document.getElementById("audio-graph"), "Footsteps (Audio)", { bare: true, whole: true });
 
         // The backdrop: nodes drifting slowly, wired together, with pulses running along the wires.
         const canvas = document.querySelector(".backdrop");
