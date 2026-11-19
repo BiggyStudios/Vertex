@@ -58,6 +58,7 @@ namespace Vertex.Editor.Inspection
         public static string Category(Type type) => type.Namespace switch
         {
             "Vertex.Rendering" or "Vertex.Effects" => "Rendering",
+            "Vertex.Physics" when type.Name.EndsWith("2D", StringComparison.Ordinal) => "Physics 2D",
             "Vertex.Physics" => "Physics",
             "Vertex.Audio" => "Audio",
             "Vertex.Networking" => "Networking",

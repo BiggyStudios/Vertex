@@ -108,6 +108,12 @@ namespace Vertex.Physics
         private Axes _lockPosition;
         private Axes _lockRotation;
 
+        /// <summary>Axes it's always locked along, whatever <see cref="LockPosition"/> says: Z, for a 2D one.</summary>
+        internal virtual Axes AlwaysLockedPosition => Axes.None;
+
+        /// <summary>Axes it's always locked about, whatever <see cref="LockRotation"/> says: X and Y, for a 2D one.</summary>
+        internal virtual Axes AlwaysLockedRotation => Axes.None;
+
         /// <summary>In units per second, world space.</summary>
         [Serialization.DontSave]
         public Vector3 Velocity

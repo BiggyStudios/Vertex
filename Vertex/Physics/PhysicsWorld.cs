@@ -126,6 +126,10 @@ namespace Vertex.Physics
             return true;
         }
 
+        /// <summary>Finds the closest solid collider along a line across the X-Y plane (at Z 0): a 2D game's raycast.</summary>
+        public bool Raycast(Vector2 origin, Vector2 direction, float maxDistance, out RaycastHit hit, Collider? ignore = null) =>
+            Raycast(new Vector3(origin, 0f), new Vector3(direction, 0f), maxDistance, out hit, ignore);
+
         /// <summary>The way the surface a ray hit faces at <paramref name="point"/>, or <paramref name="fallback"/> if Jolt can't say.</summary>
         private Vector3 SurfaceNormal(RayCastResult result, Vector3 point, Vector3 fallback)
         {
@@ -345,16 +349,18 @@ namespace Vertex.Physics
 
         private Body CreateBody(Collider collider, Rigidbody? rigidbody, Vector3 scale)
         {
-            Shape innerShape = CreateShape(collider, scale);
-            Shape shape = innerShape;
+            // Every shape made for it, inner ones first, so they can all be let go of when the body goes.
+            var shapes = new List<Shape>(2);
+            Shape shape = CreateShape(collider, scale, shapes);
 
             if (collider.Center != Vector3.Zero)
             {
-                shape = new RotatedTranslatedShape(collider.Center * scale, Quaternion.Identity, innerShape);
+                shape = new RotatedTranslatedShape(collider.Center * scale, Quaternion.Identity, shape);
+                shapes.Add(shape);
             }
 
             // Locked along and about every axis, it can't move at all: it stays where it's put, like a kinematic body.
-            bool locked = rigidbody is { LockPosition: Axes.All, LockRotation: Axes.All };
+            bool locked = rigidbody != null && (rigidbody.LockPosition | rigidbody.AlwaysLockedPosition) == Axes.All && (rigidbody.LockRotation | rigidbody.AlwaysLockedRotation) == Axes.All;
             MotionType motion = rigidbody == null ? MotionType.Static
                 : rigidbody.IsKinematic || locked ? MotionType.Kinematic
                 : MotionType.Dynamic;
@@ -382,7 +388,10 @@ namespace Vertex.Physics
                 settings.MotionQuality = rigidbody.ContinuousCollision ? MotionQuality.LinearCast : MotionQuality.Discrete;
                 settings.LinearVelocity = rigidbody.CurrentVelocity;
                 settings.AngularVelocity = rigidbody.CurrentAngularVelocity;
-                if (motion == MotionType.Dynamic) settings.AllowedDOFs = AllowedMovement(rigidbody.LockPosition, rigidbody.LockRotation);
+                if (motion == MotionType.Dynamic)
+                {
+                    settings.AllowedDOFs = AllowedMovement(rigidbody.LockPosition | rigidbody.AlwaysLockedPosition, rigidbody.LockRotation | rigidbody.AlwaysLockedRotation);
+                }
 
                 // Lets kinematic bodies (and triggers) report touching static colliders, e.g. a player hitting a wall.
                 settings.CollideKinematicVsNonDynamic = rigidbody.IsKinematic;
@@ -395,7 +404,7 @@ namespace Vertex.Physics
             BodyID id = _system.BodyInterface.CreateAndAddBody(settings,
                 motion == MotionType.Static ? Activation.DontActivate : Activation.Activate);
 
-            var body = new Body(collider, rigidbody, id, motion, shape, innerShape, scale);
+            var body = new Body(collider, rigidbody, id, motion, shapes, scale);
             body.Teleported(transform, position, rotation);
 
             _bodies[collider] = body;
@@ -416,19 +425,45 @@ namespace Vertex.Physics
             return allowed;
         }
 
-        private static Shape CreateShape(Collider collider, Vector3 scale)
+        /// <summary>The collider's shape, at its object's scale. Every shape made for it goes into <paramref name="made"/>, the one returned last.</summary>
+        private static Shape CreateShape(Collider collider, Vector3 scale, List<Shape> made)
+        {
+            Shape shape = CreateShape(collider, scale, out Shape? inner);
+            if (inner != null) made.Add(inner);
+            made.Add(shape);
+            return shape;
+        }
+
+        /// <param name="inner">A shape the returned one is built round, if it is (a 2D circle's cylinder, turned to lie along Z).</param>
+        private static Shape CreateShape(Collider collider, Vector3 scale, out Shape? inner)
         {
             // Guards against a zero scale, which Jolt can't build a shape from.
             Vector3 size = Vector3.Max(Vector3.Abs(scale), new Vector3(0.001f));
+            inner = null;
 
             switch (collider)
             {
                 case BoxCollider box:
+                    return Box(box.Size * size * 0.5f);
+
+                // 2D shapes lie in the X-Y plane and go Depth deep along Z, so things a little nearer or further still meet.
+                case BoxCollider2D box:
+                    return Box(new Vector3(box.Size * new Vector2(size.X, size.Y), box.Depth * size.Z) * 0.5f);
+
+                case CircleCollider2D circle:
                 {
-                    Vector3 halfExtents = box.Size * size * 0.5f;
-                    // Jolt rounds box corners slightly for speed and stability; the rounding can't exceed the box.
-                    float convexRadius = MathF.Min(Foundation.DefaultConvexRadius, MathF.Min(halfExtents.X, MathF.Min(halfExtents.Y, halfExtents.Z)));
-                    return new BoxShape(halfExtents, convexRadius);
+                    // Jolt's cylinders stand along Y: turned a quarter about X, it lies along Z.
+                    float radius = circle.Radius * MathF.Max(size.X, size.Y);
+                    float halfDepth = MathF.Max(circle.Depth * size.Z * 0.5f, 0.01f);
+                    inner = new CylinderShape(halfDepth, radius);
+                    return new RotatedTranslatedShape(Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 2f), inner);
+                }
+
+                case CapsuleCollider2D capsule:
+                {
+                    float radius = capsule.Radius * size.X;
+                    float halfCylinder = capsule.Height * size.Y * 0.5f - radius;
+                    return halfCylinder > 0.001f ? new CapsuleShape(halfCylinder, radius) : new SphereShape(radius);
                 }
 
                 case SphereCollider sphere:
@@ -456,6 +491,13 @@ namespace Vertex.Physics
                 default:
                     throw new NotSupportedException($"{collider.GetType().Name} is not supported by the physics world.");
             }
+        }
+
+        private static Shape Box(Vector3 halfExtents)
+        {
+            // Jolt rounds box corners slightly for speed and stability; the rounding can't exceed the box.
+            float convexRadius = MathF.Min(Foundation.DefaultConvexRadius, MathF.Min(halfExtents.X, MathF.Min(halfExtents.Y, halfExtents.Z)));
+            return new BoxShape(halfExtents, convexRadius);
         }
 
         /// <summary>
@@ -1303,20 +1345,18 @@ namespace Vertex.Physics
 
             public int LastSeenStep;
 
-            private readonly Shape _shape;
-            private readonly Shape _innerShape;
+            private readonly List<Shape> _shapes;
             private readonly Vector3 _scale;
             private readonly int _colliderVersion;
             private readonly int _rigidbodyVersion;
 
-            public Body(Collider collider, Rigidbody? rigidbody, BodyID id, MotionType motion, Shape shape, Shape innerShape, Vector3 scale)
+            public Body(Collider collider, Rigidbody? rigidbody, BodyID id, MotionType motion, List<Shape> shapes, Vector3 scale)
             {
                 Collider = collider;
                 Rigidbody = rigidbody;
                 Id = id;
                 Motion = motion;
-                _shape = shape;
-                _innerShape = innerShape;
+                _shapes = shapes;
                 _scale = scale;
                 _colliderVersion = collider.Version;
                 _rigidbodyVersion = rigidbody?.Version ?? 0;
@@ -1359,8 +1399,8 @@ namespace Vertex.Physics
 
             public void DisposeShapes()
             {
-                _shape.Dispose();
-                if (_innerShape != _shape) _innerShape.Dispose();
+                // Outer ones first: they hold on to the ones inside.
+                for (int i = _shapes.Count - 1; i >= 0; i--) _shapes[i].Dispose();
             }
         }
 

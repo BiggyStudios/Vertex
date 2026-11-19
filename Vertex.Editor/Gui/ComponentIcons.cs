@@ -35,6 +35,10 @@ namespace Vertex.Editor.Gui
             [typeof(ConvexCollider)] = Icons.ConvexCollider,
             [typeof(MeshCollider)] = Icons.MeshCollider,
             [typeof(CharacterController)] = Icons.Character,
+            [typeof(Rigidbody2D)] = Icons.Rigidbody2D,
+            [typeof(BoxCollider2D)] = Icons.BoxCollider2D,
+            [typeof(CircleCollider2D)] = Icons.CircleCollider2D,
+            [typeof(CapsuleCollider2D)] = Icons.CapsuleCollider2D,
             [typeof(FixedJoint)] = Icons.FixedJoint,
             [typeof(HingeJoint)] = Icons.HingeJoint,
             [typeof(SliderJoint)] = Icons.SliderJoint,
@@ -98,7 +102,7 @@ namespace Vertex.Editor.Gui
             return ComponentCatalog.Category(type) switch
             {
                 "Rendering" => _rendering,
-                "Physics" => _physics,
+                "Physics" or "Physics 2D" => _physics,
                 "Audio" => _audio,
                 "UI" => _ui,
                 "Networking" => _network,
