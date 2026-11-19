@@ -578,6 +578,7 @@ namespace Vertex.Editor
         {
             ConsoleLog.Update();
             SaveChangedMaterials();
+            ReloadWrittenShaders();
             SaveChangedGraphs();
             if (!InputSystem.GetMouseButton(MouseButton.Left)) SaveOpenPrefab();
             RebuildIfCodeChanged();
@@ -845,6 +846,19 @@ namespace Vertex.Editor
             }
         }
 
+        /// <summary>
+        /// Shader files saved (in a code editor) are read again in place, so the scene shows the change at once, and one
+        /// that won't compile says why in the Console.
+        /// </summary>
+        private void ReloadWrittenShaders()
+        {
+            if (Assets == null) return;
+            foreach (string path in Assets.TakeWrittenShaders())
+            {
+                Vertex.Assets.Reload(path);
+            }
+        }
+
         private void CodeWasChanged() => Interlocked.Exchange(ref _codeChangedAt, Environment.TickCount64);
 
         /// <summary>
@@ -1056,6 +1070,39 @@ namespace Vertex.Editor
         }
 
         /// <summary>Makes a new .material file with default settings, and returns where.</summary>
+        /// <summary>What a new post effect starts as: a colour grade, with its settings, to show how one's written.</summary>
+        public const string PostEffectStarter = """
+            // A post effect: effect() is given where on the screen it is (uv, 0 to 1 from the top-left) and returns the
+            // colour to show there. picture(uv) is the picture so far, distanceAt(uv) how far away what's there is,
+            // screenSize the size in pixels and time the seconds since the game started.
+            //
+            // Each "property" line is a setting, shown in the inspector of the Post Effect using this shader:
+            //     property <float, int, bool, vec2, vec3, vec4 or color> Name = starting value [lowest, highest];  // tooltip
+
+            property float Brightness = 1 [0, 2];      // Scales how bright the picture is
+            property float Saturation = 1 [0, 2];      // 0 for grey, more for stronger colours
+            property color Tint = #FFFFFF;             // Multiplies the picture's colour
+
+            vec4 effect(vec2 uv)
+            {
+                vec3 colour = picture(uv).rgb * Brightness;
+                float grey = dot(colour, vec3(0.299, 0.587, 0.114));
+                colour = mix(vec3(grey), colour, Saturation) * Tint.rgb;
+                return vec4(colour, 1.0);
+            }
+
+            """;
+
+        /// <summary>Makes a new post effect shader in <paramref name="folder"/>, to start from (a colour grade), and returns where.</summary>
+        public string CreatePostEffect(string folder, string name = "New Post Effect")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), ".glsl");
+            File.WriteAllText(path, PostEffectStarter);
+            Assets?.Refresh();
+            return path;
+        }
+
         public string CreateMaterial(string folder, string name = "New Material")
         {
             Directory.CreateDirectory(folder);

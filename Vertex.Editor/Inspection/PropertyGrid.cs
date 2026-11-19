@@ -71,7 +71,114 @@ namespace Vertex.Editor.Inspection
                 y = DrawMember(target, member, x, y, width, depth, others);
             }
 
+            if (target is PostEffect effect) y = ShaderSettings(effect, x, y, width);
             return y;
+        }
+
+        /// <summary>
+        /// A post effect's shader's own settings (its <c>property</c> lines), a row each with the control for its type, and
+        /// what's wrong with the shader, if anything. Changed values are kept on the effect, by name.
+        /// </summary>
+        private float ShaderSettings(PostEffect effect, float x, float y, float width)
+        {
+            if (effect.Shader is not { } shader) return y;
+
+            if (shader.Problem is { } problem)
+            {
+                y += 2f;
+                foreach (string line in problem.Split('\n').Where(l => l.Trim().Length > 0).Take(8).SelectMany(l => Ui.Wrap(l.Trim(), width, Theme.SmallTextSize)))
+                {
+                    Ui.Text(new Rect(x, y, width, 17f), line, Theme.Danger, size: Theme.SmallTextSize);
+                    y += 17f;
+                }
+
+                y += 6f;
+            }
+
+            foreach (ShaderProperty property in shader.Properties)
+            {
+                int id = Ui.Id(RuntimeHelpers.GetHashCode(effect), "shader:" + property.Name);
+                Row(id, x, y, width, ComponentCatalog.SplitWords(property.Name), property.Tooltip, out Rect field);
+                Vector4 value = effect.Get(property.Name);
+                Vector4? changed = null;
+
+                switch (property.Type)
+                {
+                    case ShaderPropertyType.Float:
+                    {
+                        float number = value.X;
+                        bool moved = property is { Min: { } min, Max: { } max } ? Widgets.Slider(id, field, ref number, min, max) : NumberField.Float(id, field, ref number);
+                        if (moved) changed = new Vector4(number, 0f, 0f, 0f);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Int:
+                    {
+                        float number = value.X;
+                        int whole = (int)MathF.Round(number);
+                        bool moved = property is { Min: { } min, Max: { } max } ? Widgets.Slider(id, field, ref number, min, max, "0") : NumberField.Int(id, field, ref whole);
+                        if (moved) changed = new Vector4(property.Min != null ? MathF.Round(number) : whole, 0f, 0f, 0f);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Bool:
+                    {
+                        bool on = value.X > 0.5f;
+                        if (Widgets.Checkbox(id, field.TakeLeft(Theme.RowHeight), ref on)) changed = new Vector4(on ? 1f : 0f, 0f, 0f, 0f);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Vector2:
+                    {
+                        var vector = new Vector2(value.X, value.Y);
+                        if (NumberField.Vector2(id, field, ref vector)) changed = new Vector4(vector, 0f, 0f);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Vector3:
+                    {
+                        var vector = new Vector3(value.X, value.Y, value.Z);
+                        if (NumberField.Vector3(id, field, ref vector)) changed = new Vector4(vector, 0f);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Vector4:
+                    {
+                        // Two rows' worth wouldn't fit: X and Y, then Z and W.
+                        var first = new Vector2(value.X, value.Y);
+                        var second = new Vector2(value.Z, value.W);
+                        if (NumberField.Vector2(Ui.Id(id, "xy"), field, ref first)) changed = new Vector4(first, value.Z, value.W);
+                        y += Theme.RowHeight + RowGap;
+                        Rect more = field with { Y = y };
+                        if (NumberField.Vector2(Ui.Id(id, "zw"), more, ref second)) changed = new Vector4(value.X, value.Y, second.X, second.Y);
+                        break;
+                    }
+
+                    case ShaderPropertyType.Color:
+                        ColorField.Draw(id, field, new Color(value.X, value.Y, value.Z, value.W), (color, finished) =>
+                        {
+                            SetShaderValue(effect, property.Name, new Vector4(color.R, color.G, color.B, color.A));
+                            if (finished) _history.EndMerge();
+                        });
+                        break;
+                }
+
+                if (changed is { } next) SetShaderValue(effect, property.Name, next);
+                y += Theme.RowHeight + RowGap;
+            }
+
+            return y;
+        }
+
+        private static readonly PropertyInfo _effectValues = typeof(PostEffect).GetProperty(nameof(PostEffect.Values))!;
+
+        /// <summary>Changes one of a post effect's shader settings, as an undo of its own (a drag is one).</summary>
+        private void SetShaderValue(PostEffect effect, string name, Vector4 value)
+        {
+            // A new list, so undo has the one from before to put back.
+            List<ShaderValue> values = effect.Values.Where(v => v.Name != name).Select(v => new ShaderValue { Name = v.Name, Value = v.Value }).ToList();
+            values.Add(new ShaderValue { Name = name, Value = value });
+            SetValue.Apply(_history, $"Change {ComponentCatalog.SplitWords(name)}", effect, _effectValues, values);
         }
 
         private float DrawMember(object target, InspectedMember member, float x, float y, float width, int depth, IReadOnlyList<object>? others)
@@ -328,6 +435,7 @@ namespace Vertex.Editor.Inspection
             if (type == typeof(Vertex.UI.Font)) return (AssetKind.Font, Assets.LoadFont);
             if (type == typeof(Vertex.Audio.AudioClip)) return (AssetKind.Sound, Assets.LoadSound);
             if (type == typeof(Vertex.Graphs.Graph)) return (AssetKind.VisualScript, Assets.LoadGraph);
+            if (type == typeof(Shader)) return (AssetKind.Shader, Assets.LoadShader);
             return null;
         }
 
@@ -340,6 +448,7 @@ namespace Vertex.Editor.Inspection
             Vertex.UI.Font font => font.Source,
             Vertex.Audio.AudioClip clip => clip.Source,
             Vertex.Graphs.Graph graph => graph.Source,
+            Shader shader => shader.Source,
             _ => null
         };
 

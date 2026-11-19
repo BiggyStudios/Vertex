@@ -20,6 +20,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>A .audiograph file: a sound made of sounds (a random one of several, at a random pitch), made of nodes.</summary>
         AudioGraph,
+
+        /// <summary>A .glsl file: a shader written in GLSL, such as a post effect.</summary>
+        Shader,
         Other
     }
 
@@ -41,6 +44,9 @@ namespace Vertex.Editor.Editing
         private readonly FileSystemWatcher? _watcher;
         private volatile bool _changed;
 
+        // Shader files written since last asked (see TakeWrittenShaders): read again in place, so what uses them updates.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _writtenShaders = new();
+
         public string Root { get; }
 
         public AssetDatabase(string root)
@@ -54,11 +60,27 @@ namespace Vertex.Editor.Editing
                 _watcher.Created += (_, _) => _changed = true;
                 _watcher.Deleted += (_, _) => _changed = true;
                 _watcher.Renamed += (_, _) => _changed = true;
+                _watcher.Changed += (_, e) =>
+                {
+                    if (KindOf(e.FullPath) == AssetKind.Shader) _writtenShaders.Enqueue(e.FullPath);
+                };
             }
             catch (Exception)
             {
                 // Without watching, Refresh still works.
             }
+        }
+
+        /// <summary>The shader files written since this was last asked, each once.</summary>
+        public List<string> TakeWrittenShaders()
+        {
+            var written = new List<string>();
+            while (_writtenShaders.TryDequeue(out string? path))
+            {
+                if (!written.Contains(path, StringComparer.OrdinalIgnoreCase)) written.Add(path);
+            }
+
+            return written;
         }
 
         /// <summary>Forgets what was read, so it's read again: after files change.</summary>
@@ -153,6 +175,7 @@ namespace Vertex.Editor.Editing
             ".vscript" => AssetKind.VisualScript,
             ".vfx" => AssetKind.VisualEffect,
             ".audiograph" => AssetKind.AudioGraph,
+            ".glsl" => AssetKind.Shader,
             _ => AssetKind.Other
         };
 

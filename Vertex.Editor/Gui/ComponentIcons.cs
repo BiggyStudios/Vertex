@@ -28,6 +28,7 @@ namespace Vertex.Editor.Gui
             [typeof(ParticleEmitter)] = Icons.Particles,
             [typeof(VisualEffect)] = Icons.Sparkle,
             [typeof(FogVolume)] = Icons.Fog,
+            [typeof(PostEffect)] = Icons.ScreenEffect,
 
             [typeof(Rigidbody)] = Icons.Rigidbody,
             [typeof(BoxCollider)] = Icons.BoxCollider,

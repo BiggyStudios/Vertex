@@ -228,6 +228,7 @@ namespace Vertex.Editor.Panels
                 case AssetKind.VisualScript: Icons.Graph(centre, size, Theme.Hex(0x5FC9B5)); break;
                 case AssetKind.VisualEffect: Icons.Graph(centre, size, Theme.Hex(0xF2994A)); break;
                 case AssetKind.AudioGraph: Icons.Sound(centre, size, Theme.Hex(0x57CCDB)); break;
+                case AssetKind.Shader: Icons.ScreenEffect(centre, size, Theme.Hex(0xE07BB5)); break;
                 default: Icons.File(centre, size, Theme.TextFaint); break;
             }
         }
@@ -358,7 +359,7 @@ namespace Vertex.Editor.Panels
                 AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.Prefab => "Open",
                 AssetKind.Model => "Add to Scene",
                 AssetKind.Sound => SoundPreview.IsPlaying(entry.Path) ? "Stop" : "Play",
-                AssetKind.Script => "Open in Code Editor",
+                AssetKind.Script or AssetKind.Shader => "Open in Code Editor",
                 _ => null
             };
             if (open != null) items.Add(new MenuItem(open, () => Open(entry)));
@@ -395,7 +396,8 @@ namespace Vertex.Editor.Panels
                 new("New Scene", () => Made(NewScene(folder))) { Icon = Icons.Scene },
                 new("New Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph },
                 new("New VFX Graph", () => Made(_context.CreateVfxGraph(folder))) { Icon = Icons.Graph },
-                new("New Audio Graph", () => Made(_context.CreateAudioGraph(folder))) { Icon = Icons.Sound }
+                new("New Audio Graph", () => Made(_context.CreateAudioGraph(folder))) { Icon = Icons.Sound },
+                new("New Post Effect", () => Made(_context.CreatePostEffect(folder))) { Icon = Icons.ScreenEffect }
             };
 
             if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });

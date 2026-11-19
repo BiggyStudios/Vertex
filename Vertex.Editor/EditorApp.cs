@@ -411,6 +411,7 @@ namespace Vertex.Editor
                         new MenuItem("Console", () => _dock.Toggle("Console")) { Checked = _dock.IsOpen("Console"), Shortcut = "Ctrl+Shift+C" },
                         MenuItem.Separator,
                         new MenuItem("Grid", () => Context.Preferences.ShowGrid = !Context.Preferences.ShowGrid) { Checked = Context.Preferences.ShowGrid },
+                        new MenuItem("Post Effects", () => Context.Preferences.ShowEffects = !Context.Preferences.ShowEffects) { Checked = Context.Preferences.ShowEffects },
                         MenuItem.Separator,
                         new MenuItem("Bigger Interface", () => ChangeSize(+0.1f)) { Shortcut = "Ctrl+=" },
                         new MenuItem("Smaller Interface", () => ChangeSize(-0.1f)) { Shortcut = "Ctrl+-" },

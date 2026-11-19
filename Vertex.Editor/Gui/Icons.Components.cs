@@ -313,6 +313,21 @@ namespace Vertex.Editor.Gui
             }
         }
 
+        /// <summary>A screen with a checkerboard of dots in it: something that changes the finished picture, a post effect or its shader.</summary>
+        public static void ScreenEffect(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.4f, h = size * 0.3f;
+            Ui.Outline(new Rect(centre.X - w, centre.Y - h, w * 2f, h * 2f), color, 2.5f, 1.3f);
+            float cell = size * 0.12f;
+            for (int row = 0; row < 3; row++)
+            for (int column = 0; column < 4; column++)
+            {
+                if ((row + column) % 2 == 1) continue;
+                var at = new Vector2(centre.X - cell * 2f + column * cell, centre.Y - cell * 1.5f + row * cell);
+                Ui.Rect(new Rect(at.X, at.Y, cell, cell), color.WithAlpha(row == 1 ? 1f : 0.55f));
+            }
+        }
+
         /// <summary>A frame with a small figure in it: a flat picture placed in the world, a sprite.</summary>
         public static void Sprite(Vector2 centre, float size, Color color)
         {

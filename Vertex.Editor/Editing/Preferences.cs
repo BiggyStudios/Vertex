@@ -47,6 +47,9 @@ namespace Vertex.Editor.Editing
         public SnapSettings Snapping { get; set; } = new();
 
         [HideInInspector] public bool ShowGrid { get; set; } = true;
+
+        /// <summary>Whether the scene view shows the game camera's post effects, so it looks as the game will.</summary>
+        [HideInInspector] public bool ShowEffects { get; set; } = true;
         [HideInInspector] public float OutlinerWidth { get; set; } = 270f;
         [HideInInspector] public float InspectorWidth { get; set; } = 340f;
         [HideInInspector] public float AssetsHeight { get; set; } = 230f;

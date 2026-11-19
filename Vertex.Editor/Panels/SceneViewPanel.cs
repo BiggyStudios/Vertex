@@ -64,7 +64,8 @@ namespace Vertex.Editor.Panels
             {
                 if (_graph != null) return [];
                 if (_gameTab) return _gameTexture != null && Vertex.Rendering.Camera.Main is { } main ? [new RenderView(main, _gameTexture)] : [];
-                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid, Camera.Is2D)] : [];
+                Vertex.Rendering.Camera? effects = _context.Preferences.ShowEffects ? Vertex.Rendering.Camera.Main : null;
+                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid, Camera.Is2D, effects)] : [];
             }
         }
 
@@ -1167,9 +1168,18 @@ namespace Vertex.Editor.Panels
                 _context.Preferences.ShowGrid = !showGrid;
             }
 
+            // The game camera's post effects (a dithered look, a colour grade), so the scene looks as the game will.
+            var effects = new Rect(grid.Right + 2f, bar.Y + 4f, 28f, 28f);
+            bool showEffects = _context.Preferences.ShowEffects;
+            if (Widgets.IconButton(Ui.Id("sceneView.effects"), effects, Icons.ScreenEffect,
+                showEffects ? "Hide the game camera's post effects" : "Show the game camera's post effects, as the game will look", selected: showEffects))
+            {
+                _context.Preferences.ShowEffects = !showEffects;
+            }
+
             // 2D: looking flat on at the X-Y plane, without perspective, as a 2D game's camera does.
-            Ui.Rect(new Rect(grid.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
-            var flat = new Rect(grid.Right + 9f, bar.Y + 4f, 32f, 28f);
+            Ui.Rect(new Rect(effects.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
+            var flat = new Rect(effects.Right + 9f, bar.Y + 4f, 32f, 28f);
             bool is2D = Camera.Is2D;
             if (Widgets.IconButton(Ui.Id("sceneView.2d"), flat, (c, s, col) => Ui.Text(new Rect(c.X - 16f, c.Y - 10f, 32f, 20f), "2D", col, 0.5f, Theme.SmallTextSize, bold: true),
                 is2D ? "Back to 3D" : "2D: look flat on at the X-Y plane, for 2D games", selected: is2D))

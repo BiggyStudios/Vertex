@@ -187,7 +187,7 @@ namespace Vertex.Editor.Panels
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
-                case AssetKind.Script:
+                case AssetKind.Script or AssetKind.Shader:
                     y = DrawScript(asset, x, y, width);
                     break;
 
@@ -214,7 +214,7 @@ namespace Vertex.Editor.Panels
 
         private readonly Dictionary<string, (DateTime Written, string[] Lines)> _scripts = new();
 
-        /// <summary>A script: open it in the code editor, and the start of it to read.</summary>
+        /// <summary>A script or a shader: open it in the code editor, and the start of it to read.</summary>
         private float DrawScript(AssetEntry asset, float x, float y, float width)
         {
             if (Widgets.Button(Ui.Id("asset.openScript"), new Rect(x, y, width, 30f), "Open in Code Editor", ButtonStyle.Primary))
@@ -230,7 +230,7 @@ namespace Vertex.Editor.Panels
             }
 
             y += 38f;
-            y = Note("After changing code, rebuild it (Ctrl+R) for the editor to see it.", x, y, width) + 6f;
+            y = asset.Kind == AssetKind.Shader ? DrawShaderNotes(asset, x, y, width) : Note("After changing code, rebuild it (Ctrl+R) for the editor to see it.", x, y, width) + 6f;
 
             DateTime written = File.Exists(asset.Path) ? File.GetLastWriteTimeUtc(asset.Path) : default;
             if (!_scripts.TryGetValue(asset.Path, out var script) || script.Written != written)
@@ -261,6 +261,43 @@ namespace Vertex.Editor.Panels
             }
 
             return code.Bottom + 10f;
+        }
+
+        /// <summary>A shader: what it's for, what's wrong with it if anything, and its settings.</summary>
+        private float DrawShaderNotes(AssetEntry asset, float x, float y, float width)
+        {
+            y = Note("Saved changes show at once. Put it on a camera with a Post Effect component to see it.", x, y, width) + 4f;
+
+            Shader shader;
+            try
+            {
+                shader = Assets.LoadShader(asset.Path);
+            }
+            catch (Exception exception)
+            {
+                return Note($"Can't be read: {exception.Message}", x, y, width) + 6f;
+            }
+
+            if (shader.Problem is { } problem)
+            {
+                foreach (string line in problem.Split('\n').Where(l => l.Trim().Length > 0).Take(8).SelectMany(l => Ui.Wrap(l.Trim(), width, Theme.SmallTextSize)))
+                {
+                    Ui.Text(new Rect(x, y, width, 17f), line, Theme.Danger, size: Theme.SmallTextSize);
+                    y += 17f;
+                }
+
+                y += 6f;
+            }
+
+            foreach (ShaderProperty property in shader.Properties)
+            {
+                var row = new Rect(x, y, width, 18f);
+                Ui.Text(row, ComponentCatalog.SplitWords(property.Name), Theme.Text, size: Theme.SmallTextSize);
+                Ui.Text(row, property.Type.ToString().ToLowerInvariant(), Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
+                y += 18f;
+            }
+
+            return y + 8f;
         }
 
         // ---------------------------------------------------------------- An object
