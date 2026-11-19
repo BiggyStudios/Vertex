@@ -114,6 +114,23 @@ namespace Vertex.Scripting
                     text.Text = run.In<string>("Text");
                 },
                 "Changes what a UI Text says: a score, health, ammo.", "label hud ui string");
+
+            // ---------------------------------------------------------------- UI
+
+            Node("Events", "On Clicked", [], [FlowOut()], run => run.Continue("Then"),
+                "When the UI Button on this object is clicked.", "button press ui menu click", @event: "Clicked");
+            Node("Events", "On Value Changed", [], [FlowOut(), Out("Value", PortType.Any)], run => run.Continue("Then"),
+                "When the UI Toggle, Slider or Input Field on this object changes. Value is its new value: on or off, a number, the text.",
+                "toggle slider input field ui setting", @event: "Value Changed");
+            Node("Events", "On Submitted", [], [FlowOut(), Out("Text", PortType.Text)], run => run.Continue("Then"),
+                "When Enter is pressed in the UI Input Field on this object. Text is what was typed.", "enter input field text box chat ui",
+                @event: "Submitted");
+            Action("UI", "Set UI Value", [Target, In("Value", PortType.Any)], run => SetUIValue(run.In<GameObject>("Target"), run.In("Value")),
+                "Sets a piece of UI's value: a Slider's or Progress Bar's number, a Toggle's on or off, an Input Field's or Text's words.",
+                "slider toggle progress bar input field health bar ui");
+            Node("UI", "UI Value", [Target], [Out("Value", PortType.Any)], run => run.Out("Value", UIValue(run.In<GameObject>("Target"))),
+                "A piece of UI's value: a Slider's or Progress Bar's number, a Toggle's on or off, an Input Field's or Text's words.",
+                "get read slider toggle input field ui");
             Action("Actions", "Lock Cursor", [Bool("Locked", true)], run => InputSystem.CursorLocked = run.In<bool>("Locked"),
                 "Hides the mouse pointer and keeps it in the window, for looking around with the mouse; or frees it again.", "mouse capture hide pointer");
             Action("Actions", "Send Event", [Text("Name", "Event"), In("Value", PortType.Any)], run =>
@@ -403,6 +420,41 @@ namespace Vertex.Scripting
             }
 
             return null;
+        }
+
+        /// <summary>A piece of UI's value: a slider's or progress bar's number, a toggle's on or off, an input field's or text's words.</summary>
+        private static object? UIValue(GameObject target)
+        {
+            foreach (Component component in target.Components)
+            {
+                switch (component)
+                {
+                    case UISlider slider: return slider.Value;
+                    case UIProgressBar bar: return bar.Value;
+                    case UIToggle toggle: return toggle.IsOn;
+                    case UIInputField field: return field.Text;
+                    case UIText text: return text.Text;
+                }
+            }
+
+            throw new InvalidOperationException("The object has no UI with a value (a Slider, Progress Bar, Toggle, Input Field or Text)");
+        }
+
+        private static void SetUIValue(GameObject target, object? value)
+        {
+            foreach (Component component in target.Components)
+            {
+                switch (component)
+                {
+                    case UISlider slider: slider.Value = (float)PortType.Number.Convert(value)!; return;
+                    case UIProgressBar bar: bar.Value = (float)PortType.Number.Convert(value)!; return;
+                    case UIToggle toggle: toggle.IsOn = (bool)PortType.Boolean.Convert(value)!; return;
+                    case UIInputField field: field.Text = (string)PortType.Text.Convert(value)!; return;
+                    case UIText text: text.Text = (string)PortType.Text.Convert(value)!; return;
+                }
+            }
+
+            throw new InvalidOperationException("The object has no UI with a value (a Slider, Progress Bar, Toggle, Input Field or Text)");
         }
     }
 }

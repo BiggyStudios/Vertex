@@ -248,6 +248,21 @@ namespace Vertex.UI
         }
 
         /// <summary>
+        /// A four-cornered piece of <paramref name="texture"/>: corners <paramref name="a"/> to <paramref name="d"/> in UI
+        /// units, in order round it, each with where in the texture it shows (0 to 1 across it). Two corners can be the
+        /// same, for a triangle: a slice of a radial fill.
+        /// </summary>
+        public static void DrawImageQuad(Texture? texture, Vector2 a, Vector2 b, Vector2 c, Vector2 d, Vector2 uvA, Vector2 uvB, Vector2 uvC, Vector2 uvD, Color color)
+        {
+            Vector4 colour = Premultiply(color);
+            Add(new CanvasQuad(texture,
+                new CanvasVertex(a * Scale, uvA, colour),
+                new CanvasVertex(b * Scale, uvB, colour),
+                new CanvasVertex(c * Scale, uvC, colour),
+                new CanvasVertex(d * Scale, uvD, colour)));
+        }
+
+        /// <summary>
         /// A straight line from <paramref name="from"/> to <paramref name="to"/>, <paramref name="thickness"/> UI units wide,
         /// with smooth edges and round ends.
         /// </summary>

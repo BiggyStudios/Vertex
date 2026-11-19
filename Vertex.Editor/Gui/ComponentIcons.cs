@@ -53,6 +53,14 @@ namespace Vertex.Editor.Gui
             [typeof(UIImage)] = Icons.Image,
             [typeof(UIText)] = Icons.Letter,
             [typeof(UIButton)] = Icons.Button,
+            [typeof(UIToggle)] = Icons.Toggle,
+            [typeof(UISlider)] = Icons.Slider,
+            [typeof(UIProgressBar)] = Icons.ProgressBar,
+            [typeof(UIInputField)] = Icons.TextBox,
+            [typeof(UIVerticalLayout)] = Icons.Column,
+            [typeof(UIHorizontalLayout)] = Icons.Row,
+            [typeof(UIGridLayout)] = Icons.GridLayout,
+            [typeof(UIMask)] = Icons.Mask,
 
             [typeof(VisualScript)] = Icons.Graph,
         };

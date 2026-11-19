@@ -73,10 +73,20 @@ namespace Vertex.Editor.Editing
                     [
                         new MenuItem("Canvas", () => context.Create("Canvas", gameObject => gameObject.AddComponent<UICanvas>())) { Icon = Icons.UI },
                         MenuItem.Separator,
-                        new MenuItem("Panel", () => MakeUI(context, "Panel", new Vector2(320f, 220f), gameObject => gameObject.AddComponent<UIPanel>())) { Icon = Icons.UI },
-                        new MenuItem("Text", () => MakeUI(context, "Text", new Vector2(240f, 50f), gameObject => gameObject.AddComponent<UIText>())) { Icon = Icons.UI },
+                        new MenuItem("Panel", () => MakeUI(context, "Panel", new Vector2(320f, 220f), gameObject => gameObject.AddComponent<UIPanel>())) { Icon = Icons.Panel },
+                        new MenuItem("Text", () => MakeUI(context, "Text", new Vector2(240f, 50f), gameObject => gameObject.AddComponent<UIText>())) { Icon = Icons.Letter },
                         new MenuItem("Image", () => MakeUI(context, "Image", new Vector2(120f, 120f), gameObject => gameObject.AddComponent<UIImage>())) { Icon = Icons.Image },
-                        new MenuItem("Button", () => MakeUI(context, "Button", new Vector2(200f, 50f), gameObject => gameObject.AddComponent<UIButton>())) { Icon = Icons.UI }
+                        MenuItem.Separator,
+                        new MenuItem("Button", () => MakeUI(context, "Button", new Vector2(200f, 50f), gameObject => gameObject.AddComponent<UIButton>())) { Icon = Icons.Button },
+                        new MenuItem("Toggle", () => MakeUI(context, "Toggle", new Vector2(200f, 32f), gameObject => gameObject.AddComponent<UIToggle>())) { Icon = Icons.Toggle },
+                        new MenuItem("Slider", () => MakeUI(context, "Slider", new Vector2(240f, 28f), gameObject => gameObject.AddComponent<UISlider>())) { Icon = Icons.Slider },
+                        new MenuItem("Progress Bar", () => MakeUI(context, "Progress Bar", new Vector2(240f, 20f), gameObject => gameObject.AddComponent<UIProgressBar>())) { Icon = Icons.ProgressBar },
+                        new MenuItem("Input Field", () => MakeUI(context, "Input Field", new Vector2(260f, 40f), gameObject => gameObject.AddComponent<UIInputField>())) { Icon = Icons.TextBox },
+                        MenuItem.Separator,
+                        new MenuItem("Vertical Layout", () => MakeUI(context, "Vertical Layout", new Vector2(240f, 300f), gameObject => gameObject.AddComponent<UIVerticalLayout>())) { Icon = Icons.Column },
+                        new MenuItem("Horizontal Layout", () => MakeUI(context, "Horizontal Layout", new Vector2(400f, 60f), gameObject => gameObject.AddComponent<UIHorizontalLayout>())) { Icon = Icons.Row },
+                        new MenuItem("Grid Layout", () => MakeUI(context, "Grid Layout", new Vector2(360f, 360f), gameObject => gameObject.AddComponent<UIGridLayout>())) { Icon = Icons.GridLayout },
+                        new MenuItem("Mask", () => MakeUI(context, "Mask", new Vector2(300f, 200f), gameObject => gameObject.AddComponent<UIMask>())) { Icon = Icons.Mask }
                     ]
                 }
             ];

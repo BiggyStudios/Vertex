@@ -383,7 +383,16 @@ namespace Vertex.Editor.Panels
 
         public static Icon IconFor(GameObject gameObject)
         {
-            if (gameObject.GetComponent<Vertex.UI.UIRect>() != null || gameObject.GetComponent<Vertex.UI.UICanvas>() != null) return Icons.UI;
+            // A piece of UI: what it shows (a button, a slider) or arranges, if anything, else the UI icon.
+            if (gameObject.GetComponent<Vertex.UI.UIRect>() != null || gameObject.GetComponent<Vertex.UI.UICanvas>() != null)
+            {
+                foreach (Component component in gameObject.Components)
+                {
+                    if (component is Vertex.UI.UIGraphic or Vertex.UI.UILayoutGroup or Vertex.UI.UIMask) return ComponentIcons.For(component);
+                }
+
+                return Icons.UI;
+            }
 
             foreach (Component component in gameObject.Components)
             {
