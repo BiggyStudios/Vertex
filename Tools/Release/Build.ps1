@@ -19,7 +19,12 @@ $folder = Join-Path $dist $name
 
 function Invoke-Dotnet
 {
-    & dotnet @args
+    # Its errors are repeated as annotations when run on GitHub, so they show on the run's page.
+    & dotnet @args | ForEach-Object {
+        $line = "$_"
+        Write-Host $line
+        if ($env:GITHUB_ACTIONS -and $line -match '\berror\b') { Write-Host "::error::$line" }
+    }
     if ($LASTEXITCODE -ne 0) { throw "dotnet $args failed" }
 }
 

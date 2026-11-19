@@ -19,7 +19,7 @@
          with the release's version). -->
     <PackageId>Vertex.Engine</PackageId>
     <Authors>BiggyStudios</Authors>
-    <Description>A 3D game engine in C#, with its own editor: make games in code, in the editor with C# scripts, or with visual scripting.</Description>
+    <Description>A 3D game engine in C#, with an editor, C# and visual scripting, Jolt physics, VFX and audio graphs, and multiplayer.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://biggystudios.github.io/Vertex/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/BiggyStudios/Vertex</RepositoryUrl>

@@ -20,6 +20,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false   # one system failing still makes the others, to try
       matrix:
         include:
           - os: windows-latest
@@ -50,7 +51,15 @@ jobs:
 
       - name: Make the download
         shell: pwsh
-        run: ./Tools/Release/Build.ps1 -Version ${{ steps.version.outputs.value }} -Runtime ${{ matrix.runtime }}
+        run: |
+          try { ./Tools/Release/Build.ps1 -Version ${{ steps.version.outputs.value }} -Runtime ${{ matrix.runtime }} }
+          catch
+          {
+              # What went wrong, as an annotation on the run's page.
+              $where = $_.InvocationInfo.PositionMessage -replace '\s+', ' '
+              Write-Host "::error title=Build.ps1::$($_.Exception.Message) ($where)"
+              exit 1
+          }
 
       # The engine's package is the same everywhere: it's kept from the Windows build only.
       - name: One engine package
