@@ -43,6 +43,7 @@ namespace Vertex.Rendering.Shaders
         public Vector4 FogGrid;
         public FogMatrices FogBoxes;
         public FogVectors FogBoxParams;
+        public Vector4 Retro;
 
         /// <summary>
         /// The uniforms for <paramref name="frame"/>. <paramref name="cascades"/> are where the shadow maps were drawn, or
@@ -114,6 +115,7 @@ namespace Vertex.Rendering.Shaders
             data.Horizon = new Vector4(horizon, environment.CelShading);
             data.Zenith = new Vector4(zenith, kind);
             data.GroundColor = new Vector4(groundColor, environment.CloudCover);
+            data.Retro = new Vector4(orthographic ? 0f : environment.VertexSnapping, environment.AffineTextures, environment.PixelatedTextures ? 1f : 0f, 0f);
 
             data.DirectionalCount = Math.Min(frame.DirectionalLights.Count, ShaderLibrary.MaxDirectionalLights);
             for (int i = 0; i < data.DirectionalCount; i++)

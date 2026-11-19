@@ -141,5 +141,25 @@ namespace Vertex.Rendering
 
         /// <summary>How far from the camera the fog is worked out. Nearer is sharper, as it's worked out in the same number of steps.</summary>
         public float VolumetricDistance { get; set; } = 80f;
+
+        /// <summary>
+        /// For the look of early 3D consoles (the first PlayStation): corners of meshes snap to a coarse grid on the
+        /// screen, this many rows of it top to bottom, so things wobble and jitter as they or the camera move. 0 for none;
+        /// around 240 is the PlayStation's. Pairs with a post effect that draws the picture at that size.
+        /// </summary>
+        [Header("Retro")]
+        [Tooltip("Corners of meshes snap to a grid this many rows high on the screen, so they wobble as on a PlayStation. 0 for none; 240 is the PlayStation's")]
+        public float VertexSnapping { get; set; }
+
+        /// <summary>
+        /// How much textures slide and bend across surfaces seen at an angle, from 0 (none: they stay put) to 1, as on
+        /// early consoles that couldn't correct for perspective. Big flat surfaces bend most, so split them into smaller
+        /// pieces to keep it a wobble.
+        /// </summary>
+        [Range(0f, 1f)]
+        public float AffineTextures { get; set; }
+
+        /// <summary>Textures are drawn in crisp square texels, not smoothed between them, however close they're seen.</summary>
+        public bool PixelatedTextures { get; set; }
     }
 }

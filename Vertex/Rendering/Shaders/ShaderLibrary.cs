@@ -153,6 +153,7 @@ namespace Vertex.Rendering.Shaders
                 vec4 fogGrid;           // xyz: how many cells across, down and deep it's worked out in
                 mat4 fogBoxes[8];       // into each fog volume's box
                 vec4 fogBoxParams[8];   // x: its density, y: how soft its sides are
+                vec4 retro;             // x: rows of the screen grid corners snap to (0 for none), y: how much textures bend (affine), z: 1 for crisp texels
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
@@ -548,6 +549,21 @@ namespace Vertex.Rendering.Shaders
             TEXTURE(1, 1) sampler2D materialTexture;
             TEXTURE(1, 2) sampler2D normalMap;
 
+            // Where on the material's texture this is: in perspective, or bent across the surface as early consoles drew
+            // textures (see Lighting.AffineTextures), as much as the scene asks.
+            vec2 materialUV(vec2 uv, vec2 affineUV)
+            {
+                return mix(uv, affineUV, frame.retro.y) * material.uvTransform.xy + material.uvTransform.zw;
+            }
+
+            // The material's texture, smoothed, or in crisp square texels with no smaller copies (Lighting.PixelatedTextures).
+            vec4 materialTexel(vec2 uv)
+            {
+                if (frame.retro.z < 0.5) return texture(materialTexture, uv);
+                vec2 size = vec2(textureSize(materialTexture, 0));
+                return textureLod(materialTexture, (floor(uv * size) + 0.5) / size, 0.0);
+            }
+
             """;
 
         private const string DrawConstants = """
@@ -568,6 +584,8 @@ namespace Vertex.Rendering.Shaders
             VARYING(0) out vec3 vWorldPosition;
             VARYING(1) out vec3 vNormal;
             VARYING(2) out vec2 vUV;
+            // The same, spread evenly across the screen rather than in perspective: how early consoles drew textures.
+            VARYING(3) noperspective out vec2 vAffineUV;
 
             void main()
             {
@@ -575,7 +593,19 @@ namespace Vertex.Rendering.Shaders
                 vWorldPosition = worldPosition.xyz;
                 vNormal = mat3(draw.normalMatrix) * aNormal;
                 vUV = aUV;
-                gl_Position = frame.projection * frame.view * worldPosition;
+                vAffineUV = aUV;
+                vec4 position = frame.projection * frame.view * worldPosition;
+
+                // Corners snapped to a coarse grid on the screen (Lighting.VertexSnapping), as the PlayStation's were to
+                // whole pixels, so things wobble as they move. Not behind the camera, where it would fold them over.
+                if (frame.retro.x > 0.0 && position.w > 0.0)
+                {
+                    float aspect = frame.projection[1][1] / frame.projection[0][0];
+                    vec2 grid = vec2(frame.retro.x * aspect, frame.retro.x) * 0.5;
+                    position.xy = round(position.xy / position.w * grid) / grid * position.w;
+                }
+
+                gl_Position = position;
             }
             """;
 
@@ -583,6 +613,7 @@ namespace Vertex.Rendering.Shaders
             VARYING(0) in vec3 vWorldPosition;
             VARYING(1) in vec3 vNormal;
             VARYING(2) in vec2 vUV;
+            VARYING(3) noperspective in vec2 vAffineUV;
 
             layout (location = 0) out vec4 FragColor;
             // The part of the colour that's soft light from all around, which ambient occlusion takes away from.
@@ -747,11 +778,11 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                vec2 uv = vUV * material.uvTransform.xy + material.uvTransform.zw;
+                vec2 uv = materialUV(vUV, vAffineUV);
                 vec4 albedo = material.color;
                 if (material.surface.w > 0.5)
                 {
-                    vec4 texel = texture(materialTexture, uv);
+                    vec4 texel = materialTexel(uv);
                     albedo *= vec4(toLinear(texel.rgb), texel.a);
                 }
 
@@ -811,6 +842,7 @@ namespace Vertex.Rendering.Shaders
             VARYING(0) in vec3 vWorldPosition;
             VARYING(1) in vec3 vNormal;
             VARYING(2) in vec2 vUV;
+            VARYING(3) noperspective in vec2 vAffineUV;
 
             layout (location = 0) out vec4 FragColor;
             layout (location = 1) out vec4 AmbientColor;
@@ -820,9 +852,9 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                vec2 uv = vUV * material.uvTransform.xy + material.uvTransform.zw;
+                vec2 uv = materialUV(vUV, vAffineUV);
                 vec3 color = material.color.rgb;
-                if (material.surface.w > 0.5) color *= toLinear(texture(materialTexture, uv).rgb);
+                if (material.surface.w > 0.5) color *= toLinear(materialTexel(uv).rgb);
                 color += material.emission.rgb;
 
                 vec3 toCamera = frame.cameraPosition.xyz - vWorldPosition;

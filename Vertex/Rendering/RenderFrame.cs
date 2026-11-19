@@ -33,6 +33,9 @@ namespace Vertex.Rendering
         public float VolumetricForwardScattering { get; init; }
         public float VolumetricAmbient { get; init; }
         public float VolumetricDistance { get; init; }
+        public float VertexSnapping { get; init; }
+        public float AffineTextures { get; init; }
+        public bool PixelatedTextures { get; init; }
 
         /// <summary>A snapshot of <paramref name="lighting"/>, with its settings kept in range.</summary>
         public static EnvironmentData From(Lighting lighting) => new()
@@ -61,7 +64,10 @@ namespace Vertex.Rendering
             VolumetricWind = lighting.VolumetricWind,
             VolumetricForwardScattering = Math.Clamp(lighting.VolumetricForwardScattering, 0f, 0.95f),
             VolumetricAmbient = MathF.Max(lighting.VolumetricAmbient, 0f),
-            VolumetricDistance = Math.Clamp(lighting.VolumetricDistance, 1f, 2000f)
+            VolumetricDistance = Math.Clamp(lighting.VolumetricDistance, 1f, 2000f),
+            VertexSnapping = MathF.Max(lighting.VertexSnapping, 0f),
+            AffineTextures = Math.Clamp(lighting.AffineTextures, 0f, 1f),
+            PixelatedTextures = lighting.PixelatedTextures
         };
     }
 
