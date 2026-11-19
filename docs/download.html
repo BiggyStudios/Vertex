@@ -11,7 +11,7 @@
 <main class="content">
     <span class="eyebrow">Download</span>
     <h1>Get Vertex</h1>
-    <p class="lead">The editor, the engine and the samples, in one download. Unzip it and go.</p>
+    <p class="lead">The editor, the engine and the samples, in one download for Windows, Linux or macOS. Unpack it and go.</p>
 
     <div class="download-hero">
         <div class="latest reveal" id="latest">
@@ -19,13 +19,14 @@
         </div>
     </div>
 
-    <div class="note" id="os-note" hidden><p>Vertex is made and tested on Windows, and the downloads are for Windows. On other systems, <a href="#build-from-source">building from source</a> is the way to try it, though it isn't tested there yet.</p></div>
+    <div class="note" id="mac-note" hidden><p>macOS won't open programs from the internet that aren't signed with an Apple developer account. Once, before the first run, open a terminal in the unpacked folder and run <code>xattr -dr com.apple.quarantine .</code> (the dot too). The download is for Macs with Apple silicon; on an Intel Mac, <a href="#build-from-source">build from source</a>.</p></div>
+    <div class="note" id="linux-note" hidden><p>Run the editor from a terminal. It needs your distribution's Vulkan or OpenGL drivers (Mesa, or your GPU maker's).</p></div>
 
     <h2>Get going</h2>
     <div class="cards get-going">
-        <div class="card reveal" id="step-sdk"><div class="card-icon">1</div><h3>Install .NET 10</h3><p>Get the <a href="https://dotnet.microsoft.com/download/dotnet/10.0">.NET 10 SDK</a>. The editor runs on it, and builds C# scripts and games made in code with it.</p></div>
-        <div class="card reveal" data-delay="80"><div class="card-icon">2</div><h3>Unzip</h3><p>Unzip the download anywhere: your documents, a games folder. Nothing is installed.</p></div>
-        <div class="card reveal" data-delay="160"><div class="card-icon">3</div><h3>Open the editor</h3><p>Run <code>Editor\Vertex.Editor.exe</code>. Then <strong>File › Open Project</strong>, pick <code>Samples\Duel\Duel.vertexproject</code>, and press Play.</p></div>
+        <div class="card reveal" id="step-sdk"><div class="card-icon">1</div><h3>Install .NET 10</h3><p>Get the <a href="https://dotnet.microsoft.com/download/dotnet/10.0">.NET 10 SDK</a>. The editor runs on it, and builds C# scripts and games written in code with it.</p></div>
+        <div class="card reveal" data-delay="80"><div class="card-icon">2</div><h3 id="unpack">Unzip</h3><p>Unpack the download anywhere: your documents, a games folder. Nothing is installed.</p></div>
+        <div class="card reveal" data-delay="160"><div class="card-icon">3</div><h3>Open the editor</h3><p>Run <code id="run-editor">Editor\Vertex.Editor.exe</code>. Then <strong>File › Open Project</strong>, pick <code id="open-duel">Samples\Duel\Duel.vertexproject</code>, and press Play.</p></div>
     </div>
     <p><a href="getting-started.html">Getting started</a> takes it from there: flying round the editor, the samples, and making your own project.</p>
 
@@ -36,7 +37,7 @@ dotnet run</pre>
     <p>For a project anywhere else, tell .NET where the package is once, then add it as you would any other:</p>
     <pre class="sh" id="package-commands">dotnet nuget add source "C:\Games\Vertex-0.1.0\Engine" --name Vertex
 dotnet add package Vertex.Engine --version 0.1.0</pre>
-    <p>Use the path you unzipped to. The <a href="tutorial-code-only.html">Coin Grab tutorial</a> makes a whole game this way.</p>
+    <p>Use the path you unpacked to. The <a href="tutorial-code-only.html">Coin Grab tutorial</a> makes a whole game this way.</p>
 
     <h2>Every release</h2>
     <p>Newest first. Each has what changed, and its downloads.</p>
@@ -58,7 +59,25 @@ dotnet run --project Vertex.Editor</pre>
         const repo = "BiggyStudios/Vertex";
         const releasesPage = `https://github.com/${repo}/releases`;
 
-        if (!/Windows/i.test(navigator.userAgent)) document.getElementById("os-note").hidden = false;
+        // ------------------------------------------------------------ This visitor's system
+
+        const systems = {
+            windows: { name: "Windows", file: /win-x64\.zip$/i, needs: "Windows 10 or 11, 64-bit", graphics: "Vulkan or OpenGL 3.3",
+                       run: "Editor\\Vertex.Editor.exe", duel: "Samples\\Duel\\Duel.vertexproject", engine: v => `C:\\Games\\Vertex-${v}\\Engine` },
+            linux:   { name: "Linux", file: /linux-x64\.tar\.gz$/i, needs: "Linux, 64-bit", graphics: "Vulkan or OpenGL 3.3",
+                       run: "./Editor/Vertex.Editor", duel: "Samples/Duel/Duel.vertexproject", engine: v => `~/Games/Vertex-${v}/Engine` },
+            mac:     { name: "macOS", file: /osx-arm64\.tar\.gz$/i, needs: "A Mac with Apple silicon", graphics: "OpenGL",
+                       run: "./Editor/Vertex.Editor", duel: "Samples/Duel/Duel.vertexproject", engine: v => `~/Games/Vertex-${v}/Engine` }
+        };
+        const agent = navigator.userAgent;
+        const here = /Macintosh|Mac OS X/.test(agent) && !/iPhone|iPad/.test(agent) ? systems.mac
+            : /Linux|X11|CrOS/.test(agent) && !/Android/.test(agent) ? systems.linux : systems.windows;
+
+        document.getElementById("run-editor").textContent = here.run;
+        document.getElementById("open-duel").textContent = here.duel;
+        if (here !== systems.windows) document.getElementById("unpack").textContent = "Unpack";
+        const note = document.getElementById(here === systems.mac ? "mac-note" : here === systems.linux ? "linux-note" : "");
+        if (note) note.hidden = false;
 
         // ------------------------------------------------------------ Releases, from GitHub
 
@@ -106,20 +125,22 @@ dotnet run --project Vertex.Editor</pre>
         }
 
         const latest = document.getElementById("latest"), releases = document.getElementById("releases");
-        const requirements = `<div class="needs"><span>Windows 10 or 11, 64-bit</span><span>Vulkan or OpenGL 3.3</span><span><a href="https://dotnet.microsoft.com/download/dotnet/10.0">.NET 10 SDK</a></span></div>`;
+        const requirements = `<div class="needs"><span>${here.needs}</span><span>${here.graphics}</span><span><a href="https://dotnet.microsoft.com/download/dotnet/10.0">.NET 10 SDK</a></span></div>`;
         const version = r => r.tag.replace(/^v/, "");
 
         function showLatest(r) {
-            const zip = r.assets.find(a => /win-x64\.zip$/i.test(a.name)) ?? r.assets.find(a => /\.zip$/i.test(a.name));
+            const download = system => r.assets.find(a => system.file.test(a.name));
+            const mine = download(here);
+            const others = Object.values(systems).filter(s => s !== here && download(s));
             const pkg = r.assets.find(a => /\.nupkg$/i.test(a.name));
             const downloads = r.assets.reduce((sum, a) => sum + a.downloads, 0);
             latest.innerHTML = `
                 <div class="latest-top"><span class="pulse-dot"></span>Latest release ${r.pre ? '<span class="badge">pre-release</span>' : ""}</div>
                 <div class="latest-version">Vertex <span>${Site.escape(version(r))}</span></div>
                 <div class="latest-date" title="${longDate(r.date)}">Released ${when(r.date)}${downloads ? ` · ${downloads.toLocaleString("en")} download${downloads === 1 ? "" : "s"}` : ""}</div>
-                ${zip ? `<a class="button primary download-button" href="${zip.url}"><span class="dl-arrow">↓</span><span><b>Download for Windows</b><small>${Site.escape(zip.name)} · ${size(zip.size)}</small></span></a>`
-                      : `<a class="button primary download-button" href="${r.url}"><span class="dl-arrow">↓</span><span><b>See the release</b><small>on GitHub</small></span></a>`}
-                <div class="latest-links">${pkg ? `<a href="${pkg.url}">Engine package only (${size(pkg.size)})</a>` : ""}<a href="${r.url}">Release notes ↗</a></div>
+                ${mine ? `<a class="button primary download-button" href="${mine.url}"><span class="dl-arrow">↓</span><span><b>Download for ${here.name}</b><small>${Site.escape(mine.name)} · ${size(mine.size)}</small></span></a>`
+                       : `<a class="button primary download-button" href="${r.url}"><span class="dl-arrow">↓</span><span><b>See the release</b><small>on GitHub</small></span></a>`}
+                <div class="latest-links">${others.map(s => `<a href="${download(s).url}">${s.name} (${size(download(s).size)})</a>`).join("")}${pkg ? `<a href="${pkg.url}">Engine package only (${size(pkg.size)})</a>` : ""}<a href="${r.url}">Release notes ↗</a></div>
                 ${requirements}`;
 
             // Thanks for downloading: the arrow drops, and the first step (installing .NET) lights up.
@@ -129,7 +150,7 @@ dotnet run --project Vertex.Editor</pre>
                 setTimeout(() => { step.classList.remove("flash"); void step.offsetWidth; step.classList.add("flash"); }, 700);
             });
 
-            document.getElementById("package-commands").innerHTML = Site.escape(`dotnet nuget add source "C:\\Games\\Vertex-${version(r)}\\Engine" --name Vertex\ndotnet add package Vertex.Engine --version ${version(r)}`);
+            document.getElementById("package-commands").innerHTML = Site.escape(`dotnet nuget add source "${here.engine(version(r))}" --name Vertex\ndotnet add package Vertex.Engine --version ${version(r)}`);
         }
 
         function showNone(message, error) {
