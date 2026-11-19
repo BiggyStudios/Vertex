@@ -33,9 +33,9 @@ namespace Vertex.Audio
         }
 
         /// <summary>Changes its volume and pitch while it plays, and moves it if it's in the world.</summary>
-        internal void Set(System.Numerics.Vector3? position, float volume, float pitch)
+        internal void Set(in SoundPlacement placement, float volume, float pitch)
         {
-            if (Clip != null) Sound.Voices.Set(_voice, _generation, position, volume, pitch);
+            if (Clip != null) Sound.Voices.Set(_voice, _generation, placement, volume, pitch);
         }
 
         internal int Voice => _voice;

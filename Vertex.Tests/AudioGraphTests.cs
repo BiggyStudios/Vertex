@@ -20,6 +20,7 @@ namespace Vertex.Tests
             {
                 public required AudioClip Clip;
                 public Vector3? Position;
+                public SoundPlacement Placement;
                 public float Volume, Pitch, StartedAt, Ends;
                 public bool Loop, Stopped;
                 public string Name => Path.GetFileNameWithoutExtension(Clip.Source)!;
@@ -28,9 +29,9 @@ namespace Vertex.Tests
             public readonly List<Voice> Started = new();
             public float Now;
 
-            public PlayingSound Start(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance, bool loop)
+            public PlayingSound Start(AudioClip clip, in SoundPlacement placement, float volume, float pitch, bool loop)
             {
-                Started.Add(new Voice { Clip = clip, Position = position, Volume = volume, Pitch = pitch, Loop = loop, StartedAt = Now, Ends = Now + clip.Duration / pitch });
+                Started.Add(new Voice { Clip = clip, Position = placement.Position, Placement = placement, Volume = volume, Pitch = pitch, Loop = loop, StartedAt = Now, Ends = Now + clip.Duration / pitch });
                 return new PlayingSound(Started.Count - 1, 1, clip);
             }
 
@@ -38,10 +39,11 @@ namespace Vertex.Tests
             public float Offset(int voice, int generation) => Now - Started[voice].StartedAt;
             public void Seek(int voice, int generation, float seconds) { }
 
-            public void Set(int voice, int generation, Vector3? position, float volume, float pitch)
+            public void Set(int voice, int generation, in SoundPlacement placement, float volume, float pitch)
             {
                 Voice playing = Started[voice];
-                if (playing.Position != null) playing.Position = position;
+                if (playing.Position != null) playing.Position = placement.Position;
+                playing.Placement = placement;
                 playing.Volume = volume;
                 playing.Pitch = pitch;
             }
@@ -76,11 +78,11 @@ namespace Vertex.Tests
         /// <summary>Puts back a device that plays nothing, as the tests' engine has none.</summary>
         private sealed class TestVoicesGone : IVoices
         {
-            public PlayingSound Start(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance, bool loop) => default;
+            public PlayingSound Start(AudioClip clip, in SoundPlacement placement, float volume, float pitch, bool loop) => default;
             public bool IsPlaying(int voice, int generation) => false;
             public float Offset(int voice, int generation) => 0f;
             public void Seek(int voice, int generation, float seconds) { }
-            public void Set(int voice, int generation, Vector3? position, float volume, float pitch) { }
+            public void Set(int voice, int generation, in SoundPlacement placement, float volume, float pitch) { }
             public void Stop(int voice, int generation) { }
             public void StopAll() { }
         }
@@ -461,6 +463,100 @@ namespace Vertex.Tests
             source.Loop = true;
             source.Play();
             Assert.True(_voices.Started[1].Loop);
+        }
+
+        [Fact]
+        public void An_audio_sources_spatial_settings_movement_and_facing_reach_its_voice()
+        {
+            var clip = AudioClip.Load(Wav("Engine", 2f));
+            var car = new GameObject("Car");
+            car.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f);
+            car.AddComponent<AudioSource>(s =>
+            {
+                s.Sound = clip;
+                s.Loop = true;
+                s.MaxDistance = 40f;
+                s.Rolloff = Rolloff.Linear;
+                s.Doppler = 1f;
+                s.ConeAngle = 90f;
+                s.OuterConeAngle = 180f;
+                s.OuterConeVolume = 0.2f;
+            });
+
+            var loop = new GameLoop(new EmptyGame());
+            RunFrames(loop, 1);
+            SpatialSettings heard = _voices.Started[0].Placement.Spatial;
+            Assert.Equal(40f, heard.MaxDistance);
+            Assert.Equal(Rolloff.Linear, heard.Rolloff);
+            Assert.Equal(1f, heard.Doppler);
+            Assert.Equal((90f, 180f, 0.2f), (heard.ConeAngle, heard.OuterConeAngle, heard.OuterConeVolume));
+            Assert.True(Vector3.Distance(car.Transform.Forward, _voices.Started[0].Placement.Forward) < 1e-4f);
+
+            // Driving along X at 6 metres a second: how fast it moves goes with it, for its Doppler shift.
+            for (int i = 0; i < 3; i++)
+            {
+                car.Transform.Position += new Vector3(0.1f, 0f, 0f);
+                RunFrames(loop, 1);
+            }
+
+            Assert.Equal(6f, _voices.Started[0].Placement.Velocity.X, 0.01f);
+        }
+
+        [Fact]
+        public void A_sound_that_isnt_in_the_world_is_panned_and_has_no_position()
+        {
+            var clip = AudioClip.Load(Wav("Music"));
+            new GameObject("Radio").AddComponent<AudioSource>(s =>
+            {
+                s.Sound = clip;
+                s.InWorld = false;
+                s.Pan = -0.5f;
+            });
+
+            RunFrames(new GameLoop(new EmptyGame()), 1);
+
+            Assert.Null(_voices.Started[0].Placement.Position);
+            Assert.Equal(-0.5f, _voices.Started[0].Placement.Pan);
+        }
+
+        [Fact]
+        public void Each_rolloff_fades_with_distance_as_it_says()
+        {
+            var natural = new SpatialSettings { FullVolumeDistance = 3f, MaxDistance = 30f };
+            Assert.Equal(1f, natural.VolumeAt(2f));
+            Assert.Equal(0.5f, natural.VolumeAt(6f), 4);
+            Assert.Equal(0.1f, natural.VolumeAt(100f), 4);
+
+            var linear = natural with { Rolloff = Rolloff.Linear, MaxDistance = 13f };
+            Assert.Equal(0.5f, linear.VolumeAt(8f), 4);
+            Assert.Equal(0f, linear.VolumeAt(20f));
+
+            Assert.Equal(1f, (natural with { Rolloff = Rolloff.None }).VolumeAt(500f));
+
+            // A one-off sound takes them too.
+            var clip = AudioClip.Load(Wav("Boom"));
+            Sound.PlayAt(clip, new Vector3(1f, 2f, 3f), linear);
+            Assert.Equal(linear, _voices.Started[0].Placement.Spatial);
+            Assert.Equal(new Vector3(1f, 2f, 3f), _voices.Started[0].Placement.Position);
+        }
+
+        [Fact]
+        public void Sound_is_heard_from_the_audio_listener_or_else_the_main_camera()
+        {
+            Assert.Null(Sound.Listener);
+
+            var camera = new GameObject("Camera");
+            camera.AddComponent<Rendering.Camera>();
+            Scene.Active.ApplyChanges();
+            Assert.Same(camera.Transform, Sound.Listener);
+
+            var player = new GameObject("Player");
+            AudioListener ears = player.AddComponent<AudioListener>();
+            Scene.Active.ApplyChanges();
+            Assert.Same(player.Transform, Sound.Listener);
+
+            ears.Enabled = false;
+            Assert.Same(camera.Transform, Sound.Listener);
         }
     }
 }

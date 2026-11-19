@@ -28,8 +28,26 @@ namespace Vertex.Audio
         /// <summary>Where it is in the world (it gets quieter further away); null to play the same everywhere.</summary>
         public Vector3? Position { get; set; }
 
-        /// <summary>Within this distance it plays at full volume; beyond, it halves each time the distance doubles.</summary>
-        public float FullVolumeDistance { get; set; } = 3f;
+        /// <summary>How it's heard in the world: how it fades with distance, its cone, its Doppler shift.</summary>
+        public SpatialSettings Spatial { get; set; } = new();
+
+        /// <summary>Within this distance it plays at full volume; beyond, it gets quieter (see <see cref="Spatial"/>).</summary>
+        public float FullVolumeDistance
+        {
+            get => Spatial.FullVolumeDistance;
+            set => Spatial = Spatial with { FullVolumeDistance = value };
+        }
+
+        /// <summary>How fast it's moving through the world, in metres a second: for its Doppler shift.</summary>
+        public Vector3 Velocity { get; set; }
+
+        /// <summary>Which way it faces in the world, for its cone (see <see cref="SpatialSettings.ConeAngle"/>).</summary>
+        public Vector3 Forward { get; set; } = -Vector3.UnitZ;
+
+        /// <summary>For a sound that isn't in the world: -1 in the left ear only, 1 the right, 0 both alike. Mono sounds only.</summary>
+        public float Pan { get; set; }
+
+        internal SoundPlacement Placement => new(Position, Spatial, Velocity, Forward, Pan);
 
         /// <summary>Plays a single clip over and over (for an <see cref="AudioSource"/> set to loop with no graph).</summary>
         internal bool LoopClip { get; init; }
@@ -335,7 +353,7 @@ namespace Vertex.Audio
             public override void Start(float fade)
             {
                 _fade = fade;
-                _sound = Sound.Voices.Start(clip, playback.Position, Gain, Speed, playback.FullVolumeDistance, loop);
+                _sound = Sound.Voices.Start(clip, playback.Placement, Gain, Speed, loop);
                 Done = !_sound.IsPlaying;
             }
 
@@ -349,7 +367,7 @@ namespace Vertex.Audio
                 }
 
                 _fade = volume;
-                _sound.Set(playback.Position, Gain, Speed);
+                _sound.Set(playback.Placement, Gain, Speed);
             }
 
             public override void Stop()

@@ -40,6 +40,7 @@ namespace Vertex.Editor.Gui
             [typeof(SpringJoint)] = Icons.SpringJoint,
 
             [typeof(AudioSource)] = Icons.Speaker,
+            [typeof(AudioListener)] = Icons.Headphones,
 
             [typeof(NetworkManager)] = Icons.Network,
             [typeof(NetworkObject)] = Icons.NetworkObject,

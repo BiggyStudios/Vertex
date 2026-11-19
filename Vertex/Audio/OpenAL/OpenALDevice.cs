@@ -38,14 +38,17 @@ namespace Vertex.Audio.OpenAL
             _context = _alc.CreateContext(_device, null);
             _alc.MakeContextCurrent(_context);
 
-            // Gain = reference distance / distance, so loudness halves each time the distance doubles.
+            // Gain = reference distance / distance, so loudness halves each time the distance doubles. OpenAL Soft also lets
+            // each voice have a model of its own, for sounds that fade evenly to silence instead (Rolloff.Linear).
             _al.DistanceModel(DistanceModel.InverseDistanceClamped);
+            _perVoiceModels = _al.IsExtensionPresent("AL_EXT_source_distance_model");
+            if (_perVoiceModels) _al.Enable((Capability)_sourceDistanceModelCapability);
 
             for (int i = 0; i < _voices.Length; i++) _voices[i] = _al.GenSource();
         }
 
         /// <summary>Starts a clip on a free voice. Returns which voice, and which of the sounds it has played this is.</summary>
-        public (int Voice, int Generation) Play(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance, bool loop = false)
+        public (int Voice, int Generation) Play(AudioClip clip, in SoundPlacement placement, float volume, float pitch, bool loop = false)
         {
             uint buffer = GetBuffer(clip);
             int index = TakeVoice();
@@ -57,24 +60,58 @@ namespace Vertex.Audio.OpenAL
             _al.SetSourceProperty(voice, SourceBoolean.Looping, loop);
             _al.SetSourceProperty(voice, SourceFloat.Gain, MathF.Max(volume, 0f));
             _al.SetSourceProperty(voice, SourceFloat.Pitch, Math.Clamp(pitch, 0.1f, 4f));
-
-            if (position is Vector3 world)
-            {
-                _al.SetSourceProperty(voice, SourceBoolean.SourceRelative, false);
-                _al.SetSourceProperty(voice, SourceVector3.Position, world.X, world.Y, world.Z);
-                _al.SetSourceProperty(voice, SourceFloat.ReferenceDistance, MathF.Max(fullVolumeDistance, 0.01f));
-                _al.SetSourceProperty(voice, SourceFloat.RolloffFactor, 1f);
-            }
-            else
-            {
-                // At the listener, with no fall-off: the same in both ears.
-                _al.SetSourceProperty(voice, SourceBoolean.SourceRelative, true);
-                _al.SetSourceProperty(voice, SourceVector3.Position, 0f, 0f, 0f);
-                _al.SetSourceProperty(voice, SourceFloat.RolloffFactor, 0f);
-            }
+            Place(voice, placement);
 
             _al.SourcePlay(voice);
             return (index, generation);
+        }
+
+        // AL_EXT_source_distance_model: switched on, each voice can have a distance model (AL_DISTANCE_MODEL) of its own.
+        private const int _sourceDistanceModelCapability = 0x200;
+        private const int _sourceDistanceModel = 0xD000;
+        private readonly bool _perVoiceModels;
+
+        // How fast the listener moves. Doppler shifts are worked out here, per voice, from how fast each moves relative
+        // to it (OpenAL's own listener stays still), so each sound can have its own amount.
+        private Vector3 _listenerVelocity;
+
+        /// <summary>Puts a voice where it's heard from: in the world with its fall-off, cone and Doppler, or everywhere alike, panned.</summary>
+        private void Place(uint voice, in SoundPlacement placement)
+        {
+            if (placement.Position is Vector3 world)
+            {
+                SpatialSettings spatial = placement.Spatial.Clamped();
+                _al.SetSourceProperty(voice, SourceBoolean.SourceRelative, false);
+                _al.SetSourceProperty(voice, SourceVector3.Position, world.X, world.Y, world.Z);
+                _al.SetSourceProperty(voice, SourceFloat.ReferenceDistance, spatial.FullVolumeDistance);
+                _al.SetSourceProperty(voice, SourceFloat.MaxDistance, spatial.MaxDistance);
+                _al.SetSourceProperty(voice, SourceFloat.RolloffFactor, spatial.Rolloff == Rolloff.None ? 0f : 1f);
+                if (_perVoiceModels)
+                {
+                    DistanceModel model = spatial.Rolloff == Rolloff.Linear ? DistanceModel.LinearDistanceClamped : DistanceModel.InverseDistanceClamped;
+                    _al.SetSourceProperty(voice, (SourceInteger)_sourceDistanceModel, (int)model);
+                }
+
+                // A cone all round is no cone: OpenAL takes a voice with no direction as sounding the same every way.
+                Vector3 facing = spatial.ConeAngle >= 360f || placement.Forward == Vector3.Zero ? Vector3.Zero : Vector3.Normalize(placement.Forward);
+                _al.SetSourceProperty(voice, SourceVector3.Direction, facing.X, facing.Y, facing.Z);
+                _al.SetSourceProperty(voice, SourceFloat.ConeInnerAngle, spatial.ConeAngle);
+                _al.SetSourceProperty(voice, SourceFloat.ConeOuterAngle, spatial.OuterConeAngle);
+                _al.SetSourceProperty(voice, SourceFloat.ConeOuterGain, spatial.OuterConeVolume);
+
+                Vector3 velocity = (placement.Velocity - _listenerVelocity) * spatial.Doppler;
+                _al.SetSourceProperty(voice, SourceVector3.Velocity, velocity.X, velocity.Y, velocity.Z);
+            }
+            else
+            {
+                // At the listener, with no fall-off: the same in both ears, or put to one side by its pan.
+                float pan = Math.Clamp(placement.Pan, -1f, 1f);
+                _al.SetSourceProperty(voice, SourceBoolean.SourceRelative, true);
+                _al.SetSourceProperty(voice, SourceVector3.Position, pan, 0f, -MathF.Sqrt(1f - pan * pan));
+                _al.SetSourceProperty(voice, SourceFloat.RolloffFactor, 0f);
+                _al.SetSourceProperty(voice, SourceVector3.Direction, 0f, 0f, 0f);
+                _al.SetSourceProperty(voice, SourceVector3.Velocity, 0f, 0f, 0f);
+            }
         }
 
         /// <summary>Whether the sound a handle points at is still playing on its voice.</summary>
@@ -99,18 +136,14 @@ namespace Vertex.Audio.OpenAL
             if (IsPlaying(index, generation)) _al.SetSourceProperty(_voices[index], SourceFloat.SecOffset, MathF.Max(seconds, 0f));
         }
 
-        /// <summary>
-        /// Changes a playing sound's volume and pitch, and moves it if it's in the world (<paramref name="position"/>
-        /// is ignored for one that plays everywhere the same).
-        /// </summary>
-        public void Set(int index, int generation, Vector3? position, float volume, float pitch)
+        /// <summary>Changes a playing sound's volume and pitch, and where and how it's heard.</summary>
+        public void Set(int index, int generation, in SoundPlacement placement, float volume, float pitch)
         {
             if (index < 0 || index >= _voices.Length || _generations[index] != generation) return;
             uint voice = _voices[index];
             _al.SetSourceProperty(voice, SourceFloat.Gain, MathF.Max(volume, 0f));
             _al.SetSourceProperty(voice, SourceFloat.Pitch, Math.Clamp(pitch, 0.1f, 4f));
-            _al.GetSourceProperty(voice, SourceBoolean.SourceRelative, out bool everywhere);
-            if (position is Vector3 world && !everywhere) _al.SetSourceProperty(voice, SourceVector3.Position, world.X, world.Y, world.Z);
+            Place(voice, placement);
         }
 
         public void Stop(int index, int generation)
@@ -124,8 +157,9 @@ namespace Vertex.Audio.OpenAL
             foreach (uint voice in _voices) _al.SourceStop(voice);
         }
 
-        public void SetListener(Vector3 position, Vector3 forward, Vector3 up)
+        public void SetListener(Vector3 position, Vector3 forward, Vector3 up, Vector3 velocity)
         {
+            _listenerVelocity = velocity;
             _al.SetListenerProperty(ListenerVector3.Position, position.X, position.Y, position.Z);
 
             float* orientation = stackalloc float[6] { forward.X, forward.Y, forward.Z, up.X, up.Y, up.Z };

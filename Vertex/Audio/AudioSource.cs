@@ -1,3 +1,5 @@
+using System.Numerics;
+
 using Vertex.Graphs;
 using Vertex.Scripting;
 
@@ -37,11 +39,54 @@ namespace Vertex.Audio
         [Tooltip("Plays again each time it ends, until it's stopped (an audio graph chooses again each time)")]
         public bool Loop { get; set; }
 
+        [Header("Where It's Heard")]
         [Tooltip("Comes from the object, quieter further away. Off, it's the same everywhere: music, the player's own sounds")]
         public bool InWorld { get; set; } = true;
 
-        [Tooltip("Within this many metres it plays at full volume; beyond, it halves each time the distance doubles")]
+        [Tooltip("Not In World: -1 plays it in the left ear only, 1 the right, 0 both alike. Mono sounds only")]
+        [Range(-1f, 1f)]
+        public float Pan { get; set; }
+
+        [Tooltip("Within this many metres it plays at full volume; beyond, it gets quieter")]
         public float FullVolumeDistance { get; set; } = 3f;
+
+        [Tooltip("Where it stops getting quieter (Natural) or falls silent (Linear), in metres")]
+        public float MaxDistance { get; set; } = 100f;
+
+        [Tooltip("How it gets quieter with distance: as in open air, evenly to silence at Max Distance, or not at all")]
+        public Rolloff Rolloff { get; set; } = Rolloff.Natural;
+
+        [Tooltip("How much its pitch rises as it races towards the listener and falls as it goes away: 0 none, 1 as in real life")]
+        [Range(0f, 5f)]
+        public float Doppler { get; set; }
+
+        [Tooltip("The cone in front of it (along the object's forward) where it's at full volume, in degrees: 360 is all round")]
+        [Range(0f, 360f)]
+        public float ConeAngle { get; set; } = 360f;
+
+        [Tooltip("Beyond this angle it's at Outer Cone Volume; between the two cones it fades from one to the other")]
+        [Range(0f, 360f)]
+        public float OuterConeAngle { get; set; } = 360f;
+
+        [Tooltip("How loud it is behind, outside the outer cone: 0 silent, 1 as loud as in front")]
+        [Range(0f, 1f)]
+        public float OuterConeVolume { get; set; }
+
+        /// <summary>Its settings for how it's heard in the world, together.</summary>
+        public SpatialSettings Spatial => new()
+        {
+            FullVolumeDistance = FullVolumeDistance,
+            MaxDistance = MaxDistance,
+            Rolloff = Rolloff,
+            Doppler = Doppler,
+            ConeAngle = ConeAngle,
+            OuterConeAngle = OuterConeAngle,
+            OuterConeVolume = OuterConeVolume
+        };
+
+        // Where it was last frame, for how fast it's moving.
+        private Vector3? _lastPosition;
+        private Vector3 _velocity;
 
         /// <summary>This object's own values for the audio graph's properties, in place of the graph's. Set in the inspector, under the source.</summary>
         [HideInInspector]
@@ -67,8 +112,7 @@ namespace Vertex.Audio
 
             playback.Volume = Volume;
             playback.Pitch = Pitch;
-            playback.Position = InWorld ? Transform.WorldPosition : null;
-            playback.FullVolumeDistance = FullVolumeDistance;
+            Place(playback);
             if (AudioGraph != null)
             {
                 foreach (ScriptVariableValue own in Properties)
@@ -107,14 +151,28 @@ namespace Vertex.Audio
             if (PlayOnStart) Play();
         }
 
+        /// <summary>Where and how what it plays is heard: from the object as it moves and turns, or everywhere alike.</summary>
+        private void Place(AudioPlayback playback)
+        {
+            playback.Position = InWorld ? Transform.WorldPosition : null;
+            playback.Spatial = Spatial;
+            playback.Velocity = _velocity;
+            playback.Forward = Transform.Forward;
+            playback.Pan = Pan;
+        }
+
         protected internal override void Update()
         {
+            Vector3 position = Transform.WorldPosition;
+            _velocity = _lastPosition is { } last && Time.DeltaTime > 0f ? (position - last) / Time.DeltaTime : Vector3.Zero;
+            _lastPosition = position;
+
             _playing.RemoveAll(p => !p.IsPlaying);
             foreach (AudioPlayback playback in _playing)
             {
                 playback.Volume = Volume;
                 playback.Pitch = Pitch;
-                playback.Position = InWorld ? Transform.WorldPosition : null;
+                Place(playback);
             }
 
             // An audio graph set to loop starts again when it's over, choosing again. (A single sound loops on its own.)
