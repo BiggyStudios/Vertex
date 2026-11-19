@@ -32,6 +32,12 @@ namespace Vertex.Editor.Gui
             [typeof(ConvexCollider)] = Icons.ConvexCollider,
             [typeof(MeshCollider)] = Icons.MeshCollider,
             [typeof(CharacterController)] = Icons.Character,
+            [typeof(FixedJoint)] = Icons.FixedJoint,
+            [typeof(HingeJoint)] = Icons.HingeJoint,
+            [typeof(SliderJoint)] = Icons.SliderJoint,
+            [typeof(BallJoint)] = Icons.BallJoint,
+            [typeof(DistanceJoint)] = Icons.DistanceJoint,
+            [typeof(SpringJoint)] = Icons.SpringJoint,
 
             [typeof(AudioSource)] = Icons.Speaker,
 

@@ -229,6 +229,12 @@ namespace Vertex.Editor.Inspection
                     });
                     break;
 
+                case MemberKind.Enum when member.Type.IsDefined(typeof(FlagsAttribute), false):
+                {
+                    if (FlagsField(id, field, member.Type, value, mixed != 0) is { } flags) Set(target, member, flags, others);
+                    break;
+                }
+
                 case MemberKind.Enum:
                 {
                     Array values = Enum.GetValues(member.Type);
@@ -258,6 +264,39 @@ namespace Vertex.Editor.Inspection
                     ReferenceField(id, field, member.Type, value, member.CanWrite, picked => Set(target, member, picked, others), mixed != 0);
                     break;
             }
+        }
+
+        /// <summary>
+        /// A set of switches, one per flag of a [Flags] enum (X, Y and Z, say), side by side: each lights up when it's on
+        /// and is switched on or off on its own. Returns the new value the frame one is clicked.
+        /// </summary>
+        public static object? FlagsField(int id, Rect field, Type type, object? value, bool mixed)
+        {
+            long current = value != null ? Convert.ToInt64(value) : 0L;
+            var flags = new List<(string Name, long Bit)>();
+            foreach (object option in Enum.GetValues(type))
+            {
+                long bit = Convert.ToInt64(option);
+                if (bit != 0 && (bit & (bit - 1)) == 0) flags.Add((ComponentCatalog.SplitWords(option.ToString()!), bit));
+            }
+
+            object? picked = null;
+            for (int i = 0; i < flags.Count; i++)
+            {
+                (string name, long bit) = flags[i];
+                Rect chip = field.Column(i, flags.Count, 4f);
+                int chipId = Ui.Id(id, name);
+                Interaction interaction = Ui.Interact(chipId, chip);
+                bool on = !mixed && (current & bit) != 0;
+
+                Color background = Ui.Smooth(chipId, on ? Theme.Accent : interaction.Hovered ? Theme.ControlHover : Theme.Control, 24f);
+                Ui.Rect(chip, background, Theme.ControlRadius);
+                Ui.Text(chip, mixed ? "—" : name, on ? Color.White : Theme.TextDim, align: 0.5f, size: Theme.SmallTextSize);
+
+                if (interaction.Clicked) picked = Enum.ToObject(type, mixed ? bit : current ^ bit);
+            }
+
+            return picked;
         }
 
         private void MeshField(int id, Rect field, object target, InspectedMember member, Mesh? mesh, IReadOnlyList<object>? others, bool mixed)

@@ -86,6 +86,28 @@ namespace Vertex.Physics
         /// </summary>
         public bool Interpolate { get; set; } = true;
 
+        /// <summary>
+        /// World axes it can't move along: a door that only swings, a puck kept on the table (Y), a 2D game's objects kept
+        /// in the picture's plane (Z). Collisions and forces along them are ignored.
+        /// </summary>
+        [Tooltip("World axes it can't move along: Y keeps a puck on its table, Z keeps a 2D game's objects in the picture")]
+        public Axes LockPosition
+        {
+            get => _lockPosition;
+            set { _lockPosition = value; Changed(); }
+        }
+
+        /// <summary>World axes it can't turn about: lock X and Z to keep it upright, Y as well to stop it turning at all.</summary>
+        [Tooltip("World axes it can't turn about: X and Z keep it upright")]
+        public Axes LockRotation
+        {
+            get => _lockRotation;
+            set { _lockRotation = value; Changed(); }
+        }
+
+        private Axes _lockPosition;
+        private Axes _lockRotation;
+
         /// <summary>In units per second, world space.</summary>
         [Serialization.DontSave]
         public Vector3 Velocity
@@ -122,6 +144,17 @@ namespace Vertex.Physics
         /// <summary>Bumped whenever a setting changes, so the physics world knows to rebuild the body.</summary>
         internal int Version { get; private set; }
 
-        private void Changed() => Version++;
+        private protected void Changed() => Version++;
+    }
+
+    /// <summary>Some of the X, Y and Z axes: which ones a <see cref="Rigidbody"/> is locked along, say.</summary>
+    [Flags]
+    public enum Axes
+    {
+        None = 0,
+        X = 1,
+        Y = 2,
+        Z = 4,
+        All = X | Y | Z
     }
 }

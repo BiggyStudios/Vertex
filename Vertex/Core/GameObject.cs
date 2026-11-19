@@ -221,6 +221,16 @@ namespace Vertex
         }
 
         /// <summary>Sends a trigger callback to every enabled component, then to the object itself.</summary>
+        internal void SendJointBreak(Joint joint)
+        {
+            if (IsDestroyed) return;
+
+            for (int i = 0; i < _components.Count; i++)
+            {
+                if (_components[i].Enabled) _components[i].OnJointBreak(joint);
+            }
+        }
+
         internal void SendTrigger(ContactPhase phase, Collider other)
         {
             if (IsDestroyed || phase == ContactPhase.Stay) return;

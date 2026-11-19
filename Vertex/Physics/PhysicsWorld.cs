@@ -17,6 +17,9 @@ namespace Vertex.Physics
         private static readonly ObjectLayer _staticLayer = new(0);
         private static readonly ObjectLayer _movingLayer = new(1);
 
+        // Collides with nothing: the body joints hold on to when they hold on to the world (see WorldAnchor).
+        private static readonly ObjectLayer _anchorLayer = new(2);
+
         private static bool _foundationInitialised;
 
         private readonly Scene _scene;
@@ -71,15 +74,16 @@ namespace Vertex.Physics
                 _foundationInitialised = true;
             }
 
-            _objectLayerPairs = new ObjectLayerPairFilterTable(2);
+            _objectLayerPairs = new ObjectLayerPairFilterTable(3);
             _objectLayerPairs.EnableCollision(_staticLayer, _movingLayer);
             _objectLayerPairs.EnableCollision(_movingLayer, _movingLayer);
 
-            _broadPhaseLayers = new BroadPhaseLayerInterfaceTable(2, 2);
+            _broadPhaseLayers = new BroadPhaseLayerInterfaceTable(3, 2);
             _broadPhaseLayers.MapObjectToBroadPhaseLayer(_staticLayer, new BroadPhaseLayer(0));
             _broadPhaseLayers.MapObjectToBroadPhaseLayer(_movingLayer, new BroadPhaseLayer(1));
+            _broadPhaseLayers.MapObjectToBroadPhaseLayer(_anchorLayer, new BroadPhaseLayer(0));
 
-            _objectVsBroadPhase = new ObjectVsBroadPhaseLayerFilterTable(_broadPhaseLayers, 2, _objectLayerPairs, 2);
+            _objectVsBroadPhase = new ObjectVsBroadPhaseLayerFilterTable(_broadPhaseLayers, 2, _objectLayerPairs, 3);
 
             _system = new PhysicsSystem(new PhysicsSystemSettings
             {
@@ -94,6 +98,7 @@ namespace Vertex.Physics
             _system.OnContactAdded += OnContactAdded;
             _system.OnContactPersisted += OnContactPersisted;
             _system.OnContactRemoved += OnContactRemoved;
+            _system.OnContactValidate += OnContactValidate;
 
             _jobSystem = new JobSystemThreadPool();
         }
@@ -149,12 +154,15 @@ namespace Vertex.Physics
         internal void Step(float deltaTime)
         {
             SyncBodies(deltaTime);
+            SyncJoints();
 
             PhysicsUpdateError error = _system.Update(deltaTime, 1, _jobSystem);
             if (error != PhysicsUpdateError.None) Log.Warning($"Physics step failed: {error}");
 
             ReadBack();
+            ReadJoints(deltaTime);
             SendContacts();
+            SendBrokenJoints();
         }
 
         // ---- Interpolation -----------------------------------------------------------------------------------------
@@ -345,8 +353,10 @@ namespace Vertex.Physics
                 shape = new RotatedTranslatedShape(collider.Center * scale, Quaternion.Identity, innerShape);
             }
 
+            // Locked along and about every axis, it can't move at all: it stays where it's put, like a kinematic body.
+            bool locked = rigidbody is { LockPosition: Axes.All, LockRotation: Axes.All };
             MotionType motion = rigidbody == null ? MotionType.Static
-                : rigidbody.IsKinematic ? MotionType.Kinematic
+                : rigidbody.IsKinematic || locked ? MotionType.Kinematic
                 : MotionType.Dynamic;
 
             Transform transform = collider.Transform;
@@ -372,6 +382,7 @@ namespace Vertex.Physics
                 settings.MotionQuality = rigidbody.ContinuousCollision ? MotionQuality.LinearCast : MotionQuality.Discrete;
                 settings.LinearVelocity = rigidbody.CurrentVelocity;
                 settings.AngularVelocity = rigidbody.CurrentAngularVelocity;
+                if (motion == MotionType.Dynamic) settings.AllowedDOFs = AllowedMovement(rigidbody.LockPosition, rigidbody.LockRotation);
 
                 // Lets kinematic bodies (and triggers) report touching static colliders, e.g. a player hitting a wall.
                 settings.CollideKinematicVsNonDynamic = rigidbody.IsKinematic;
@@ -390,6 +401,19 @@ namespace Vertex.Physics
             _bodies[collider] = body;
             _bodiesById[id.ID] = body;
             return body;
+        }
+
+        /// <summary>Jolt's name for the ways a body is free to move: every axis but the locked ones.</summary>
+        private static AllowedDOFs AllowedMovement(Axes lockPosition, Axes lockRotation)
+        {
+            AllowedDOFs allowed = 0;
+            if ((lockPosition & Axes.X) == 0) allowed |= AllowedDOFs.TranslationX;
+            if ((lockPosition & Axes.Y) == 0) allowed |= AllowedDOFs.TranslationY;
+            if ((lockPosition & Axes.Z) == 0) allowed |= AllowedDOFs.TranslationZ;
+            if ((lockRotation & Axes.X) == 0) allowed |= AllowedDOFs.RotationX;
+            if ((lockRotation & Axes.Y) == 0) allowed |= AllowedDOFs.RotationY;
+            if ((lockRotation & Axes.Z) == 0) allowed |= AllowedDOFs.RotationZ;
+            return allowed;
         }
 
         private static Shape CreateShape(Collider collider, Vector3 scale)
@@ -471,6 +495,8 @@ namespace Vertex.Physics
 
         private void RemoveBody(Body body)
         {
+            // Jolt mustn't be left with a joint holding a body that's gone.
+            RemoveJointsOn(body.Id);
             _system.BodyInterface.RemoveAndDestroyBody(body.Id);
             body.DisposeShapes();
 
@@ -509,6 +535,418 @@ namespace Vertex.Physics
             }
 
             return null;
+        }
+
+        // ---- Joints ------------------------------------------------------------------------------------------------
+
+        private readonly Dictionary<Joint, JointRecord> _joints = new();
+        private readonly List<JointRecord> _jointsToRemove = new();
+        private readonly List<Joint> _broken = new();
+        private BodyID? _worldAnchor;
+        private Shape? _worldAnchorShape;
+
+        // Joined pairs that mustn't collide (Jolt body IDs, smaller first). Read from Jolt's worker threads during the
+        // step, so it's only ever swapped for a new set between steps, never changed.
+        private volatile HashSet<(uint, uint)> _unjoinedPairs = new();
+
+        /// <summary>
+        /// A body that never moves and touches nothing, for joints to hold on to when they hold on to the world: Jolt
+        /// joins two bodies, so a joint to "the world" is a joint to this.
+        /// </summary>
+        private BodyID WorldAnchor()
+        {
+            if (_worldAnchor is { } existing) return existing;
+
+            _worldAnchorShape = new SphereShape(0.01f);
+            using var settings = new BodyCreationSettings(_worldAnchorShape, Vector3.Zero, Quaternion.Identity, MotionType.Static, _anchorLayer) { IsSensor = true };
+            BodyID id = _system.BodyInterface.CreateAndAddBody(settings, Activation.DontActivate);
+            _worldAnchor = id;
+            return id;
+        }
+
+        private Body? BodyOf(GameObject gameObject) =>
+            FirstEnabledCollider(gameObject) is { } collider && _bodies.TryGetValue(collider, out Body? body) ? body : null;
+
+        /// <summary>Makes Jolt's joints match the scene's: new ones made, changed ones made again, gone ones removed.</summary>
+        private void SyncJoints()
+        {
+            bool pairsChanged = false;
+
+            foreach (Joint joint in _scene.FindComponents<Joint>())
+            {
+                if (joint.IsBroken) continue;
+
+                // Both ends need a body: its own object's, and the connected one's (or the world's).
+                Body? own = BodyOf(joint.GameObject);
+                if (own == null) continue;
+
+                BodyID other;
+                if (joint.ConnectedBody is { } connected)
+                {
+                    if (connected.GameObject.IsDestroyed || BodyOf(connected.GameObject) is not { } connectedBody || connectedBody == own) continue;
+                    other = connectedBody.Id;
+                }
+                else
+                {
+                    other = WorldAnchor();
+                }
+
+                if (_joints.TryGetValue(joint, out JointRecord? record) &&
+                    (record.Version != joint.Version || record.Body1.ID != other.ID || record.Body2.ID != own.Id.ID))
+                {
+                    RemoveJoint(record);
+                    pairsChanged = true;
+                    record = null;
+                }
+
+                if (record == null)
+                {
+                    record = CreateJoint(joint, other, own);
+                    if (record == null) continue;
+                    pairsChanged = true;
+                }
+
+                record.LastSeenStep = _stepIndex;
+                DriveMotor(record);
+            }
+
+            // Anything not seen was destroyed, switched off, broken, or lost a body.
+            foreach (JointRecord record in _joints.Values)
+            {
+                if (record.LastSeenStep != _stepIndex) _jointsToRemove.Add(record);
+            }
+
+            foreach (JointRecord record in _jointsToRemove) RemoveJoint(record);
+            pairsChanged |= _jointsToRemove.Count > 0;
+            _jointsToRemove.Clear();
+
+            if (pairsChanged) UpdateUnjoinedPairs();
+        }
+
+        private JointRecord? CreateJoint(Joint joint, BodyID body1, Body own)
+        {
+            Transform transform = joint.Transform;
+            Vector3 anchor = Vector3.Transform(joint.Anchor, transform.WorldMatrix);
+
+            TwoBodyConstraintSettings settings;
+            switch (joint)
+            {
+                case FixedJoint:
+                    settings = new FixedConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        AutoDetectPoint = false,
+                        Point1 = anchor,
+                        Point2 = anchor,
+                        AxisX1 = Vector3.UnitX,
+                        AxisY1 = Vector3.UnitY,
+                        AxisX2 = Vector3.UnitX,
+                        AxisY2 = Vector3.UnitY
+                    };
+                    break;
+
+                case HingeJoint hinge:
+                {
+                    Vector3 axis = hinge.WorldAxis;
+                    Vector3 normal = Perpendicular(axis);
+                    float min = hinge.UseLimits ? MathHelper.ToRadians(Math.Clamp(hinge.MinAngle, -180f, 0f)) : -MathF.PI;
+                    float max = hinge.UseLimits ? MathHelper.ToRadians(Math.Clamp(hinge.MaxAngle, 0f, 180f)) : MathF.PI;
+                    settings = new HingeConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        Point1 = anchor,
+                        Point2 = anchor,
+                        HingeAxis1 = axis,
+                        HingeAxis2 = axis,
+                        NormalAxis1 = normal,
+                        NormalAxis2 = normal,
+                        LimitsMin = min,
+                        LimitsMax = max,
+                        MaxFrictionTorque = MathF.Max(hinge.Friction, 0f)
+                    };
+                    break;
+                }
+
+                case SliderJoint slider:
+                {
+                    Vector3 axis = slider.WorldAxis;
+                    Vector3 normal = Perpendicular(axis);
+                    settings = new SliderConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        AutoDetectPoint = false,
+                        Point1 = anchor,
+                        Point2 = anchor,
+                        SliderAxis1 = axis,
+                        SliderAxis2 = axis,
+                        NormalAxis1 = normal,
+                        NormalAxis2 = normal,
+                        LimitsMin = slider.UseLimits ? MathF.Min(slider.MinDistance, 0f) : -float.MaxValue,
+                        LimitsMax = slider.UseLimits ? MathF.Max(slider.MaxDistance, 0f) : float.MaxValue,
+                        MaxFrictionForce = MathF.Max(slider.Friction, 0f)
+                    };
+                    break;
+                }
+
+                case BallJoint ball when ball.SwingLimit >= 179.9f && ball.TwistLimit >= 179.9f:
+                    settings = new PointConstraintSettings { Space = ConstraintSpace.WorldSpace, Point1 = anchor, Point2 = anchor };
+                    break;
+
+                case BallJoint ball:
+                {
+                    Vector3 axis = ball.WorldAxis;
+                    Vector3 plane = Perpendicular(axis);
+                    float swing = MathHelper.ToRadians(Math.Clamp(ball.SwingLimit, 0f, 180f));
+                    float twist = MathHelper.ToRadians(Math.Clamp(ball.TwistLimit, 0f, 180f));
+                    settings = new SwingTwistConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        Position1 = anchor,
+                        Position2 = anchor,
+                        TwistAxis1 = axis,
+                        TwistAxis2 = axis,
+                        PlaneAxis1 = plane,
+                        PlaneAxis2 = plane,
+                        NormalHalfConeAngle = swing,
+                        PlaneHalfConeAngle = swing,
+                        TwistMinAngle = -twist,
+                        TwistMaxAngle = twist
+                    };
+                    break;
+                }
+
+                case DistanceJoint distance:
+                {
+                    Vector3 end = ConnectedPoint(joint, distance.ConnectedAnchor);
+                    float apart = Vector3.Distance(anchor, end);
+                    float max = distance.MaxDistance > 0f ? distance.MaxDistance : apart;
+                    settings = new DistanceConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        Point1 = end,
+                        Point2 = anchor,
+                        MinDistance = Math.Clamp(distance.MinDistance, 0f, max),
+                        MaxDistance = max
+                    };
+                    break;
+                }
+
+                case SpringJoint spring:
+                {
+                    Vector3 end = ConnectedPoint(joint, spring.ConnectedAnchor);
+                    float length = spring.AutoLength ? Vector3.Distance(anchor, end) : MathF.Max(spring.Length, 0f);
+                    settings = new DistanceConstraintSettings
+                    {
+                        Space = ConstraintSpace.WorldSpace,
+                        Point1 = end,
+                        Point2 = anchor,
+                        MinDistance = length,
+                        MaxDistance = length,
+                        LimitsSpringSettings = new SpringSettings(SpringMode.FrequencyAndDamping, MathF.Max(spring.Stiffness, 0.01f), Math.Clamp(spring.Damping, 0f, 1f))
+                    };
+                    break;
+                }
+
+                default:
+                    return null;
+            }
+
+            // Jolt makes the joint from the two bodies themselves. Nothing is simulating now, so they needn't be locked.
+            BodyLockInterface locks = _system.BodyLockInterfaceNoLock;
+            locks.LockWrite(body1, out BodyLockWrite lock1);
+            locks.LockWrite(own.Id, out BodyLockWrite lock2);
+            TwoBodyConstraint constraint;
+            try
+            {
+                if (!lock1.Succeeded || !lock2.Succeeded || lock1.Body is not { } first || lock2.Body is not { } second) return null;
+                constraint = settings.CreateConstraint(first, second);
+            }
+            finally
+            {
+                locks.UnlockWrite(lock2);
+                locks.UnlockWrite(lock1);
+            }
+
+            _system.AddConstraint(constraint);
+            Wake(own.Id);
+            Wake(body1);
+
+            var record = new JointRecord(joint, constraint, body1, own.Id, joint.Version, joint.CollideConnected);
+            _joints[joint] = record;
+            return record;
+        }
+
+        /// <summary>The far end of a distance or spring joint, in the world: on the connected body, or a point in the world.</summary>
+        private static Vector3 ConnectedPoint(Joint joint, Vector3 connectedAnchor) =>
+            joint.ConnectedBody is { } connected ? Vector3.Transform(connectedAnchor, connected.Transform.WorldMatrix) : connectedAnchor;
+
+        /// <summary>Any direction at right angles to <paramref name="axis"/>.</summary>
+        private static Vector3 Perpendicular(Vector3 axis)
+        {
+            Vector3 other = MathF.Abs(axis.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX;
+            return Vector3.Normalize(Vector3.Cross(axis, other));
+        }
+
+        /// <summary>Sends a hinge's or slider's motor its settings, which change in place without making the joint again.</summary>
+        private void DriveMotor(JointRecord record)
+        {
+            switch (record.Joint, record.Constraint)
+            {
+                case (HingeJoint hinge, HingeConstraint constraint):
+                {
+                    MotorState state = hinge.Motor switch { JointMotor.Speed => MotorState.Velocity, JointMotor.Target => MotorState.Position, _ => MotorState.Off };
+                    if (state != MotorState.Off)
+                    {
+                        var motor = new MotorSettings(2f, 1f);
+                        motor.SetTorqueLimit(MathF.Max(hinge.MotorStrength, 0f));
+                        constraint.MotorSettings = motor;
+                        constraint.TargetAngularVelocity = MathHelper.ToRadians(hinge.MotorSpeed);
+                        constraint.TargetAngle = MathHelper.ToRadians(hinge.TargetAngle);
+                        KeepAwake(record);
+                    }
+
+                    if (constraint.MotorState != state) constraint.MotorState = state;
+                    break;
+                }
+
+                case (SliderJoint slider, SliderConstraint constraint):
+                {
+                    MotorState state = slider.Motor switch { JointMotor.Speed => MotorState.Velocity, JointMotor.Target => MotorState.Position, _ => MotorState.Off };
+                    if (state != MotorState.Off)
+                    {
+                        var motor = new MotorSettings(2f, 1f);
+                        motor.SetForceLimit(MathF.Max(slider.MotorStrength, 0f));
+                        constraint.MotorSettings = motor;
+                        constraint.TargetVelocity = slider.MotorSpeed;
+                        constraint.TargetPosition = slider.TargetPosition;
+                        KeepAwake(record);
+                    }
+
+                    if (constraint.MotorState != state) constraint.MotorState = state;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>Wakes a body that can move; static ones (the world anchor, a collider with no rigidbody) never sleep.</summary>
+        private void Wake(BodyID id)
+        {
+            BodyInterface bodies = _system.BodyInterface;
+            if (bodies.GetMotionType(id) != MotionType.Static && !bodies.IsActive(id)) bodies.ActivateBody(id);
+        }
+
+        /// <summary>A motor only turns what's awake: Jolt lets resting bodies sleep, motor or not.</summary>
+        private void KeepAwake(JointRecord record)
+        {
+            BodyInterface bodies = _system.BodyInterface;
+            if (!bodies.IsActive(record.Body2)) bodies.ActivateBody(record.Body2);
+        }
+
+        /// <summary>How hard each joint pulled this step, where hinges and sliders are now, and which have broken.</summary>
+        private void ReadJoints(float deltaTime)
+        {
+            if (_joints.Count == 0) return;
+
+            foreach (JointRecord record in _joints.Values)
+            {
+                // Jolt keeps what it took to hold the joint as an impulse over the step: over the step's time, a force.
+                float impulse = record.Constraint switch
+                {
+                    FixedConstraint c => c.TotalLambdaPosition.Length(),
+                    HingeConstraint c => c.TotalLambdaPosition.Length(),
+                    SliderConstraint c => c.TotalLambdaPosition.Length(),
+                    PointConstraint c => c.TotalLambdaPosition.Length(),
+                    SwingTwistConstraint c => c.TotalLambdaPosition.Length(),
+                    DistanceConstraint c => MathF.Abs(c.TotalLambdaPosition),
+                    _ => 0f
+                };
+
+                Joint joint = record.Joint;
+                joint.CurrentForce = deltaTime > 0f ? impulse / deltaTime : 0f;
+                if (record.Constraint is HingeConstraint hinge && joint is HingeJoint hingeJoint) hingeJoint.Angle = MathHelper.ToDegrees(hinge.CurrentAngle);
+                if (record.Constraint is SliderConstraint slider && joint is SliderJoint sliderJoint) sliderJoint.Position = slider.CurrentPosition;
+
+                if (joint.BreakForce > 0f && joint.CurrentForce > joint.BreakForce) _broken.Add(joint);
+            }
+
+            foreach (Joint joint in _broken)
+            {
+                joint.IsBroken = true;
+                RemoveJoint(_joints[joint]);
+            }
+
+            if (_broken.Count > 0) UpdateUnjoinedPairs();
+        }
+
+        /// <summary>Tells the game about the joints that broke this step, once Jolt's done with them.</summary>
+        private void SendBrokenJoints()
+        {
+            if (_broken.Count == 0) return;
+
+            // Copied first: a script hearing of one may repair it, or break another.
+            Joint[] broken = _broken.ToArray();
+            _broken.Clear();
+            foreach (Joint joint in broken) joint.Break();
+        }
+
+        private void RemoveJoint(JointRecord record)
+        {
+            _system.RemoveConstraint(record.Constraint);
+            record.Constraint.Dispose();
+            _joints.Remove(record.Joint);
+
+            // Something held still by a joint falls asleep, and letting go doesn't wake it: a broken chain's lamp would
+            // hang in the air. Wake both, so they move as soon as they're free.
+            Wake(record.Body1);
+            Wake(record.Body2);
+        }
+
+        private void RemoveJointsOn(BodyID body)
+        {
+            foreach (JointRecord record in _joints.Values)
+            {
+                if (record.Body1.ID == body.ID || record.Body2.ID == body.ID) _jointsToRemove.Add(record);
+            }
+
+            foreach (JointRecord record in _jointsToRemove) RemoveJoint(record);
+            if (_jointsToRemove.Count > 0) UpdateUnjoinedPairs();
+            _jointsToRemove.Clear();
+        }
+
+        private void UpdateUnjoinedPairs()
+        {
+            var pairs = new HashSet<(uint, uint)>();
+            foreach (JointRecord record in _joints.Values)
+            {
+                if (record.CollideConnected) continue;
+                uint a = record.Body1.ID, b = record.Body2.ID;
+                pairs.Add(a < b ? (a, b) : (b, a));
+            }
+
+            _unjoinedPairs = pairs;
+        }
+
+        // Called on Jolt's worker threads, before two bodies' contact is made: joined bodies that shouldn't collide don't.
+        private ValidateResult OnContactValidate(PhysicsSystem system, in JoltPhysicsSharp.Body body1, in JoltPhysicsSharp.Body body2, RVector3 baseOffset,
+            in CollideShapeResult result)
+        {
+            HashSet<(uint, uint)> pairs = _unjoinedPairs;
+            if (pairs.Count == 0) return ValidateResult.AcceptAllContactsForThisBodyPair;
+
+            uint a = body1.ID.ID, b = body2.ID.ID;
+            return pairs.Contains(a < b ? (a, b) : (b, a)) ? ValidateResult.RejectAllContactsForThisBodyPair : ValidateResult.AcceptAllContactsForThisBodyPair;
+        }
+
+        /// <summary>A Jolt joint and what it was made from, so changes can be spotted.</summary>
+        private sealed class JointRecord(Joint joint, TwoBodyConstraint constraint, BodyID body1, BodyID body2, int version, bool collideConnected)
+        {
+            public Joint Joint { get; } = joint;
+            public TwoBodyConstraint Constraint { get; } = constraint;
+            public BodyID Body1 { get; } = body1;
+            public BodyID Body2 { get; } = body2;
+            public int Version { get; } = version;
+            public bool CollideConnected { get; } = collideConnected;
+            public int LastSeenStep;
         }
 
         // ---- Characters --------------------------------------------------------------------------------------------
@@ -774,6 +1212,11 @@ namespace Vertex.Physics
 
         internal void Dispose()
         {
+            // Joints first: they hold on to bodies.
+            foreach (JointRecord record in _joints.Values.ToList()) RemoveJoint(record);
+            if (_worldAnchor is { } anchor) _system.BodyInterface.RemoveAndDestroyBody(anchor);
+            _worldAnchorShape?.Dispose();
+
             foreach (Character character in _characters.Values)
             {
                 _system.BodyInterface.RemoveAndDestroyBody(character.Id);

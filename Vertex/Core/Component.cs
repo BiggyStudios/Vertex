@@ -40,6 +40,9 @@ namespace Vertex
         /// <summary>Called when a collider leaves a trigger, on both the trigger and the collider.</summary>
         protected internal virtual void OnTriggerExit(Collider other) {}
 
+        /// <summary>Called when one of this object's joints breaks, pulled harder than its <see cref="Joint.BreakForce"/>.</summary>
+        protected internal virtual void OnJointBreak(Joint joint) {}
+
         /// <summary>Called when the component or its GameObject is destroyed.</summary>
         protected internal virtual void OnDestroy() {}
 
