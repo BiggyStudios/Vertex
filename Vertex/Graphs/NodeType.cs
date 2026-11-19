@@ -55,6 +55,15 @@ namespace Vertex.Graphs
             Outputs = outputs;
         }
 
+        /// <summary>
+        /// An input that repeats, after the others: "Sound 1", "Sound 2"... as many as are linked, and one more to link the
+        /// next to, so a node can take any number (an audio graph's Random, choosing from 3 sounds or 20). Null for none.
+        /// </summary>
+        public Port? Repeated { get; init; }
+
+        /// <summary>How many of <see cref="Repeated"/> there are with none linked.</summary>
+        public int RepeatedAtLeast { get; init; } = 2;
+
         public Port? Input(string name)
         {
             foreach (Port port in Inputs)
@@ -62,7 +71,53 @@ namespace Vertex.Graphs
                 if (port.Name == name) return port;
             }
 
-            return null;
+            return RepeatIndex(name) is int index ? RepeatedPort(index) : null;
+        }
+
+        /// <summary>
+        /// A node's inputs, as it shows them: <see cref="Inputs"/>, then <see cref="Repeated"/> as many times as it needs
+        /// (up to the highest one linked, and one more).
+        /// </summary>
+        public IReadOnlyList<Port> InputsOf(Graph graph, GraphNode node)
+        {
+            if (Repeated == null) return Inputs;
+
+            int count = RepeatedCount(graph, node);
+            var all = new List<Port>(Inputs.Count + count);
+            all.AddRange(Inputs);
+            for (int i = 1; i <= count; i++) all.Add(RepeatedPort(i));
+            return all;
+        }
+
+        /// <summary>How many of <see cref="Repeated"/> a node shows: up to the highest one linked, and one more.</summary>
+        public int RepeatedCount(Graph graph, GraphNode node)
+        {
+            if (Repeated == null) return 0;
+            int highest = 0;
+            foreach (GraphLink link in graph.Links)
+            {
+                if (link.ToNode == node.Id && RepeatIndex(link.ToPort) is int index) highest = Math.Max(highest, index);
+            }
+
+            return Math.Max(RepeatedAtLeast, highest + 1);
+        }
+
+        /// <summary>Which of <see cref="Repeated"/> a port is, counting from 1 ("Sound 3" is 3); null if it isn't one.</summary>
+        public int? RepeatIndex(string port)
+        {
+            if (Repeated == null || port.Length <= Repeated.Name.Length + 1 || !port.StartsWith(Repeated.Name + " ", StringComparison.Ordinal)) return null;
+            return int.TryParse(port.AsSpan(Repeated.Name.Length + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int index) && index >= 1 ? index : null;
+        }
+
+        private readonly List<Port> _repeated = new();
+
+        private Port RepeatedPort(int index)
+        {
+            lock (_repeated)
+            {
+                while (_repeated.Count < index) _repeated.Add(Repeated! with { Name = $"{Repeated!.Name} {_repeated.Count + 1}" });
+                return _repeated[index - 1];
+            }
         }
 
         public Port? Output(string name)
@@ -132,6 +187,7 @@ namespace Vertex.Graphs
             // The engine's own libraries register themselves when first used.
             if (kind == Scripting.ScriptNodes.Kind) _ = Scripting.ScriptNodes.Library;
             if (kind == Effects.VfxNodes.Kind) _ = Effects.VfxNodes.Library;
+            if (kind == Audio.AudioNodes.Kind) _ = Audio.AudioNodes.Library;
             lock (_libraries) return _libraries.GetValueOrDefault(kind);
         }
     }

@@ -45,7 +45,7 @@ namespace Vertex.Audio.OpenAL
         }
 
         /// <summary>Starts a clip on a free voice. Returns which voice, and which of the sounds it has played this is.</summary>
-        public (int Voice, int Generation) Play(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance)
+        public (int Voice, int Generation) Play(AudioClip clip, Vector3? position, float volume, float pitch, float fullVolumeDistance, bool loop = false)
         {
             uint buffer = GetBuffer(clip);
             int index = TakeVoice();
@@ -54,6 +54,7 @@ namespace Vertex.Audio.OpenAL
 
             _al.SourceStop(voice);
             _al.SetSourceProperty(voice, SourceInteger.Buffer, buffer);
+            _al.SetSourceProperty(voice, SourceBoolean.Looping, loop);
             _al.SetSourceProperty(voice, SourceFloat.Gain, MathF.Max(volume, 0f));
             _al.SetSourceProperty(voice, SourceFloat.Pitch, Math.Clamp(pitch, 0.1f, 4f));
 
@@ -98,9 +99,29 @@ namespace Vertex.Audio.OpenAL
             if (IsPlaying(index, generation)) _al.SetSourceProperty(_voices[index], SourceFloat.SecOffset, MathF.Max(seconds, 0f));
         }
 
+        /// <summary>
+        /// Changes a playing sound's volume and pitch, and moves it if it's in the world (<paramref name="position"/>
+        /// is ignored for one that plays everywhere the same).
+        /// </summary>
+        public void Set(int index, int generation, Vector3? position, float volume, float pitch)
+        {
+            if (index < 0 || index >= _voices.Length || _generations[index] != generation) return;
+            uint voice = _voices[index];
+            _al.SetSourceProperty(voice, SourceFloat.Gain, MathF.Max(volume, 0f));
+            _al.SetSourceProperty(voice, SourceFloat.Pitch, Math.Clamp(pitch, 0.1f, 4f));
+            _al.GetSourceProperty(voice, SourceBoolean.SourceRelative, out bool everywhere);
+            if (position is Vector3 world && !everywhere) _al.SetSourceProperty(voice, SourceVector3.Position, world.X, world.Y, world.Z);
+        }
+
         public void Stop(int index, int generation)
         {
             if (index >= 0 && index < _voices.Length && _generations[index] == generation) _al.SourceStop(_voices[index]);
+        }
+
+        /// <summary>Stops every voice.</summary>
+        public void StopAll()
+        {
+            foreach (uint voice in _voices) _al.SourceStop(voice);
         }
 
         public void SetListener(Vector3 position, Vector3 forward, Vector3 up)

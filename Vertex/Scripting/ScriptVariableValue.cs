@@ -5,9 +5,10 @@ using Vertex.Graphs;
 namespace Vertex.Scripting
 {
     /// <summary>
-    /// One object's own starting value for a visual script's variable, in place of the one the script gives it: a gun's
-    /// own fire rate, or which object a door opens. Set in the inspector, under the script. Only the value of the
-    /// variable's type is used.
+    /// One object's own starting value for a graph's variable, in place of the one the graph gives it: a gun's own fire
+    /// rate, or which object a door opens (a visual script's), or which footsteps to play (an audio graph's, on an
+    /// <see cref="Audio.AudioSource"/>). Set in the inspector, under the component. Only the value of the variable's type
+    /// is used.
     /// </summary>
     public sealed class ScriptVariableValue
     {

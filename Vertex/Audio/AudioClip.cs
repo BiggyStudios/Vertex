@@ -5,7 +5,8 @@ namespace Vertex.Audio
 {
     /// <summary>
     /// A sound: 16-bit samples, mono or stereo. Pure data: the audio system makes its own copy the first time it's played.
-    /// Only mono clips can be placed in 3D with <see cref="Sound.PlayAt"/>; stereo clips sound the same from anywhere.
+    /// Only mono clips can be placed in 3D with <see cref="Sound.PlayAt(AudioClip, System.Numerics.Vector3, float, float, float)"/>;
+    /// stereo clips sound the same from anywhere.
     /// </summary>
     public class AudioClip : IDisposable
     {

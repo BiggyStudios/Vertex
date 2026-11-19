@@ -287,6 +287,25 @@ namespace Vertex.Scripting
                     else Sound.Play(clip, run.In<float>("Volume"));
                 },
                 "Plays a sound once: a gunshot, a hit, a jump.", "audio sfx");
+            Action("Sound", "Play Audio", [Target], run =>
+                {
+                    var source = run.In<GameObject>("Target").GetComponent<AudioSource>() ?? throw new InvalidOperationException("The object has no Audio Source");
+                    source.Play();
+                },
+                "Plays an object's Audio Source: its sound, or its audio graph (a random footstep, say). Played again before it's over, the two overlap.",
+                "audio source graph sfx start");
+            Action("Sound", "Stop Audio", [Target], run =>
+                {
+                    foreach (AudioSource source in run.In<GameObject>("Target").GetComponents<AudioSource>()) source.Stop();
+                },
+                "Stops an object's Audio Source, and its looping.", "audio source silence end");
+            Action("Sound", "Set Audio Property", [Target, Text("Property", ""), In("Value", PortType.Any)], run =>
+                {
+                    var source = run.In<GameObject>("Target").GetComponent<AudioSource>() ?? throw new InvalidOperationException("The object has no Audio Source");
+                    source.SetProperty(run.In<string>("Property"), run.In("Value"));
+                },
+                "Sets one of the properties of an Audio Source's audio graph: which kind of ground a footstep's on, how fast an engine's going.",
+                "audio graph variable parameter");
             Action("Effects", "Play Effect", [Target], run =>
                 {
                     GameObject target = run.In<GameObject>("Target");
