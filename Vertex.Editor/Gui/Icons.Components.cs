@@ -293,6 +293,26 @@ namespace Vertex.Editor.Gui
             Star(centre + new Vector2(size * 0.27f, -size * 0.26f), size * 0.17f);
         }
 
+        /// <summary>Three drifting wavy lines: fog.</summary>
+        public static void Fog(Vector2 centre, float size, Color color)
+        {
+            const int steps = 10;
+            for (int row = 0; row < 3; row++)
+            {
+                float y = centre.Y + (row - 1) * size * 0.22f;
+                float left = centre.X - size * 0.36f + (row == 1 ? size * 0.1f : 0f);
+                float width = size * (row == 1 ? 0.62f : 0.6f);
+                Vector2 previous = default;
+                for (int i = 0; i <= steps; i++)
+                {
+                    float t = i / (float)steps;
+                    var point = new Vector2(left + width * t, y + MathF.Sin(t * MathF.Tau + row * 1.3f) * size * 0.05f);
+                    if (i > 0) Ui.Line(previous, point, color, 1.6f);
+                    previous = point;
+                }
+            }
+        }
+
         /// <summary>A frame with a small figure in it: a flat picture placed in the world, a sprite.</summary>
         public static void Sprite(Vector2 centre, float size, Color color)
         {

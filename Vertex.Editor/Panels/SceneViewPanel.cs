@@ -938,23 +938,7 @@ namespace Vertex.Editor.Panels
             {
                 if (gameObject.GetComponent<MeshRenderer>() is { Mesh: { } mesh })
                 {
-                    Matrix4x4 world = gameObject.Transform.WorldMatrix;
-                    Vector3 c = mesh.BoundsCentre, e = mesh.BoundsExtents;
-                    var corners = new Vector3[8];
-                    for (int i = 0; i < 8; i++)
-                    {
-                        var local = new Vector3(i % 2 == 0 ? -e.X : e.X, i / 2 % 2 == 0 ? -e.Y : e.Y, i / 4 == 0 ? -e.Z : e.Z);
-                        corners[i] = Vector3.Transform(c + local, world);
-                    }
-
-                    // The twelve edges: corners that differ in one axis.
-                    for (int a = 0; a < 8; a++)
-                    {
-                        foreach (int bit in (ReadOnlySpan<int>)[1, 2, 4])
-                        {
-                            if ((a & bit) == 0) view.Line(corners[a], corners[a | bit], color, 1.5f);
-                        }
-                    }
+                    Edges(view, gameObject.Transform.WorldMatrix, mesh.BoundsCentre, mesh.BoundsExtents, color);
                 }
 
                 foreach (Transform child in gameObject.Transform.Children) Box(child.GameObject, color.WithAlpha(0.4f));
@@ -962,9 +946,71 @@ namespace Vertex.Editor.Panels
 
             float pulse = 0.75f + 0.25f * MathF.Sin(Ui.Time * 3f);
             Box(selected, Theme.Accent.WithAlpha(pulse));
+
+            // What has no mesh to outline: a fog volume's box, and how far a light reaches.
+            if (selected.GetComponent<FogVolume>() != null)
+            {
+                Edges(view, selected.Transform.WorldMatrix, Vector3.Zero, new Vector3(0.5f), Theme.Hex(0x9FB8D8).WithAlpha(pulse));
+            }
+
+            if (selected.GetComponent<Light>() is { Type: not LightType.Directional } light) DrawReach(view, light, Color.Lerp(light.Color, Color.White, 0.4f).WithAlpha(0.7f));
         }
 
-        /// <summary>Icons for lights and cameras. Returns the one under the mouse, if any.</summary>
+        /// <summary>The twelve edges of a box, <paramref name="centre"/> and half-size <paramref name="extents"/>, placed by <paramref name="world"/>.</summary>
+        private static void Edges(in ViewProjection view, Matrix4x4 world, Vector3 centre, Vector3 extents, Color color)
+        {
+            Span<Vector3> corners = stackalloc Vector3[8];
+            for (int i = 0; i < 8; i++)
+            {
+                var local = new Vector3(i % 2 == 0 ? -extents.X : extents.X, i / 2 % 2 == 0 ? -extents.Y : extents.Y, i / 4 == 0 ? -extents.Z : extents.Z);
+                corners[i] = Vector3.Transform(centre + local, world);
+            }
+
+            // Corners that differ in one axis.
+            for (int a = 0; a < 8; a++)
+            {
+                foreach (int bit in (ReadOnlySpan<int>)[1, 2, 4])
+                {
+                    if ((a & bit) == 0) view.Line(corners[a], corners[a | bit], color, 1.5f);
+                }
+            }
+        }
+
+        /// <summary>
+        /// How far a light reaches: a spot light's cone, out to its range, or for a point light three rings round it
+        /// at its range.
+        /// </summary>
+        private static void DrawReach(ViewProjection view, Light light, Color color)
+        {
+            Transform t = light.Transform;
+            Vector3 at = t.WorldPosition;
+            const int segments = 48;
+
+            void Ring(Vector3 centre, Vector3 a, Vector3 b, float radius)
+            {
+                for (int i = 0; i < segments; i++)
+                {
+                    float from = i * MathF.Tau / segments, to = (i + 1) * MathF.Tau / segments;
+                    view.Line(centre + (a * MathF.Cos(from) + b * MathF.Sin(from)) * radius, centre + (a * MathF.Cos(to) + b * MathF.Sin(to)) * radius, color, 1f);
+                }
+            }
+
+            if (light.Type == LightType.Spot)
+            {
+                float half = Math.Clamp(light.SpotAngle, 1f, 179f) * 0.5f * MathF.PI / 180f;
+                Vector3 end = at + t.Forward * MathF.Cos(half) * light.Range;
+                float radius = MathF.Sin(half) * light.Range;
+                Ring(end, t.Right, t.Up, radius);
+                foreach (Vector3 side in (ReadOnlySpan<Vector3>)[t.Right, -t.Right, t.Up, -t.Up]) view.Line(at, end + side * radius, color, 1f);
+                return;
+            }
+
+            Ring(at, Vector3.UnitX, Vector3.UnitZ, light.Range);
+            Ring(at, Vector3.UnitX, Vector3.UnitY, light.Range);
+            Ring(at, Vector3.UnitZ, Vector3.UnitY, light.Range);
+        }
+
+        /// <summary>Icons for lights, cameras and fog volumes. Returns the one under the mouse, if any.</summary>
         private GameObject? DrawObjectIcons(in ViewProjection view, bool mouseFree)
         {
             GameObject? under = null;
@@ -973,7 +1019,8 @@ namespace Vertex.Editor.Panels
                 if (!gameObject.ActiveInHierarchy) continue;
                 Light? light = gameObject.GetComponent<Light>();
                 Camera? camera = gameObject.GetComponent<Camera>();
-                if (light == null && camera == null) continue;
+                FogVolume? fog = light == null && camera == null ? gameObject.GetComponent<FogVolume>() : null;
+                if (light == null && camera == null && fog == null) continue;
 
                 Vector3 position = gameObject.Transform.WorldPosition;
                 if (view.ToScreen(position) is not Vector2 at) continue;
@@ -996,6 +1043,7 @@ namespace Vertex.Editor.Panels
                 Ui.Circle(at, hovered || selected ? 13f : 12f, Theme.Popup.WithAlpha(0.9f));
                 Vertex.UI.Canvas.DrawCircleOutline(at, hovered || selected ? 13f : 12f, Ui.Fade(selected ? Theme.Accent : Theme.BorderStrong), 1.5f);
                 if (light != null) Icons.Light(at, 18f, tint);
+                else if (fog != null) Icons.Fog(at, 18f, tint);
                 else Icons.Camera(at, 18f, tint);
             }
 

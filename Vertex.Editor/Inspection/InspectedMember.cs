@@ -48,6 +48,23 @@ namespace Vertex.Editor.Inspection
         public RangeAttribute? Range { get; init; }
         public string? Tooltip { get; init; }
 
+        /// <summary>When it's shown at all (see <see cref="ShowWhenAttribute"/>); null for always.</summary>
+        public ShowWhenAttribute? ShowWhen { get; init; }
+
+        /// <summary>Whether it's shown for <paramref name="target"/> as it is now.</summary>
+        public bool IsShown(object target)
+        {
+            if (ShowWhen == null) return true;
+
+            const BindingFlags instance = BindingFlags.Public | BindingFlags.Instance;
+            Type type = target.GetType();
+            MemberInfo? other = (MemberInfo?)type.GetProperty(ShowWhen.Member, instance) ?? type.GetField(ShowWhen.Member, instance);
+            if (other == null) return true;
+
+            object? value = Editing.SetValue.Read(target, other);
+            return ShowWhen.Values.Any(shown => Equals(shown, value));
+        }
+
         /// <summary>The section of the inspector it's in (see <see cref="HeaderAttribute"/>); null if it's in none.</summary>
         public string? Section { get; private set; }
 
@@ -153,7 +170,8 @@ namespace Vertex.Editor.Inspection
             Kind = kind,
             CanWrite = canWrite,
             Range = member.GetCustomAttribute<RangeAttribute>(),
-            Tooltip = member.GetCustomAttribute<TooltipAttribute>()?.Text
+            Tooltip = member.GetCustomAttribute<TooltipAttribute>()?.Text,
+            ShowWhen = member.GetCustomAttribute<ShowWhenAttribute>()
         };
 
         /// <summary>How a value of <paramref name="type"/> is edited, or null if the inspector leaves it out.</summary>

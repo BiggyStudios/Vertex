@@ -58,6 +58,8 @@ namespace Vertex.Editor.Inspection
             string? section = null;
             foreach (InspectedMember member in InspectedMember.Of(target.GetType()))
             {
+                if (!member.IsShown(target)) continue;
+
                 if (member.Section != null && member.Section != section)
                 {
                     section = member.Section;

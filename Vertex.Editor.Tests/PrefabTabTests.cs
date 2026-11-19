@@ -123,7 +123,7 @@ namespace Vertex.Editor.Tests
             {
                 var context = new EditorContext();
                 GameObject lamp = context.Create("Lamp");
-                lamp.AddComponent<Vertex.Rendering.Light>();
+                lamp.AddComponent<Vertex.Rendering.Light>().Type = Vertex.Rendering.LightType.Point;
                 Prefab prefab = context.CreatePrefab(lamp, folder)!;
                 context.MarkSaved();
 

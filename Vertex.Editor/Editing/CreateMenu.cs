@@ -64,7 +64,23 @@ namespace Vertex.Editor.Editing
                     light.Intensity = 2f;
                     light.CastShadows = false;
                 })) { Icon = Icons.Light },
+                new MenuItem("Spot Light", () => Make("Spot Light", gameObject =>
+                {
+                    // A few units up, shining down at a slant.
+                    Light light = gameObject.AddComponent<Light>();
+                    light.Type = LightType.Spot;
+                    light.Intensity = 3f;
+                    light.Range = 15f;
+                    light.CastShadows = false;
+                    gameObject.Transform.Position += new Vector3(0f, 4f, 0f);
+                    gameObject.Transform.EulerAngles = new Vector3(-70f, 0f, 0f);
+                })) { Icon = Icons.Light },
                 new MenuItem("Camera", () => Make("Camera", gameObject => gameObject.AddComponent<Camera>())) { Icon = Icons.Camera },
+                new MenuItem("Fog Volume", () => Make("Fog Volume", gameObject =>
+                {
+                    gameObject.AddComponent<FogVolume>();
+                    gameObject.Transform.Scale = new Vector3(10f, 4f, 10f);
+                })) { Icon = Icons.Fog },
                 MenuItem.Separator,
                 new MenuItem("Sprite", () => Make("Sprite", gameObject => gameObject.AddComponent<SpriteRenderer>())) { Icon = Icons.Sprite },
                 new MenuItem("World Text", () => Make("World Text", gameObject => gameObject.AddComponent<WorldText>())) { Icon = Icons.WorldText },
