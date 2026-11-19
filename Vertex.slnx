@@ -2,6 +2,7 @@
   <Folder Name="/Samples/">
     <Project Path="Samples/CodeOnly/CodeOnly.csproj" />
     <Project Path="Samples/Duel/Duel.csproj" />
+    <Project Path="Samples/NeonCity/NeonCity.csproj" />
   </Folder>
   <Folder Name="/Tools/">
     <Project Path="Tools/DocsData/DocsData.csproj" />

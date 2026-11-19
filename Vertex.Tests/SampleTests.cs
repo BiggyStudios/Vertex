@@ -152,6 +152,43 @@ namespace Vertex.Tests
             Assert.Equal(100f, HealthOf(other));
         }
 
+        [Fact]
+        public void In_the_neon_city_the_walker_stands_on_the_street_and_can_walk_into_the_night_market()
+        {
+            Application.AssetFolders = [Path.Combine(RepoFolder(), "Samples", "NeonCity", "Assets")];
+            var loop = new GameLoop(new Game { StartScene = "Scenes/Neon City.scene" });
+            loop.Load();
+            RunFrames(loop, 60);
+
+            GameObject player = GameObject.Find("Player")!;
+            Assert.InRange(player.Transform.Position.Y, -0.05f, 0.2f);
+            Assert.Equal("", string.Join("\n", _logged.Where(e => e.Level >= LogLevel.Warning).Select(e => e.Message).Distinct()));
+            Assert.True(Scene.Active.Lighting.VolumetricFog);
+
+            // W walks down the street.
+            float z = player.Transform.Position.Z;
+            InputSystem.PressKey(Key.W);
+            RunFrames(loop, 60);
+            InputSystem.ReleaseAll();
+            Assert.True(player.Transform.Position.Z < z - 2f, $"The walker didn't walk: {z} to {player.Transform.Position.Z}");
+
+            // From the pavement in front of the night market, turned to face its door, W goes in.
+            player.Transform.Position = new Vector3(6f, 0.15f, 17f);
+            player.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2f);
+            RunFrames(loop, 5);
+            InputSystem.PressKey(Key.W);
+            RunFrames(loop, 120);
+            InputSystem.ReleaseAll();
+            Vector3 at = player.Transform.Position;
+            Assert.True(at.X > 11f && at.X < 30.5f && at.Y > 0.1f && at.Y < 0.3f, $"Not inside the market: at {at}");
+
+            // F turns the fog off and on.
+            InputSystem.PressKey(Key.F);
+            RunFrames(loop, 1);
+            InputSystem.ReleaseAll();
+            Assert.False(Scene.Active.Lighting.VolumetricFog);
+        }
+
         private static float HealthOf(GameObject player)
         {
             if (player.GetComponent<Duel.Health>() is { } health) return health.Current;

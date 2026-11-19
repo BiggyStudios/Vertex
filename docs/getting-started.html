@@ -40,11 +40,12 @@ dotnet build Vertex.slnx</pre>
     <div class="figure reveal"><img src="images/editor.jpg" alt="The editor: outliner on the left, the scene in the middle, the inspector on the right and assets below"><figcaption>The editor with the Duel sample open: the outliner, the scene view, the inspector, and the project's assets.</figcaption></div>
 
     <h2>Play the samples</h2>
-    <p>The <a href="https://github.com/BiggyStudios/Vertex/tree/master/Samples">Samples</a> folder has the finished versions of the two tutorials:</p>
+    <p>The <a href="https://github.com/BiggyStudios/Vertex/tree/master/Samples">Samples</a> folder has the finished versions of the two tutorials, and a city to walk round:</p>
     <table>
         <tr><th>Sample</th><th>What it is</th><th>Run it</th></tr>
         <tr><td><strong>CodeOnly</strong></td><td>Coin Grab: a whole game in one C# file, made without the editor.</td><td><code>dotnet run --project Samples/CodeOnly</code></td></tr>
         <tr><td><strong>Duel</strong></td><td>A 1v1 multiplayer shooter made in the editor, twice: with C# scripts and with visual scripts.</td><td><code>dotnet run --project Samples/Duel</code><br><code>dotnet run --project Samples/Duel -- --visual</code></td></tr>
+        <tr><td><strong>NeonCity</strong></td><td>A rainy street at night, lit by neon through volumetric fog, with a night market to walk into. F turns the fog off and on.</td><td><code>dotnet run --project Samples/NeonCity</code></td></tr>
     </table>
     <p>To open the duel in the editor, use <strong>File › Open Project</strong> and pick <code>Samples/Duel/Duel.vertexproject</code>. The editor builds its C# scripts in the background, then opens the C# version's scene. Press <strong>Play</strong> (or <kbd>Ctrl</kbd>+<kbd>P</kbd>), click in the game to take the mouse, and <kbd>Shift</kbd>+<kbd>F1</kbd> gives it back.</p>
 

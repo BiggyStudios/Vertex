@@ -78,7 +78,7 @@ Invoke-Dotnet publish (Join-Path $root "Vertex.Editor/Vertex.Editor.csproj") -c 
 Invoke-Dotnet pack (Join-Path $root "Vertex/Vertex.csproj") -c Release "-p:Version=$Version" -o (Join-Path $folder "Engine") -nologo
 
 # The samples and the starter, using the engine's package instead of the engine's project.
-foreach ($sample in "CodeOnly", "Duel")
+foreach ($sample in "CodeOnly", "Duel", "NeonCity")
 {
     $to = Join-Path $folder "Samples/$sample"
     Copy-Source (Join-Path $root "Samples/$sample") $to

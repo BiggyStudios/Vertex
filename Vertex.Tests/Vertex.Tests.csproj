@@ -19,6 +19,7 @@
     <!-- The samples, played headless to check they still work. -->
     <ProjectReference Include="..\Samples\CodeOnly\CodeOnly.csproj" />
     <ProjectReference Include="..\Samples\Duel\Duel.csproj" />
+    <ProjectReference Include="..\Samples\NeonCity\NeonCity.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,8 @@
+{
+  "Name": "Neon City",
+  "Version": "0.1",
+  "StartupScene": "Scenes/Neon City.scene",
+  "GameProject": "NeonCity.csproj",
+  "PhysicsRate": 60,
+  "ShadowResolution": 2048
+}
