@@ -89,7 +89,8 @@ namespace Vertex.Editor.Editing
 
                 int bracket = where.IndexOf('(');
                 string path = bracket > 0 ? where[..bracket] : where;
-                string file = Path.GetFileName(path);
+                // Either kind of slash: Path.GetFileName only knows this system's, and a build's output can have both.
+                string file = path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
                 string lineNumber = bracket > 0 ? where[(bracket + 1)..].Split(',', ')')[0] : "";
                 string shown = lineNumber.Length > 0 ? $"{file}({lineNumber}): {message}" : $"{file}: {message}";
                 if (errors.Any(e => e.Shown == shown)) continue;
