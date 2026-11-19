@@ -30,6 +30,10 @@ namespace Vertex.Tests
             /// <summary>The point and spot lights and fog volumes in the last frame, and the shaders' data made from it.</summary>
             public List<PointLightData> LastPointLights = new();
             public List<FogVolumeData> LastFogVolumes = new();
+            public List<PostEffectData> LastPostEffects = new();
+
+            /// <summary>How many post effects each frame had, in the order drawn.</summary>
+            public readonly List<int> EffectCounts = new();
             internal Rendering.Shaders.FrameUniforms LastUniforms;
 
             public string Name => "Recording";
@@ -51,6 +55,8 @@ namespace Vertex.Tests
                 LastDraws = frame.DrawCalls.ToList();
                 LastPointLights = frame.PointLights.ToList();
                 LastFogVolumes = frame.FogVolumes.ToList();
+                LastPostEffects = frame.PostEffects.ToList();
+                EffectCounts.Add(frame.PostEffects.Count);
                 if (frame.HasCamera) LastUniforms = Rendering.Shaders.FrameUniforms.Create(frame, frame.HasShadows ? frame.Cascades : null);
                 LastShadowCasters = frame.HasShadows
                     ? Enumerable.Range(0, Rendering.Shaders.ShadowCascades.Count).Select(i => frame.ShadowCasters(i).ToList()).ToList()

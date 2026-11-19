@@ -96,6 +96,12 @@ namespace Vertex.Rendering
     public readonly record struct FogVolumeData(Matrix4x4 WorldToBox, float Density, float Softness);
 
     /// <summary>
+    /// A post effect to run on the finished picture (see <see cref="PostEffect"/>): its shader, and its settings in the
+    /// order the shader has them (see <see cref="ShaderProperty.Slot"/>).
+    /// </summary>
+    public readonly record struct PostEffectData(Shader Shader, Vector4[] Values);
+
+    /// <summary>
     /// One particle, facing the camera. Velocity is the stretch: it's drawn that much longer along that direction
     /// (zero for round). Glow is how much it adds to bloom. Rotation turns it (in radians) where it faces the camera, and
     /// Look is the shape drawn.
@@ -221,6 +227,7 @@ namespace Vertex.Rendering
         internal readonly List<CanvasQuad> CanvasQuadList = new();
         internal readonly List<WorldQuad> WorldQuadList = new();
         internal readonly List<FogVolumeData> FogVolumeList = new();
+        internal readonly List<PostEffectData> PostEffectList = new();
 
         /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
         internal readonly Shaders.ShadowCascades Cascades = new();
@@ -297,6 +304,9 @@ namespace Vertex.Rendering
         /// <summary>Boxes of thicker or thinner volumetric fog, nearest the camera first.</summary>
         public IReadOnlyList<FogVolumeData> FogVolumes => FogVolumeList;
 
+        /// <summary>Post effects to run on the finished picture, in order, each on what the one before made.</summary>
+        public IReadOnlyList<PostEffectData> PostEffects => PostEffectList;
+
         /// <summary>Particles, furthest from the camera first, so the nearer ones cover them.</summary>
         public IReadOnlyList<ParticleData> Particles => ParticleList;
 
@@ -318,6 +328,7 @@ namespace Vertex.Rendering
             CanvasQuadList.Clear();
             WorldQuadList.Clear();
             FogVolumeList.Clear();
+            PostEffectList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
             Grid = false;

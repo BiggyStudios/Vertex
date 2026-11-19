@@ -79,6 +79,7 @@ namespace Vertex.Rendering.Vulkan
         private DescriptorSetLayout _materialSetLayout;
         private DescriptorSetLayout _textureSetLayout;
         private DescriptorSetLayout _postSetLayout;
+        private DescriptorSetLayout _effectSetLayout;
         private PipelineLayout _sceneLayout;
         private PipelineLayout _shadowLayout;
         private PipelineLayout _gpuParticleLayout;
@@ -86,11 +87,25 @@ namespace Vertex.Rendering.Vulkan
         private PipelineLayout _spriteLayout;
         private PipelineLayout _postLayout;
         private PipelineLayout _fogLayout;
+        private PipelineLayout _effectLayout;
 
         private Pipeline _lit, _unlit, _sky, _grid, _shadow, _particles, _gpuParticles, _canvas, _sprites, _fogLight, _fogTotal;
         private Pipeline _bloomDown, _bloomUp, _occlusion, _occlusionBlur;
         private Pipeline _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture;
         private readonly List<ShaderModule> _shaders = new();
+
+        // Games' post effects (see PostEffect), built the first time they're used for each kind of image they draw into,
+        // and again when their code changes. A shader that won't compile is kept as failed until it changes.
+        private sealed class EffectShader
+        {
+            public int Version;
+            public ShaderModule? Module;
+            public readonly Dictionary<Format, Pipeline> Pipelines = new();
+        }
+
+        private readonly Dictionary<Shader, EffectShader> _effectShaders = new();
+        private readonly List<(PostEffectData Effect, Pipeline Pipeline)> _effects = new();
+        private ShaderModule _fullscreenVertex;
 
         private Sampler _repeatSampler;
         private Sampler _clampSampler;
@@ -232,6 +247,7 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
+            _effectSetLayout = VkDescriptors.CreateLayout(_context, (DescriptorType.UniformBuffer, fragment));
 
             _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), ShaderStageFlags.VertexBit);
             _shadowLayout = VkDescriptors.CreatePipelineLayout(_context, [], (uint)sizeof(Matrix4x4), ShaderStageFlags.VertexBit);
@@ -239,6 +255,7 @@ namespace Vertex.Rendering.Vulkan
             _spriteLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], 0, 0);
             _postLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout], (uint)sizeof(PostUniforms), fragment);
             _fogLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], (uint)sizeof(Vector4), fragment);
+            _effectLayout = VkDescriptors.CreatePipelineLayout(_context, [_postSetLayout, _effectSetLayout], (uint)sizeof(PostUniforms), fragment);
         }
 
         /// <summary>One of the shared shaders, built for Vulkan.</summary>
@@ -273,6 +290,7 @@ namespace Vertex.Rendering.Vulkan
             ShaderModule canvasVertex = Module("canvas.vert", vertex, VkShaderSources.CanvasVertex);
             ShaderModule canvasFragment = Module("canvas.frag", fragment, VkShaderSources.CanvasFragment);
             ShaderModule fullscreen = Shader("fullscreen.vert", vertex, ShaderLibrary.FullscreenVertex);
+            _fullscreenVertex = fullscreen;
             ShaderModule bloomDown = Shader("bloomdown.frag", fragment, ShaderLibrary.BloomDownsampleFragment);
             ShaderModule bloomUp = Shader("bloomup.frag", fragment, ShaderLibrary.BloomUpsampleFragment);
             ShaderModule occlusion = Shader("occlusion.frag", fragment, ShaderLibrary.OcclusionFragment);
@@ -663,6 +681,17 @@ namespace Vertex.Rendering.Vulkan
                 VkImageResource bloomImage = bloom ? views.BloomLevels[0] : _white.Image;
                 VkImageResource occlusionImage = occlusion ? views.Occlusion! : _white.Image;
 
+                // A game's post effects (see PostEffect), those that build, go after everything else: the finished
+                // picture goes into an image of their own for the first to read.
+                _effects.Clear();
+                foreach (PostEffectData effect in frame.PostEffects)
+                {
+                    if (EffectPipeline(effect.Shader, VkViewTargets.OutputFormat) is { } pipeline) _effects.Add((effect, pipeline));
+                }
+
+                bool effects = _effects.Count > 0;
+                if (effects) views.EnsureEffects();
+
                 if (environment.AntiAliasing)
                 {
                     // Finished into an image of its own first, which the anti-aliasing reads to smooth into the output.
@@ -671,15 +700,35 @@ namespace Vertex.Rendering.Vulkan
 
                     post.TexelSize = new Vector2(1f / views.Finished!.Width, 1f / views.Finished.Height);
                     Mark(commands, "Anti-aliasing");
-                    BeginOutput(commands, output, outputAfter, null);
-                    PostDraw(commands, toScreen ? _antiAliasToScreen : _antiAliasToTexture, outputWidth, outputHeight, post, views.Finished);
+                    if (effects)
+                    {
+                        RunPost(commands, _antiAliasToTexture, views.Effects[0]!, post, views.Finished);
+                    }
+                    else
+                    {
+                        BeginOutput(commands, output, outputAfter, null);
+                        PostDraw(commands, toScreen ? _antiAliasToScreen : _antiAliasToTexture, outputWidth, outputHeight, post, views.Finished);
+                    }
                 }
                 else
                 {
                     Mark(commands, "Composite");
-                    BeginOutput(commands, output, outputAfter, null);
-                    PostDraw(commands, toScreen ? _compositeToScreen : _compositeToTexture, outputWidth, outputHeight, post,
-                        views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
+                    if (effects)
+                    {
+                        RunPost(commands, _compositeToTexture, views.Effects[0]!, post, views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
+                    }
+                    else
+                    {
+                        BeginOutput(commands, output, outputAfter, null);
+                        PostDraw(commands, toScreen ? _compositeToScreen : _compositeToTexture, outputWidth, outputHeight, post,
+                            views.Color!, bloomImage, views.Depth, occlusionImage, views.Ambient);
+                    }
+                }
+
+                if (effects)
+                {
+                    Format outputFormat = toScreen ? _swapchain.Format : VkViewTargets.OutputFormat;
+                    RunEffects(commands, views, post, output, outputAfter, outputFormat, outputWidth, outputHeight);
                 }
             }
             else
@@ -1343,9 +1392,9 @@ namespace Vertex.Rendering.Vulkan
             _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
         }
 
-        /// <summary>Draws a post pass into whatever rendering has begun. Images it doesn't need are left as white.</summary>
-        private void PostDraw(CommandBuffer commands, Pipeline pipeline, int width, int height, PostUniforms post, VkImageResource source,
-            VkImageResource? bloom = null, VkImageResource? depth = null, VkImageResource? occlusion = null, VkImageResource? ambient = null)
+        /// <summary>The images a post pass reads. Those it doesn't need are left as white.</summary>
+        private DescriptorSet PostImages(VkImageResource source, VkImageResource? bloom = null, VkImageResource? depth = null,
+            VkImageResource? occlusion = null, VkImageResource? ambient = null)
         {
             DescriptorSet set = _frame.Descriptors.Allocate(_postSetLayout);
             VkDescriptors.WriteImage(_context, set, 0, source.View, _clampSampler);
@@ -1353,6 +1402,119 @@ namespace Vertex.Rendering.Vulkan
             VkDescriptors.WriteImage(_context, set, 2, (depth ?? _white.Image).View, _clampSampler);
             VkDescriptors.WriteImage(_context, set, 3, (occlusion ?? _white.Image).View, _clampSampler);
             VkDescriptors.WriteImage(_context, set, 4, (ambient ?? _white.Image).View, _clampSampler);
+            return set;
+        }
+
+        /// <summary>
+        /// The pipeline for a game's post effect drawing into images of <paramref name="format"/>: built the first time,
+        /// and again when the shader's code changes. Null if it won't compile; what the compiler said goes in the shader's
+        /// <see cref="Rendering.Shader.Problem"/> and the log.
+        /// </summary>
+        private Pipeline? EffectPipeline(Shader shader, Format format)
+        {
+            if (!_effectShaders.TryGetValue(shader, out EffectShader? built) || built.Version != shader.Version)
+            {
+                if (built != null) ForgetEffect(built);
+                built = new EffectShader { Version = shader.Version };
+                _effectShaders[shader] = built;
+
+                try
+                {
+                    built.Module = _compiler.Create(shader.Name, ShaderKind.FragmentShader, ShaderLibrary.Build(ShaderTarget.Vulkan, ShaderLibrary.EffectFragment(shader)));
+                }
+                catch (InvalidOperationException exception)
+                {
+                    shader.CompileProblem = exception.Message;
+                    Log.Error(exception.Message);
+                }
+            }
+
+            if (built.Module is not { } module) return null;
+            if (!built.Pipelines.TryGetValue(format, out Pipeline pipeline))
+            {
+                pipeline = VkPipelines.CreateGraphics(_context, new VkPipelineDescription
+                {
+                    Layout = _effectLayout,
+                    Vertex = _fullscreenVertex,
+                    Fragment = module,
+                    ColorFormats = [format]
+                });
+                built.Pipelines[format] = pipeline;
+            }
+
+            return pipeline;
+        }
+
+        /// <summary>Lets go of an effect's old build once the frames using it are done.</summary>
+        private void ForgetEffect(EffectShader built)
+        {
+            Pipeline[] pipelines = built.Pipelines.Values.ToArray();
+            ShaderModule? module = built.Module;
+            _frame.DeleteLater(() =>
+            {
+                foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
+                if (module is { } m) _context.Vk.DestroyShaderModule(_context.Device, m, null);
+            });
+        }
+
+        /// <summary>
+        /// The game's post effects, each reading what the one before made (the first, the finished picture in the view's
+        /// first effect image) and drawing into the other effect image, the last into the output.
+        /// </summary>
+        private void RunEffects(CommandBuffer commands, VkViewTargets views, PostUniforms post, VkImageResource output, Stage outputAfter,
+            Format outputFormat, int outputWidth, int outputHeight)
+        {
+            VkImageResource source = views.Effects[0]!;
+            post.TexelSize = new Vector2(1f / source.Width, 1f / source.Height);
+
+            for (int i = 0; i < _effects.Count; i++)
+            {
+                (PostEffectData effect, Pipeline pipeline) = _effects[i];
+                Mark(commands, effect.Shader.Name);
+
+                if (i < _effects.Count - 1)
+                {
+                    VkImageResource target = views.Effects[(i + 1) % 2]!;
+                    _context.Transition(commands, target, ImageLayout.ColorAttachmentOptimal, Stage.FragmentRead, Stage.ColorOutput, discard: true);
+                    VkPipelines.BeginRendering(_context, commands, target.Width, target.Height, [(target, (ClearColorValue?)null)]);
+                    EffectDraw(commands, pipeline, target.Width, target.Height, post, source, views.Depth, effect.Values);
+                    _context.Vk.CmdEndRendering(commands);
+                    _context.Transition(commands, target, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
+                    source = target;
+                }
+                else
+                {
+                    // Its module is built already, so this can't fail. The output can be a little different in size from
+                    // the view (see Render), and an effect's pixels are the output's.
+                    Pipeline last = EffectPipeline(effect.Shader, outputFormat)!.Value;
+                    post.TexelSize = new Vector2(1f / outputWidth, 1f / outputHeight);
+                    BeginOutput(commands, output, outputAfter, null);
+                    EffectDraw(commands, last, outputWidth, outputHeight, post, source, views.Depth, effect.Values);
+                }
+            }
+        }
+
+        private void EffectDraw(CommandBuffer commands, Pipeline pipeline, int width, int height, PostUniforms post, VkImageResource source,
+            VkImageResource? depth, Vector4[] values)
+        {
+            DescriptorSet* sets = stackalloc DescriptorSet[2];
+            sets[0] = PostImages(source, depth: depth);
+            (VkBuffer buffer, ulong offset) = _frame.Uploads.Write<Vector4>(values);
+            sets[1] = _frame.Descriptors.Allocate(_effectSetLayout);
+            VkDescriptors.WriteBuffer(_context, sets[1], 0, DescriptorType.UniformBuffer, buffer, offset, (ulong)(values.Length * sizeof(Vector4)));
+
+            _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
+            VkPipelines.SetViewport(_context, commands, width, height, flipped: false);
+            _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _effectLayout, 0, 2, sets, 0, null);
+            _context.Vk.CmdPushConstants(commands, _effectLayout, ShaderStageFlags.FragmentBit, 0, (uint)sizeof(PostUniforms), &post);
+            _context.Vk.CmdDraw(commands, 3, 1, 0, 0);
+        }
+
+        /// <summary>Draws a post pass into whatever rendering has begun. Images it doesn't need are left as white.</summary>
+        private void PostDraw(CommandBuffer commands, Pipeline pipeline, int width, int height, PostUniforms post, VkImageResource source,
+            VkImageResource? bloom = null, VkImageResource? depth = null, VkImageResource? occlusion = null, VkImageResource? ambient = null)
+        {
+            DescriptorSet set = PostImages(source, bloom, depth, occlusion, ambient);
 
             _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, pipeline);
             VkPipelines.SetViewport(_context, commands, width, height, flipped: false);
@@ -1480,10 +1642,16 @@ namespace Vertex.Rendering.Vulkan
                 _compositeToScreen, _compositeToTexture, _antiAliasToScreen, _antiAliasToTexture
             ];
             foreach (Pipeline pipeline in pipelines) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
+            foreach (EffectShader built in _effectShaders.Values)
+            {
+                foreach (Pipeline pipeline in built.Pipelines.Values) _context.Vk.DestroyPipeline(_context.Device, pipeline, null);
+                if (built.Module is { } module) _context.Vk.DestroyShaderModule(_context.Device, module, null);
+            }
+
             foreach (ShaderModule shader in _shaders) _context.Vk.DestroyShaderModule(_context.Device, shader, null);
-            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _spriteLayout, _postLayout, _fogLayout })
+            foreach (PipelineLayout layout in new[] { _sceneLayout, _shadowLayout, _gpuParticleLayout, _canvasLayout, _spriteLayout, _postLayout, _fogLayout, _effectLayout })
                 _context.Vk.DestroyPipelineLayout(_context.Device, layout, null);
-            foreach (DescriptorSetLayout layout in new[] { _frameSetLayout, _materialSetLayout, _textureSetLayout, _postSetLayout })
+            foreach (DescriptorSetLayout layout in new[] { _frameSetLayout, _materialSetLayout, _textureSetLayout, _postSetLayout, _effectSetLayout })
                 _context.Vk.DestroyDescriptorSetLayout(_context.Device, layout, null);
             foreach (Sampler sampler in new[] { _repeatSampler, _clampSampler, _shadowSampler, _spriteSampler, _pixelSampler })
                 _context.Vk.DestroySampler(_context.Device, sampler, null);

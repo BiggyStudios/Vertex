@@ -45,6 +45,11 @@ namespace Vertex.Rendering.OpenGL
         private GLShader _occlusionBlur = null!;
         private GLShader _composite = null!;
         private GLShader _antiAlias = null!;
+
+        // Games' post effects (see PostEffect), built the first time they're used and again when their code changes; null
+        // for one that won't compile, until it changes.
+        private readonly Dictionary<Shader, (int Version, GLShader? Program)> _effectShaders = new();
+        private readonly List<(PostEffectData Effect, GLShader Program)> _effects = new();
         private GLShadowMaps _shadowMaps = null!;
         private GLViewTargets _screenViews = null!;
         private GLCanvas _canvas = null!;
@@ -176,6 +181,30 @@ namespace Vertex.Rendering.OpenGL
             GLShader shader = GLShader.FromLibrary(_gl, ShaderLibrary.FullscreenVertex, fragment);
             shader.SetSamplers(("source", 0), ("bloomImage", 1), ("depthImage", 2), ("occlusionImage", 3), ("ambientImage", 4));
             return shader;
+        }
+
+        /// <summary>
+        /// A game's post effect, built the first time and again when its code changes. Null if it won't compile; what the
+        /// compiler said goes in the shader's <see cref="Shader.Problem"/> and the log.
+        /// </summary>
+        private GLShader? EffectShader(Shader shader)
+        {
+            if (_effectShaders.TryGetValue(shader, out (int Version, GLShader? Program) built) && built.Version == shader.Version) return built.Program;
+
+            built.Program?.Dispose();
+            GLShader? program = null;
+            try
+            {
+                program = PostShader(ShaderLibrary.EffectFragment(shader));
+            }
+            catch (Exception exception)
+            {
+                shader.CompileProblem = $"Shader {shader.Name} didn't compile:\n{exception.Message}";
+                Log.Error(shader.CompileProblem);
+            }
+
+            _effectShaders[shader] = (shader.Version, program);
+            return program;
         }
 
         public void Resize(int width, int height)
@@ -524,6 +553,18 @@ namespace Vertex.Rendering.OpenGL
             uint bloomImage = bloom ? views.BloomLevels[0].Texture : _white.Handle;
             uint occlusionImage = occlusion ? views.Occlusion : _white.Handle;
 
+            // A game's post effects (see PostEffect), those that build, go after everything else: the finished picture
+            // goes into an image of their own for the first to read.
+            _effects.Clear();
+            foreach (PostEffectData effect in frame.PostEffects)
+            {
+                if (EffectShader(effect.Shader) is { } program) _effects.Add((effect, program));
+            }
+
+            bool effects = _effects.Count > 0;
+            if (effects) views.EnsureEffects();
+            uint finished = effects ? views.EffectFramebuffers[0] : output;
+
             // A render texture wants its top row first, as one loaded from a file has it; OpenGL's start at the bottom.
             if (environment.AntiAliasing)
             {
@@ -531,12 +572,31 @@ namespace Vertex.Rendering.OpenGL
                 RunPost(_composite, views.FinishedFramebuffer, width, height, post, views.Color, bloomImage, views.Depth, occlusionImage, views.Ambient);
                 post.TexelSize = new Vector2(1f / width, 1f / height);
                 Mark("Anti-aliasing");
-                RunPost(_antiAlias, output, frame.Width, frame.Height, post, views.Finished, flipY: toTexture);
+                RunPost(_antiAlias, finished, frame.Width, frame.Height, post, views.Finished, flipY: toTexture && !effects);
             }
             else
             {
                 Mark("Composite");
-                RunPost(_composite, output, frame.Width, frame.Height, post, views.Color, bloomImage, views.Depth, occlusionImage, views.Ambient, flipY: toTexture);
+                RunPost(_composite, finished, frame.Width, frame.Height, post, views.Color, bloomImage, views.Depth, occlusionImage, views.Ambient,
+                    flipY: toTexture && !effects);
+            }
+
+            if (effects)
+            {
+                // Each reads what the one before made and draws into the other image, the last into the output.
+                post.TexelSize = new Vector2(1f / width, 1f / height);
+                uint source = views.Effects[0];
+                for (int i = 0; i < _effects.Count; i++)
+                {
+                    (PostEffectData effect, GLShader program) = _effects[i];
+                    Mark(effect.Shader.Name);
+                    bool last = i == _effects.Count - 1;
+                    program.Use();
+                    program.SetVector4Array("effectValues", effect.Values);
+                    RunPost(program, last ? output : views.EffectFramebuffers[(i + 1) % 2], frame.Width, frame.Height, post, source, depth: views.Depth,
+                        flipY: last && toTexture);
+                    source = views.Effects[(i + 1) % 2];
+                }
             }
 
             // The view's images are drawn into next frame, so they mustn't be left where a shader could read them.
@@ -656,6 +716,7 @@ namespace Vertex.Rendering.OpenGL
 
             foreach (GLShader shader in new[] { _fogLight, _fogTotal, _litShader, _unlitShader, _skyShader, _gridShader, _shadowShader, _bloomDown, _bloomUp, _occlusion, _occlusionBlur, _composite, _antiAlias })
                 shader.Dispose();
+            foreach ((int _, GLShader? program) in _effectShaders.Values) program?.Dispose();
             _shadowMaps.Dispose();
             _screenViews.Dispose();
             _canvas.Dispose();

@@ -49,6 +49,12 @@ namespace Vertex.Rendering.Vulkan
         public List<VkImageResource> FogTotalLayers { get; } = new();
         public Shaders.VolumetricFog Fog { get; } = new();
 
+        /// <summary>
+        /// Two more images like the finished picture, made the first time the view has post effects (see PostEffect): each
+        /// effect reads one and draws into the other.
+        /// </summary>
+        public VkImageResource?[] Effects { get; } = new VkImageResource?[2];
+
         public VkViewTargets(VkContext context)
         {
             _context = context;
@@ -83,6 +89,15 @@ namespace Vertex.Rendering.Vulkan
 
                 if (levelWidth <= 2 || levelHeight <= 2) break;
             }
+        }
+
+        /// <summary>Makes <see cref="Effects"/>, the size of the view, if they aren't yet.</summary>
+        public void EnsureEffects()
+        {
+            if (Effects[0] != null) return;
+
+            const ImageUsageFlags attachment = ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit;
+            for (int i = 0; i < Effects.Length; i++) Effects[i] = _context.CreateImage(Width, Height, OutputFormat, attachment);
         }
 
         /// <summary>
@@ -129,13 +144,13 @@ namespace Vertex.Rendering.Vulkan
         {
             ReleaseFog(deleteLater);
             var images = new List<VkImageResource>(BloomLevels);
-            foreach (VkImageResource? image in new[] { Color, Ambient, Glow, Depth, Occlusion, OcclusionBlur, Finished })
+            foreach (VkImageResource? image in new[] { Color, Ambient, Glow, Depth, Occlusion, OcclusionBlur, Finished, Effects[0], Effects[1] })
             {
                 if (image != null) images.Add(image);
             }
 
             BloomLevels.Clear();
-            Color = Ambient = Glow = Depth = Occlusion = OcclusionBlur = Finished = null;
+            Color = Ambient = Glow = Depth = Occlusion = OcclusionBlur = Finished = Effects[0] = Effects[1] = null;
             Width = Height = 0;
 
             if (images.Count > 0) deleteLater(() => images.ForEach(image => image.Destroy(_context)));

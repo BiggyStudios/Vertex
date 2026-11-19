@@ -298,6 +298,10 @@ namespace Vertex.Serialization
                         WriteReference(json, "graph", graphFile);
                         return true;
 
+                    case Shader { Source: { } shaderFile }:
+                        WriteReference(json, "shader", shaderFile);
+                        return true;
+
                     case Audio.AudioClip clip:
                         if (clip.Source == null) return false;
                         WriteReference(json, "sound", clip.Source);
@@ -624,6 +628,7 @@ namespace Vertex.Serialization
                 else if (element.TryGetProperty("font", out JsonElement font)) value = LoadFile(font.GetString()!, "Font", Assets.LoadFont);
                 else if (element.TryGetProperty("sound", out JsonElement sound)) value = LoadFile(sound.GetString()!, "Sound", Assets.LoadSound);
                 else if (element.TryGetProperty("graph", out JsonElement graph)) value = LoadFile(graph.GetString()!, "Graph", Assets.LoadGraph);
+                else if (element.TryGetProperty("shader", out JsonElement shader)) value = LoadFile(shader.GetString()!, "Shader", Assets.LoadShader);
                 else if (element.TryGetProperty("component", out JsonElement index))
                 {
                     if (!_objects.TryGetValue(element.GetProperty("object").GetInt32(), out GameObject? owner)) return false;
@@ -792,7 +797,7 @@ namespace Vertex.Serialization
             type == typeof(bool) || type == typeof(int) || type == typeof(float) || type == typeof(double) || type.IsEnum || type == typeof(string) || type == typeof(Vector2) || type == typeof(Vector3) ||
             type == typeof(Vector4) || type == typeof(Quaternion) || type == typeof(Color) || type == typeof(FloatRange) ||
             typeof(Mesh).IsAssignableFrom(type) || typeof(Texture).IsAssignableFrom(type) || type == typeof(Material) || type == typeof(Prefab) ||
-            type == typeof(Font) || type == typeof(Graphs.Graph) || type == typeof(Audio.AudioClip) ||
+            type == typeof(Font) || type == typeof(Graphs.Graph) || type == typeof(Audio.AudioClip) || type == typeof(Shader) ||
             typeof(GameObject).IsAssignableFrom(type) || typeof(Component).IsAssignableFrom(type) || IsSettingsObject(type);
 
         /// <summary>A class of its own whose values can be saved inside whatever has it (a material).</summary>

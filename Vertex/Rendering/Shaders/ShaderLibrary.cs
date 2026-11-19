@@ -1680,5 +1680,50 @@ namespace Vertex.Rendering.Shaders
                 FragColor = vec4(texture(source, vUV).rgb, 1.0);
             }
             """;
+
+        // ---- Post effects written for a game (see Shader and PostEffect) --------------------------------------------
+
+        // What a game's post effect can use. Its uv counts from the top-left of the picture in both APIs (OpenGL's images
+        // start at the bottom), and picture() and distanceAt() take the same. Its settings come in effectValues, which
+        // each setting's name stands for (see Shader.SetCode).
+        public const string EffectHeader = Post + """
+            #ifdef VERTEX_VULKAN
+            layout (set = 1, binding = 0, std140) uniform EffectData { vec4 effectValues[16]; };
+            #else
+            uniform vec4 effectValues[16];
+            #endif
+
+            vec2 screenSize;   // in pixels
+            float time;        // seconds since the game started
+
+            vec2 effectToImage(vec2 uv)
+            {
+            #ifdef VERTEX_VULKAN
+                return uv;
+            #else
+                return vec2(uv.x, 1.0 - uv.y);
+            #endif
+            }
+
+            // The picture so far, in screen colours (0 to 1).
+            vec4 picture(vec2 uv) { return textureLod(source, effectToImage(uv), 0.0); }
+
+            // How far from the camera what's drawn at uv is, along its view; very far for the sky.
+            float distanceAt(vec2 uv) { return viewDepth(effectToImage(uv)); }
+
+            """;
+
+        public const string EffectMain = """
+
+            void main()
+            {
+                screenSize = 1.0 / post.texelSize;
+                time = post.time;
+                FragColor = vec4(clamp(effect(effectToImage(vUV)).rgb, 0.0, 1.0), 1.0);
+            }
+            """;
+
+        /// <summary>A game's post effect, built into a whole fragment shader: <see cref="EffectHeader"/>, its code, then a main that calls it.</summary>
+        public static string EffectFragment(Shader shader) => EffectHeader + "#line 1\n" + shader.Body + EffectMain;
     }
 }

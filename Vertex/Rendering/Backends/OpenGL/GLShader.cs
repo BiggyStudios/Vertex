@@ -63,6 +63,11 @@ namespace Vertex.Rendering.OpenGL
         public void SetColor(string name, Color value) => _gl.Uniform4(GetLocation(name), value.R, value.G, value.B, value.A);
         public void SetColor3(string name, Color value) => _gl.Uniform3(GetLocation(name), value.R, value.G, value.B);
 
+        public unsafe void SetVector4Array(string name, Vector4[] values)
+        {
+            fixed (Vector4* first = values) _gl.Uniform4(GetLocation(name), (uint)values.Length, (float*)first);
+        }
+
         public unsafe void SetMatrix4(string name, Matrix4x4 value)
         {
             // System.Numerics matrices are row-major with row vectors, which has the same memory

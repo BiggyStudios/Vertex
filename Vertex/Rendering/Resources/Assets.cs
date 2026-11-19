@@ -18,6 +18,7 @@ namespace Vertex
         private static readonly Dictionary<string, Font> _fonts = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, AudioClip> _sounds = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Graphs.Graph> _graphs = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, Shader> _shaders = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The texture in <paramref name="path"/>, loaded the first time it's asked for.</summary>
         public static Texture LoadTexture(string path) => Load(_textures, path, Texture.Load);
@@ -47,6 +48,12 @@ namespace Vertex
         /// shares it, so a change made in an editor reaches scripts already running.
         /// </summary>
         public static Graphs.Graph LoadGraph(string path) => Load(_graphs, path, Graphs.Graph.Load);
+
+        /// <summary>
+        /// The shader in a .glsl file (see <see cref="Shader"/>), loaded the first time it's asked for. Everything using it
+        /// shares it, so when the file changes, they all change.
+        /// </summary>
+        public static Shader LoadShader(string path) => Load(_shaders, path, Shader.Load);
 
         /// <summary>
         /// A project file's path as it's kept in graphs and sent over the network: from the first of
@@ -102,8 +109,8 @@ namespace Vertex
         internal static IEnumerable<Prefab> LoadedPrefabs => _prefabs.Values;
 
         /// <summary>
-        /// Reads a changed file again where it can be done in place (a material: everything using it sees the change, a
-        /// prefab: copies made after), and otherwise forgets it, so it's read again next time it's asked for.
+        /// Reads a changed file again where it can be done in place (a material, graph or shader: everything using it sees
+        /// the change; a prefab: copies made after), and otherwise forgets it, so it's read again next time it's asked for.
         /// </summary>
         public static void Reload(string path)
         {
@@ -147,6 +154,18 @@ namespace Vertex
                     // Half-written, perhaps: kept as it was.
                 }
             }
+            else if (_shaders.TryGetValue(full, out Shader? shader) && File.Exists(full))
+            {
+                try
+                {
+                    string code = File.ReadAllText(full);
+                    if (code != shader.Code) shader.SetCode(code);
+                }
+                catch (IOException)
+                {
+                    // Still being written: kept as it was.
+                }
+            }
             else
             {
                 Forget(full);
@@ -174,6 +193,7 @@ namespace Vertex
             MoveIn(_fonts, Remap, (font, path) => font.Source = path);
             MoveIn(_sounds, Remap, (clip, path) => clip.Source = path);
             MoveIn(_graphs, Remap, (graph, path) => graph.Source = path);
+            MoveIn(_shaders, Remap, (shader, path) => shader.Source = path);
             _found.Clear();
         }
 
@@ -199,6 +219,7 @@ namespace Vertex
             _fonts.Remove(full);
             _sounds.Remove(full);
             _graphs.Remove(full);
+            _shaders.Remove(full);
         }
     }
 }

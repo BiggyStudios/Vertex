@@ -36,6 +36,13 @@ namespace Vertex.Rendering.OpenGL
 
         public List<(uint Framebuffer, uint Texture, int Width, int Height)> BloomLevels { get; } = new();
 
+        /// <summary>
+        /// Two more images like the finished picture, made the first time the view has post effects (see PostEffect), with
+        /// a framebuffer each: each effect reads one and draws into the other.
+        /// </summary>
+        public uint[] Effects { get; } = new uint[2];
+        public uint[] EffectFramebuffers { get; } = new uint[2];
+
         public int Width { get; private set; }
         public int Height { get; private set; }
 
@@ -101,6 +108,20 @@ namespace Vertex.Rendering.OpenGL
                 BloomLevels.Add((CreateFramebuffer("Bloom", texture), texture, levelWidth, levelHeight));
 
                 if (levelWidth <= 2 || levelHeight <= 2) break;
+            }
+
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        }
+
+        /// <summary>Makes <see cref="Effects"/>, the size of the view, if they aren't yet.</summary>
+        public void EnsureEffects()
+        {
+            if (EffectFramebuffers[0] != 0) return;
+
+            for (int i = 0; i < Effects.Length; i++)
+            {
+                Effects[i] = CreateTexture(Width, Height, InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte);
+                EffectFramebuffers[i] = CreateFramebuffer("Effect", Effects[i]);
             }
 
             _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
@@ -228,6 +249,8 @@ namespace Vertex.Rendering.OpenGL
             _textures.Clear();
             BloomLevels.Clear();
             SceneFramebuffer = 0;
+            Array.Clear(Effects);
+            Array.Clear(EffectFramebuffers);
             Width = Height = 0;
         }
 

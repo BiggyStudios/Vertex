@@ -13,9 +13,11 @@ namespace Vertex.Rendering
     /// <summary>
     /// A picture of the scene from a camera, drawn into a texture: see <see cref="Renderer.Render(Scene, Camera?, ReadOnlySpan{RenderView})"/>.
     /// With <paramref name="Grid"/>, a grid on the ground (y = 0) shows where things stand, as in an editor; with
-    /// <paramref name="Grid2D"/> as well, it stands in the X-Y plane (z = 0) instead, behind a 2D game.
+    /// <paramref name="Grid2D"/> as well, it stands in the X-Y plane (z = 0) instead, behind a 2D game. With
+    /// <paramref name="EffectsFrom"/>, it has that camera's post effects (see <see cref="PostEffect"/>), so an editor's view can
+    /// look as the game will.
     /// </summary>
-    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false);
+    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false, Camera? EffectsFrom = null);
 
     public sealed class Renderer : IDisposable
     {
@@ -145,7 +147,7 @@ namespace Vertex.Rendering
 
             foreach (RenderView view in views)
             {
-                Collect(scene, view.Camera, view.Target.Width, view.Target.Height, view.Target);
+                Collect(scene, view.Camera, view.Target.Width, view.Target.Height, view.Target, view.EffectsFrom);
                 _frame.Grid = view.Grid;
                 _frame.Grid2D = view.Grid2D;
                 Backend.Render(_frame);
@@ -219,6 +221,26 @@ namespace Vertex.Rendering
             lights.AddRange(_nearLights);
         }
 
+        /// <summary>The post effects on <paramref name="camera"/>'s object that can run: enabled, with a post effect shader that has no problems.</summary>
+        private void CollectPostEffects(Camera camera)
+        {
+            if (camera.GameObject.IsDestroyed || !camera.GameObject.ActiveInHierarchy) return;
+
+            foreach (PostEffect effect in camera.GameObject.GetComponents<PostEffect>())
+            {
+                if (!effect.Enabled || effect.Shader is not { } shader) continue;
+                if (shader.Problem != null)
+                {
+                    // Said once for each version of its code; what the compiler said, the backend has logged already.
+                    if (shader.CompileProblem == null && shader.ReportedVersion != shader.Version) Log.Error(shader.Problem);
+                    shader.ReportedVersion = shader.Version;
+                    continue;
+                }
+
+                _frame.PostEffectList.Add(new PostEffectData(shader, effect.Pack()));
+            }
+        }
+
         /// <summary>The boxes of fog the view reaches into, nearest first, as many as the shaders take.</summary>
         private void CollectFogVolumes(Scene scene, in Frustum frustum)
         {
@@ -255,7 +277,7 @@ namespace Vertex.Rendering
         }
 
         /// <summary>Refills the frame from the scene as <paramref name="camera"/> sees it. The frame's lists are reused between frames.</summary>
-        private void Collect(Scene scene, Camera? camera, int width, int height, RenderTexture? target)
+        private void Collect(Scene scene, Camera? camera, int width, int height, RenderTexture? target, Camera? effectsFrom = null)
         {
             _frame.Clear();
             _frame.Width = width;
@@ -296,6 +318,7 @@ namespace Vertex.Rendering
             List<DrawCall>[] casters = _frame.ShadowCasterLists;
             KeepLightsInView(frustum);
             CollectFogVolumes(scene, frustum);
+            CollectPostEffects(effectsFrom ?? camera);
 
             // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
             // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
