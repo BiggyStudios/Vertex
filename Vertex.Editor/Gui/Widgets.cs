@@ -91,7 +91,7 @@ namespace Vertex.Editor.Gui
         /// A header that opens and closes what's under it: an arrow that turns as it does, and a title. Returns whether
         /// it's open now. Use <see cref="Ui.Smooth(int, float, float, float?)"/> with <c>open ? 1 : 0</c> to slide the contents.
         /// </summary>
-        public static bool Foldout(int id, Rect rect, string text, bool open, bool bold = true, Icon? icon = null)
+        public static bool Foldout(int id, Rect rect, string text, bool open, bool bold = true, Icon? icon = null, Color? iconColor = null)
         {
             Interaction interaction = Ui.Interact(id, rect);
             if (interaction.Clicked) open = !open;
@@ -104,7 +104,7 @@ namespace Vertex.Editor.Gui
             float textLeft = rect.X + 22f;
             if (icon != null)
             {
-                icon(new Vector2(textLeft + 7f, rect.Centre.Y), 15f, Theme.TextDim);
+                icon(new Vector2(textLeft + 7f, rect.Centre.Y), 15f, iconColor ?? Theme.TextDim);
                 textLeft += 21f;
             }
 

@@ -6,7 +6,7 @@ namespace Vertex.Editor.Gui
     /// Small icons drawn from lines and circles, so they're sharp at any size and take their colour from the theme.
     /// Each fits a square <paramref name="size"/> UI units across around its centre.
     /// </summary>
-    public static class Icons
+    public static partial class Icons
     {
         private static Vector2 Rotate(Vector2 v, float radians)
         {

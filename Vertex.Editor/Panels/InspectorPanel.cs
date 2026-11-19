@@ -293,7 +293,7 @@ namespace Vertex.Editor.Panels
             UIRect? uiRect = gameObject.GetComponent<UIRect>();
             if (uiRect != null)
             {
-                y = Card(uiRect, "Rect", Icons.Scale, x, y, width, removable: true, body: cy => DrawUIRect(uiRect, x + 12f, cy, width - 24f));
+                y = Card(uiRect, "Rect", Icons.UIRect, x, y, width, removable: true, body: cy => DrawUIRect(uiRect, x + 12f, cy, width - 24f));
             }
             else
             {
@@ -355,7 +355,7 @@ namespace Vertex.Editor.Panels
             {
                 UIRect mainRect = rects[^1]!;
                 List<UIRect> otherRects = rects.Take(rects.Count - 1).Select(r => r!).ToList();
-                y = Card(mainRect, "Rect", Icons.Scale, x, y, width, removable: true, body: cy => DrawUIRect(mainRect, x + 12f, cy, width - 24f, otherRects),
+                y = Card(mainRect, "Rect", Icons.UIRect, x, y, width, removable: true, body: cy => DrawUIRect(mainRect, x + 12f, cy, width - 24f, otherRects),
                     alsoOn: otherRects);
             }
             else
@@ -391,7 +391,7 @@ namespace Vertex.Editor.Panels
 
                 if (matching.Count < others.Count) continue;
                 shared++;
-                y = Card(component, ComponentCatalog.DisplayName(type), IconFor(component), x, y, width, removable: true,
+                y = Card(component, ComponentCatalog.DisplayName(type), ComponentIcons.For(component), x, y, width, removable: true,
                     body: cy => _grid.Draw(component, x + 12f, cy, width - 24f, others: matching), alsoOn: matching);
             }
 
@@ -497,7 +497,8 @@ namespace Vertex.Editor.Panels
             Rect toggle = header.CutRight(30f).TakeRight(26f);
             Rect titleRect = removable ? header.CutRight(58f) : header;
 
-            bool nowOpen = Widgets.Foldout(id, titleRect.Shrink(2f, 3f), title, open, icon: icon);
+            Color iconColor = ComponentIcons.ColorFor(owner.GetType());
+            bool nowOpen = Widgets.Foldout(id, titleRect.Shrink(2f, 3f), title, open, icon: icon, iconColor: owner is Component or Transform ? iconColor : null);
 
             // Its header can be dragged to move it up or down among the others; letting go after a drag isn't a click.
             if (draggable)
@@ -659,7 +660,7 @@ namespace Vertex.Editor.Panels
                 float shown = slide ? Ui.Smooth(key, target - scrollTop, 18f, target - scrollTop) + scrollTop : target;
                 if (!slide) Ui.Snap(key, target - scrollTop);
 
-                float end = Card(component, ComponentCatalog.DisplayName(component.GetType()), IconFor(component), x, shown, width, removable: true,
+                float end = Card(component, ComponentCatalog.DisplayName(component.GetType()), ComponentIcons.For(component), x, shown, width, removable: true,
                     body: cy => ComponentBody(component, x + 12f, cy, width - 24f), draggable: true);
                 Ui.Remember(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(component), "card"), "full"), end - shown);
             }
@@ -669,7 +670,7 @@ namespace Vertex.Editor.Panels
             {
                 float top = Ui.Mouse.Y - _grabbedAt;
                 Ui.Cursor = Vertex.Input.CursorShape.Hand;
-                float end = Card(dragged, ComponentCatalog.DisplayName(dragged.GetType()), IconFor(dragged), x, top, width, removable: true,
+                float end = Card(dragged, ComponentCatalog.DisplayName(dragged.GetType()), ComponentIcons.For(dragged), x, top, width, removable: true,
                     body: cy => _grid.Draw(dragged, x + 12f, cy, width - 24f), draggable: true, lifted: true);
                 Ui.Remember(Ui.Id(Ui.Id(RuntimeHelpers.GetHashCode(dragged), "card"), "full"), end - top);
             }
@@ -1020,16 +1021,6 @@ namespace Vertex.Editor.Panels
             public void Undo() => gameObject.DetachComponent(component);
         }
 
-        public static Icon IconFor(Component component) => component switch
-        {
-            Camera => Icons.Camera,
-            Light => Icons.Light,
-            MeshRenderer => Icons.Cube,
-            Collider or Rigidbody or CharacterController => Icons.Scale,
-            Vertex.Audio.AudioSource => Icons.Sound,
-            _ => Icons.Component
-        };
-
         // ---------------------------------------------------------------- Adding components
 
         private float AddComponentButton(IReadOnlyList<GameObject> gameObjects, float x, float y, float width)
@@ -1149,7 +1140,8 @@ namespace Vertex.Editor.Panels
 
                 var row = new Rect(listRect.X, y, listRect.Width - 8f, rowHeight);
                 bool lit = i == _highlighted;
-                Ui.Text(row.Shrink(10f, 0f), type.Name, lit ? Color.White : Theme.Text);
+                ComponentIcons.For(type.Type)(new Vector2(row.X + 18f, row.Centre.Y), 15f, lit ? Color.White : ComponentIcons.ColorFor(type.Type));
+                Ui.Text(row.Shrink(10f, 0f) with { X = row.X + 34f, Width = row.Width - 44f }, type.Name, lit ? Color.White : Theme.Text);
                 if (search.Length > 0) Ui.Text(row.Shrink(10f, 0f), type.Category, lit ? Color.White.WithAlpha(0.7f) : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
                 y += rowHeight;
             }

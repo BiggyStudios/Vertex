@@ -39,6 +39,20 @@ namespace Vertex.Editor.Tests
             Assert.DoesNotContain(all, type => type.Type == typeof(Hidden));
         }
 
+        [Fact]
+        public void Every_engine_component_has_an_icon_of_its_own_and_scripts_have_the_code_icon()
+        {
+            Gui.Icon gear = Gui.Icons.Component;
+            List<string> without = ComponentCatalog.All
+                .Where(type => type.Type.Assembly == typeof(Component).Assembly && Gui.ComponentIcons.For(type.Type) == gear)
+                .Select(type => type.Name)
+                .ToList();
+            Assert.Empty(without);
+
+            Gui.Icon code = Gui.Icons.Code;
+            Assert.True(Gui.ComponentIcons.For(typeof(Spinner)) == code);
+        }
+
         [Theory]
         [InlineData("CastShadows", "Cast Shadows")]
         [InlineData("UIScale", "UI Scale")]

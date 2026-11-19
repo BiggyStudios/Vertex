@@ -396,12 +396,8 @@ namespace Vertex.Editor.Panels
                 if (component is MeshRenderer) return Icons.Cube;
             }
 
-            foreach (Component component in gameObject.Components)
-            {
-                if (component is Vertex.Audio.AudioSource) return Icons.Sound;
-            }
-
-            return gameObject.Components.Count == 0 ? Icons.Empty : Icons.Component;
+            // Otherwise, what its first component is (a sound, a rigidbody, a script).
+            return gameObject.Components.Count == 0 ? Icons.Empty : ComponentIcons.For(gameObject.Components[0]);
         }
 
         // ---------------------------------------------------------------- Renaming

@@ -405,7 +405,8 @@ namespace Vertex.Editor.Inspection
 
             GameObject? shown = mixed ? null : value switch { GameObject gameObject => gameObject, Component component => component.GameObject, _ => null };
             if (shown is { IsDestroyed: true }) shown = null;
-            Icon icon = shown != null ? Panels.OutlinerPanel.IconFor(shown) : typeof(Component).IsAssignableFrom(type) ? Icons.Component : Icons.Empty;
+            Icon icon = shown != null ? (value is Component held ? ComponentIcons.For(held) : Panels.OutlinerPanel.IconFor(shown))
+                : typeof(Component).IsAssignableFrom(type) ? ComponentIcons.For(type) : Icons.Empty;
             icon(new Vector2(field.X + 13f, field.Centre.Y), 14f, shown != null ? Theme.TextDim : Theme.TextFaint);
 
             string what = typeof(GameObject).IsAssignableFrom(type) ? "Object" : ComponentCatalog.DisplayName(type);
