@@ -761,6 +761,20 @@ namespace Vertex.Serialization
                 if (found != null) break;
             }
 
+            // Code that's there but not loaded yet (a game whose scripts nothing has touched before its first scene):
+            // .NET loads it by name.
+            if (found == null && parts.Length > 1)
+            {
+                try
+                {
+                    found = Type.GetType(name, throwOnError: false);
+                }
+                catch (Exception exception) when (exception is IOException or BadImageFormatException)
+                {
+                    // Not there to load: missing, as it would be anyway.
+                }
+            }
+
             // Not cached when missing: the game's code may be loaded later.
             if (found != null) _types[name] = found;
             return found;

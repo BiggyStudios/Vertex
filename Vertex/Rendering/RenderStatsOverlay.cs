@@ -104,8 +104,9 @@ namespace Vertex.Rendering
 
         private void Draw()
         {
-            Font? font = DevConsole.Font;
-            if (font == null || _lines.Count == 0) return;
+            // The console's font if it's been opened, so they match; it's loaded then, though, not before.
+            Font font = DevConsole.Font ?? Font.Default;
+            if (_lines.Count == 0) return;
 
             float lineHeight = Canvas.LineHeight(font, _fontSize);
             float width = 0f;
