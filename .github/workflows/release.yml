@@ -94,7 +94,15 @@ jobs:
           $previous = git describe --tags --abbrev=0 "$tag^" 2>$null
           $changes = if ($LASTEXITCODE -eq 0 -and $previous) { git log "$previous..$tag" --no-merges --format="- %s" } else { $null }
 
-          $notes = @(
+          # A pre-release (a version with a dash) says so first.
+          $notes = @()
+          if ($version.Contains("-"))
+          {
+            $stage = if ($version -match "pre-?alpha") { "a pre-alpha" } elseif ($version -match "alpha") { "an alpha" } elseif ($version -match "beta") { "a beta" } else { "a pre-release" }
+            $notes += "**This is $stage.** Expect bugs, missing features, and changes that break projects between versions. It isn't recommended for production games yet."
+            $notes += ""
+          }
+          $notes += @(
             "Download the one for your system, unpack it, and run the editor in its ``Editor`` folder:"
             ""
             "- **Windows:** Vertex-$version-win-x64.zip, then ``Editor\Vertex.Editor.exe``."
