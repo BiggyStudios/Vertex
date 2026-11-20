@@ -132,13 +132,14 @@
     <h2>Lighting and sky</h2>
     <p>Click the scene's row at the top of the outliner to edit its lighting: the sky and clouds, fog, the colour of the ground light bounces off, ambient occlusion, bloom, and how far shadows reach. The sky follows the first sun: turn it lower for a sunset.</p>
     <p>A scene can have up to 256 point and spot lights in view at once. Each part of the screen only works out the lights that reach it, so many small lights cost little.</p>
+    <p>Point and spot lights with <strong>Cast Shadows</strong> on cast shadows too, also into volumetric fog. The 16 nearest the camera get them. A light's shadow is only redrawn when the light or something near it moves, so lamps in a still room cost little. Baked lights don't need it: their shadows are baked.</p>
 
     <h2>Baked lighting</h2>
     <p>Baking works out a scene's light ahead of time, so it looks better and costs almost nothing while the game runs. Things that never move get soft shadows, light bounced off what's round them, and no sky light in rooms and under things. Things that move are lit by light probes, baked at the same time, which hold the light in the space between.</p>
     <ol>
         <li>Tick <strong>Static</strong> on the Mesh Renderers of what never moves: walls, floors, buildings, furniture.</li>
         <li>Set each light's <strong>Mode</strong>. Its <strong>Size</strong> sets how soft its baked shadows are.</li>
-        <li>Save the scene, click its row in the outliner, and press <strong>Bake</strong> in the <strong>Baked Lighting</strong> card. It bakes in the background, then saves the light in a <code>.bake</code> file beside the scene, and saves the scene.</li>
+        <li>Save the scene, then press <strong>Bake</strong> in the <strong>Lighting</strong> panel (<strong>View › Lighting</strong>; it starts beside the Inspector), where the bake settings are too. It bakes in the background, then saves the light in a <code>.bake</code> file beside the scene, and saves the scene. The panel also counts the scene's static meshes and its lights of each mode, and has the sky and environment settings.</li>
     </ol>
     <table>
         <tr><th>Mode</th><th>What it does</th></tr>
