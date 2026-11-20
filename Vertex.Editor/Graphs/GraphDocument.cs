@@ -29,6 +29,17 @@ namespace Vertex.Editor.Graphs
 
         public HashSet<int> Selected { get; } = new();
 
+        /// <summary>
+        /// The State Machine node whose states are shown instead of the graph (an animation graph's, opened with a
+        /// double-click), with how they're being looked at and which are picked; null for the graph itself.
+        /// </summary>
+        public int? OpenMachine { get; set; }
+        public Vector2 MachineOffset { get; set; }
+        public float MachineZoom { get; set; } = 1f;
+        public bool MachineFramed { get; set; }
+        public HashSet<string> SelectedStates { get; } = new();
+        public int? SelectedTransition { get; set; }
+
         public GraphDocument(Graph graph, string path)
         {
             Graph = graph;

@@ -22,7 +22,7 @@ namespace Vertex.Editor.Graphs
     /// </list>
     /// While the game runs, nodes light up as they run, and one that went wrong is outlined red.
     /// </summary>
-    public sealed class GraphView
+    public sealed partial class GraphView
     {
         private readonly EditorContext _context;
 
@@ -114,6 +114,18 @@ namespace Vertex.Editor.Graphs
             {
                 Ui.Text(rect, $"Graphs of kind \"{graph.Kind}\" can't be edited yet", Theme.TextDim, align: 0.5f);
                 return;
+            }
+
+            // A State Machine node opened: its states, in place of the graph.
+            if (doc.OpenMachine is int open)
+            {
+                if (graph.Node(open) is { Type: Vertex.Animation.AnimationNodes.StateMachine } machine)
+                {
+                    DrawStateMachine(rect, doc, machine);
+                    return;
+                }
+
+                CloseStateMachine(doc);
             }
 
             int id = Ui.Id(RuntimeHelpers.GetHashCode(doc), "graphView");
@@ -441,7 +453,21 @@ namespace Vertex.Editor.Graphs
                     doc.Selected.Add(node.Id);
                 }
 
-                Menu.Open(Ui.Id(nodeId, "menu"), Ui.Mouse, NodeMenu(doc));
+                List<MenuItem> menu = NodeMenu(doc);
+                if (node.Type == Vertex.Animation.AnimationNodes.StateMachine)
+                {
+                    menu.InsertRange(0, [new MenuItem("Open State Machine", () => OpenStateMachine(doc, node.Id)), MenuItem.Separator]);
+                }
+
+                Menu.Open(Ui.Id(nodeId, "menu"), Ui.Mouse, menu);
+            }
+
+            // A state machine opens to show its states.
+            if (body.DoubleClicked && node.Type == Vertex.Animation.AnimationNodes.StateMachine)
+            {
+                _pressedNode = false;
+                _dragBefore = null;
+                OpenStateMachine(doc, node.Id);
             }
 
             for (int i = 0; i < layout.InputPorts.Count; i++) DrawInput(nodeId, doc, layout, layout.InputPorts[i], i);
@@ -730,7 +756,7 @@ namespace Vertex.Editor.Graphs
             }
 
             Vector2 from = wire.FromOutput ? start.Outputs.GetValueOrDefault(wire.Port) : start.Inputs.GetValueOrDefault(wire.Port);
-            PortType type = (wire.FromOutput ? start.Type.Output(wire.Port) : start.Type.Input(wire.Port)) is { } startPort ? graph.TypeOf(start.Node, startPort) : PortType.Any;
+            PortType type = (wire.FromOutput ? start.Type.Output(wire.Port) : start.Type.Input(start.Node, wire.Port)) is { } startPort ? graph.TypeOf(start.Node, startPort) : PortType.Any;
 
             // The port it would join: the nearest that can take it, near enough.
             (int Node, string Port, Vector2 At)? target = null;
@@ -875,7 +901,7 @@ namespace Vertex.Editor.Graphs
             PortType? linkType = null;
             if (_addLinked is { } linked && doc.Graph.Node(linked.Node) is { } linkedNode && library.Find(linkedNode.Type) is { } linkedType)
             {
-                linkType = (linked.FromOutput ? linkedType.Output(linked.Port) : linkedType.Input(linked.Port)) is { } linkedPort ? doc.Graph.TypeOf(linkedNode, linkedPort) : null;
+                linkType = (linked.FromOutput ? linkedType.Output(linked.Port) : linkedType.Input(linkedNode, linked.Port)) is { } linkedPort ? doc.Graph.TypeOf(linkedNode, linkedPort) : null;
             }
 
             string search = _search.Trim();
@@ -962,7 +988,7 @@ namespace Vertex.Editor.Graphs
                 PortType? linkType = null;
                 GraphNode? other = linked is { } wanted ? graph.Node(wanted.Node) : null;
                 if (linked is { } from && other != null && library.Find(other.Type) is { } otherType &&
-                    (from.FromOutput ? otherType.Output(from.Port) : otherType.Input(from.Port)) is { } otherPort)
+                    (from.FromOutput ? otherType.Output(from.Port) : otherType.Input(other, from.Port)) is { } otherPort)
                 {
                     linkType = graph.TypeOf(other, otherPort);
                 }
@@ -1185,9 +1211,18 @@ namespace Vertex.Editor.Graphs
             Graph graph = doc.Graph;
             Vector2 at = doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom;
             (Layout Node, string Port, int Row)? into = null;
+            Layout? machine = null;
             foreach (Layout layout in _layouts.Values)
             {
                 if (!layout.Rect.Contains(at)) continue;
+                if (layout.Node.Type == Vertex.Animation.AnimationNodes.StateMachine)
+                {
+                    // Onto a state machine, an animation's a new state of its own.
+                    machine = layout;
+                    into = null;
+                    break;
+                }
+
                 for (int row = 0; row < layout.InputPorts.Count; row++)
                 {
                     Port port = layout.InputPorts[row];
@@ -1200,7 +1235,7 @@ namespace Vertex.Editor.Graphs
             }
 
             // Where it'd go: the node it'd be linked into, outlined.
-            if (into is ({ } target, _, _))
+            if ((into?.Node ?? machine) is { } target)
             {
                 var outline = new Rect(rect.Position + (target.Rect.Position - doc.Offset) * doc.Zoom, target.Rect.Size * doc.Zoom);
                 Ui.Outline(outline.Grow(4f), Theme.Accent, 10f * doc.Zoom, 2f);
@@ -1209,6 +1244,14 @@ namespace Vertex.Editor.Graphs
             if (!DragDrop.Dropped) return;
 
             string file = Vertex.Assets.RelativePath(sound.Path);
+            if (machine != null)
+            {
+                // Put to the right of its other states.
+                var states = Vertex.Animation.AnimationStateMachine.Of(machine.Node).States;
+                Vector2 position = states.Count > 0 ? new Vector2(states.Max(s => s.Position.X) + _stateWidth + 60f, states[^1].Position.Y) : Vector2.Zero;
+                AddState(doc, machine.Node, sound.NameWithoutExtension, file, position);
+                return;
+            }
             doc.Edit(_context.History, made.Name, () =>
             {
                 // Beside the node it's linked into: under the sounds already linked to it, or level with its input.
@@ -1342,6 +1385,19 @@ namespace Vertex.Editor.Graphs
                         foreach (GraphNode node in graph.Nodes)
                         {
                             if (node.Values.TryGetValue("Variable", out object? used) && used as string == old) node.Values["Variable"] = renamed;
+
+                            // And a state machine's conditions testing it.
+                            if (node.Type != Vertex.Animation.AnimationNodes.StateMachine) continue;
+                            Vertex.Animation.AnimationStateMachine machine = Vertex.Animation.AnimationStateMachine.Of(node).Copy();
+                            bool uses = false;
+                            foreach (Vertex.Animation.TransitionCondition condition in machine.Transitions.SelectMany(t => t.Conditions))
+                            {
+                                if (condition.Parameter != old) continue;
+                                condition.Parameter = renamed;
+                                uses = true;
+                            }
+
+                            if (uses) node.Values[Vertex.Animation.AnimationStateMachine.ValueName] = machine.ToJson();
                         }
                     });
                 }

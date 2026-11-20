@@ -234,5 +234,187 @@ namespace Vertex.Editor.Tests
             Assert.EndsWith("Sprint.anim", (string)added.Values["Animation"]!);
             Assert.Single(graph.LinksTo(blend.Id, "Pose 4"), l => l.FromNode == added.Id);
         }
+
+        /// <summary>Presses at <paramref name="from"/>, drags to <paramref name="to"/> in a few steps and lets go.</summary>
+        private static void Drag(EditorApp app, Vector2 from, Vector2 to)
+        {
+            InputSystem.MoveMouse(from);
+            Frame(app);
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app);
+            for (int i = 1; i <= 4; i++)
+            {
+                InputSystem.MoveMouse(Vector2.Lerp(from, to, i / 4f));
+                Frame(app);
+            }
+
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app);
+        }
+
+        [Fact]
+        public void On_the_curves_a_key_dragged_up_changes_its_value_and_is_one_undo()
+        {
+            (EditorApp app, _, AnimationClip clip, _) = Robot();
+            AnimationTrack track = clip.AddTrack("Arm", "Position", 3);
+            track.SetKey(0f, new Vector4(0f, 1f, 0f, 0f));
+            track.SetKey(0.5f, new Vector4(3f, 1f, 0f, 0f));
+            clip.Changed();
+            app.Animation.Curves = true;
+            Frame(app, 2);
+
+            // How many pixels a unit, from the x curve's two keys.
+            Vector2 low = app.Animation.CurveKeyOnScreen(track, 0, 0)!.Value, high = app.Animation.CurveKeyOnScreen(track, 1, 0)!.Value;
+            float pixelsPerUnit = (low.Y - high.Y) / 3f;
+            Assert.True(pixelsPerUnit > 1f);
+
+            Drag(app, high, high - new Vector2(0f, pixelsPerUnit));
+
+            Assert.Equal(4f, track.Keys[1].Value.X, 1);
+            // Only the x was dragged: y stays.
+            Assert.Equal(1f, track.Keys[1].Value.Y);
+            Assert.Equal(0.5f, track.Keys[1].Time, 3);
+            Assert.Equal("Move Keys", app.Context.History.NextUndo);
+
+            app.Context.Undo();
+            Assert.Equal(3f, track.Keys[1].Value.X);
+        }
+
+        [Fact]
+        public void Dragging_a_picked_keys_handle_sets_its_slopes_both_sides()
+        {
+            (EditorApp app, _, AnimationClip clip, _) = Robot();
+            AnimationTrack track = clip.AddTrack("Arm", "Position", 3);
+            track.SetKey(0f, new Vector4(0f, 1f, 0f, 0f));
+            track.SetKey(0.5f, new Vector4(3f, 1f, 0f, 0f));
+            track.SetKey(1f, new Vector4(0f, 1f, 0f, 0f));
+            clip.Changed();
+            app.Animation.Curves = true;
+            Frame(app, 2);
+
+            // Picked, the middle key shows its handles: flat, as it's a peak.
+            Vector2 key = app.Animation.CurveKeyOnScreen(track, 1, 0)!.Value;
+            InputSystem.MoveMouse(key);
+            Frame(app);
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app);
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app);
+            Vector2 handle = Assert.NotNull(app.Animation.HandleOnScreen(track, 1, 0, outgoing: true));
+            Assert.Equal(key.Y, handle.Y, 1f);
+
+            // Dragged down to the right: the curve leaves the key going down, and arrives going down too.
+            Drag(app, handle, handle + new Vector2(0f, 30f));
+
+            Keyframe changed = track.Keys[1];
+            Assert.True(changed.HasSlopes);
+            Assert.True(changed.OutSlope!.Value.X < -0.5f, $"Slope {changed.OutSlope}");
+            Assert.Equal(changed.OutSlope.Value.X, changed.InSlope!.Value.X, 4);
+            Assert.True(track.Sample(0.6f).X < 3f);
+            Assert.Equal("Change Slope", app.Context.History.NextUndo);
+
+            app.Context.Undo();
+            Assert.False(track.Keys[1].HasSlopes);
+        }
+
+        [Fact]
+        public void A_state_machine_opens_from_its_node_takes_animations_dropped_in_as_states_and_joins_them_with_a_drag()
+        {
+            var context = new EditorContext();
+            var graph = new Graph(AnimationNodes.Kind);
+            graph.Variables.Add(new GraphVariable("Speed", PortType.Number, 0f));
+            GraphNode machine = graph.AddNode(AnimationNodes.StateMachine, Vector2.Zero);
+            GraphNode output = graph.AddNode(AnimationNodes.Output, new Vector2(400f, 0f));
+            graph.Link(machine.Id, "Pose", output.Id, "Pose");
+            var doc = new GraphDocument(graph, Path.Combine(_folder, "Moves.animgraph"));
+            var view = new GraphView(context);
+            var area = new Rect(0f, 0f, 1200f, 800f);
+            void Draw(int count = 1)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    Time.Advance(1.0 / 60.0);
+                    Canvas.BeginFrame(ScreenWidth, ScreenHeight, ScreenHeight);
+                    Ui.BeginFrame(1f / 60f);
+                    view.Draw(area, doc);
+                    Ui.EndFrame();
+                    Canvas.EndFrame();
+                    InputSystem.EndFrame();
+                }
+            }
+
+            void Click(Vector2 at)
+            {
+                InputSystem.MoveMouse(at);
+                Draw();
+                InputSystem.PressButton(MouseButton.Left);
+                Draw();
+                InputSystem.ReleaseButton(MouseButton.Left);
+                Draw();
+            }
+
+            // Double-clicked, the node opens to show its states: a new one has Idle.
+            Draw(2);
+            Vector2 node = view.PortOnScreen(doc, machine.Id, "Pose", output: true)!.Value - new Vector2(60f, 0f);
+            Click(node);
+            Click(node);
+            Assert.Equal(machine.Id, doc.OpenMachine);
+            Assert.NotNull(view.StateOnScreen(doc, "Idle"));
+
+            // An animation dropped on empty space is a state of its own, playing it.
+            string run = context.CreateAnimation(_folder, "Run");
+            Vector2 idle = view.StateOnScreen(doc, "Idle")!.Value;
+            var from = new Vector2(idle.X, 700f);
+            var to = idle + new Vector2(320f, 0f);
+            InputSystem.MoveMouse(from);
+            Draw();
+            InputSystem.PressButton(MouseButton.Left);
+            Draw();
+            DragDrop.Begin(new AssetEntry(run, AssetKind.Animation), "Run");
+            for (int i = 1; i <= 4; i++)
+            {
+                InputSystem.MoveMouse(Vector2.Lerp(from, to, i / 4f));
+                Draw();
+            }
+
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Draw(2);
+
+            AnimationState state = Assert.IsType<AnimationState>(AnimationStateMachine.Of(machine).State("Run"));
+            Assert.EndsWith("Run.anim", state.Animation);
+            // It's an input on the node too.
+            Assert.Contains("Run", AnimationNodes.Library.Find(AnimationNodes.StateMachine)!.InputsOf(graph, machine).Select(p => p.Name));
+
+            // Dragged from Idle's dot to Run: a transition, testing the first parameter, picked.
+            Vector2 dot = view.StateDotOnScreen(doc, "Idle")!.Value;
+            Vector2 target = view.StateOnScreen(doc, "Run")!.Value;
+            InputSystem.MoveMouse(dot);
+            Draw();
+            InputSystem.PressButton(MouseButton.Left);
+            Draw();
+            for (int i = 1; i <= 4; i++)
+            {
+                InputSystem.MoveMouse(Vector2.Lerp(dot, target, i / 4f));
+                Draw();
+            }
+
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Draw();
+
+            StateTransition transition = Assert.Single(AnimationStateMachine.Of(machine).Transitions);
+            Assert.Equal(("Idle", "Run"), (transition.From, transition.To));
+            Assert.Equal("Speed", Assert.Single(transition.Conditions).Parameter);
+            Assert.Equal(0, doc.SelectedTransition);
+
+            // Each is one undo; Escape goes back to the graph.
+            context.Undo();
+            Assert.Empty(AnimationStateMachine.Of(machine).Transitions);
+            context.Undo();
+            Assert.Null(AnimationStateMachine.Of(machine).State("Run"));
+            Press(Key.Escape);
+            Draw();
+            ReleaseAll();
+            Assert.Null(doc.OpenMachine);
+        }
     }
 }

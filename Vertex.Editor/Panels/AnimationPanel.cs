@@ -23,7 +23,7 @@ namespace Vertex.Editor.Panels
     /// way to the next (right-click), and deleted. Double-click a row to add a key there.
     /// </para>
     /// </summary>
-    public sealed class AnimationPanel : IDockPanel
+    public sealed partial class AnimationPanel : IDockPanel
     {
         private const float _rowHeight = 24f;
         private const float _rulerHeight = 26f;
@@ -137,6 +137,7 @@ namespace Vertex.Editor.Panels
             _selected.Clear();
             _selectedEvent = null;
             _fitted = false;
+            ForgetCurves();
             if (clip.IsImported) _recording = false;
             _time = Math.Clamp(_time, 0f, MathF.Max(clip.Length, 0f));
         }
@@ -443,6 +444,7 @@ namespace Vertex.Editor.Panels
                 _selectedEvent = null;
                 _recording = false;
                 _fitted = false;
+                ForgetCurves();
                 if (animator != null && _opened != null && !_clipFor.TryGetValue(animator, out _)) _clipFor.AddOrUpdate(animator, _opened);
             }
 
@@ -653,21 +655,32 @@ namespace Vertex.Editor.Panels
 
             Ui.Text(new Rect(loop.Right + 6f, y, 40f, 26f), "Loop", Theme.TextDim, size: Theme.SmallTextSize);
 
-            // On the right: add a key to everything the selected object has tracks for, or copy a model's animation to change.
+            // On the right: add a key to everything the selected object has tracks for, or copy a model's animation to change;
+            // and keys or curves.
             var right = new Rect(bar.Right - Theme.Padding - 26f, y, 26f, 26f);
+            float curvesX = right.X - 32f;
             if (readOnly)
             {
                 if (_context.Assets is { } assets)
                 {
                     float width = Ui.TextWidth("Duplicate to Change") + 40f;
-                    if (Widgets.Button(Ui.Id("animation.duplicate"), new Rect(bar.Right - Theme.Padding - width, y, width, 26f), "Duplicate to Change",
+                    var duplicate = new Rect(bar.Right - Theme.Padding - width, y, width, 26f);
+                    curvesX = duplicate.X - 32f;
+                    if (Widgets.Button(Ui.Id("animation.duplicate"), duplicate, "Duplicate to Change",
                             tooltip: "A model's own animation can't be changed: copy it into a .anim file of your own", icon: Icons.Plus))
                     {
                         Duplicate(animator, clip, assets);
                     }
                 }
             }
-            else if (Widgets.IconButton(Ui.Id("animation.key"), right, (c, s, col) => Icons.Key(c, s * 0.3f, col), "Add a key at the playhead to each of the selected object's tracks"))
+
+            if (Widgets.IconButton(Ui.Id("animation.curves"), new Rect(curvesX, y, 26f, 26f), Icons.Curve,
+                    _curves ? "Back to the keys" : "Curves: shape how each value changes between its keys", selected: _curves))
+            {
+                Curves = !_curves;
+            }
+
+            if (!readOnly && Widgets.IconButton(Ui.Id("animation.key"), right, (c, s, col) => Icons.Key(c, s * 0.3f, col), "Add a key at the playhead to each of the selected object's tracks"))
             {
                 KeySelectedObject(animator, clip);
             }
@@ -732,6 +745,15 @@ namespace Vertex.Editor.Panels
 
             // The rows: every key together, the events, then a row for each track.
             List<AnimationTrack> tracks = clip.Tracks.OrderBy(t => t.Path, StringComparer.Ordinal).ThenBy(t => t.Property, StringComparer.Ordinal).ToList();
+            if (_curves)
+            {
+                // Or the tracks' values drawn as curves, to shape.
+                DrawCurves(list with { Y = rows.Y, Height = rows.Height }, laneRows, animator, clip, tracks);
+                DrawRuler(ruler, clip);
+                DrawPlayhead(lane, ruler, clip);
+                return;
+            }
+
             int scrollId = Ui.Id("animation.rows");
             ScrollView scroll = ScrollView.Begin(scrollId, rows);
             Ui.PushClip(rows);
@@ -1184,6 +1206,7 @@ namespace Vertex.Editor.Panels
         private void HandleKeys(Rect content, AnimationClip clip)
         {
             if (Ui.KeyboardTaken || !content.Contains(Ui.Mouse)) return;
+            if (_curves && CurveKeys(clip)) return;
             if (InputSystem.GetKeyDown(Key.Delete) || InputSystem.GetKeyDown(Key.Backspace))
             {
                 if (_selected.Count == 0 && _selectedEvent == null) return;

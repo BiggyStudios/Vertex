@@ -347,6 +347,38 @@ namespace Vertex.Editor.Gui
         /// <summary>A round dot: recording.</summary>
         public static void Record(Vector2 centre, float size, Color color) => Ui.Circle(centre, size * 0.26f, color);
 
+        /// <summary>An S-shaped curve between two points: an animation's values drawn as curves.</summary>
+        public static void Curve(Vector2 centre, float size, Color color)
+        {
+            Vector2 start = centre + new Vector2(-size * 0.36f, size * 0.26f), end = centre + new Vector2(size * 0.36f, -size * 0.26f);
+            Vector2 previous = start;
+            for (int i = 1; i <= 10; i++)
+            {
+                float t = i / 10f;
+                float eased = t * t * (3f - 2f * t);
+                var point = new Vector2(start.X + (end.X - start.X) * t, start.Y + (end.Y - start.Y) * eased);
+                Ui.Line(previous, point, color, 1.4f);
+                previous = point;
+            }
+
+            Ui.Circle(start, size * 0.07f, color);
+            Ui.Circle(end, size * 0.07f, color);
+        }
+
+        /// <summary>Boxes joined by an arrow: a state machine, its states and the ways between them.</summary>
+        public static void States(Vector2 centre, float size, Color color)
+        {
+            var a = new Rect(centre.X - size * 0.42f, centre.Y - size * 0.32f, size * 0.36f, size * 0.24f);
+            var b = new Rect(centre.X + size * 0.06f, centre.Y + size * 0.08f, size * 0.36f, size * 0.24f);
+            Ui.Outline(a, color, 2f, 1.2f);
+            Ui.Rect(b, color, 2f);
+            Vector2 from = new(a.Centre.X, a.Bottom), to = new(b.X, b.Centre.Y);
+            Vector2 corner = new(from.X, to.Y);
+            Ui.Line(from, corner, color, 1.2f);
+            Ui.Line(corner, to - new Vector2(size * 0.04f, 0f), color, 1.2f);
+            Vertex.UI.Canvas.DrawTriangle(to, to + new Vector2(-size * 0.1f, -size * 0.07f), to + new Vector2(-size * 0.1f, size * 0.07f), Ui.Fade(color));
+        }
+
         /// <summary>A bar with a triangle pointing back to it: back to the start.</summary>
         public static void ToStart(Vector2 centre, float size, Color color)
         {
