@@ -668,6 +668,111 @@ namespace Vertex.Editor
             }
         }
 
+        // Baking the scene's light (the inspector's Baked Lighting card), off the main thread.
+        private Task<LightBakeResult>? _bake;
+        private CancellationTokenSource? _bakeCancel;
+        private string _bakeStep = "";
+        private float _bakeDone;
+        private Scene? _bakeScene;
+        private string _bakeFile = "";
+
+        /// <summary>Whether the scene's light is being baked.</summary>
+        public bool Baking => _bake != null;
+
+        /// <summary>What baking's doing, and how far through it is, from 0 to 1.</summary>
+        public (string Step, float Done) BakeProgress => (Volatile.Read(ref _bakeStep), Volatile.Read(ref _bakeDone));
+
+        /// <summary>Where the open scene's baked light is kept: a .bake file beside it, named after it.</summary>
+        public string? BakedLightingPath => ScenePath != null ? Path.ChangeExtension(ScenePath, BakedLighting.Extension) : null;
+
+        /// <summary>
+        /// Bakes the open scene's light (see <see cref="LightBaker"/>): in the background, then saves it beside the scene,
+        /// gives it to the scene and saves the scene, so the two always match.
+        /// </summary>
+        public void BakeLighting()
+        {
+            if (_bake != null) return;
+            if (Play.Playing) Play.Stop();
+            if (BakedLightingPath is not { } file)
+            {
+                Dialog.Message("Save the scene first", "Baked lighting is kept in a file beside the scene, so the scene needs saving before its light can be baked.");
+                return;
+            }
+
+            LightBaker baker = LightBaker.Prepare(Scene);
+            if (baker.StaticObjects == 0)
+            {
+                Dialog.Message("Nothing to bake", "Tick Static on the Mesh Renderers of things that never move (walls, floors, buildings), then bake. Lights set to Baked or Mixed light them.");
+                return;
+            }
+
+            _bakeCancel = new CancellationTokenSource();
+            CancellationToken cancel = _bakeCancel.Token;
+            _bakeScene = Scene;
+            _bakeFile = file;
+            _bakeStep = "Baking light…";
+            _bakeDone = 0f;
+            _buildTimer.Restart();
+            _bake = Task.Run(() => baker.Run((step, done) =>
+            {
+                Volatile.Write(ref _bakeStep, step);
+                Volatile.Write(ref _bakeDone, done);
+            }, cancel), cancel);
+        }
+
+        /// <summary>Stops baking: the scene keeps the light it had.</summary>
+        public void CancelBake() => _bakeCancel?.Cancel();
+
+        /// <summary>Takes away the scene's baked light, and the file it's in: its lights and sky light it as the game runs.</summary>
+        public void ClearBakedLighting()
+        {
+            if (_bake != null) return;
+            if (BakedLightingPath is { } file && File.Exists(file))
+            {
+                File.Delete(file);
+                Vertex.Assets.Forget(file);
+            }
+
+            Scene.Lighting.BakedLightingFile = "";
+            foreach (MeshRenderer renderer in Scene.FindComponents<MeshRenderer>()) renderer.LightmapIndex = -1;
+            if (ScenePath != null) SaveScene();
+        }
+
+        /// <summary>A bake that's finished: given to the scene, which is saved; or why it didn't work, in the Console.</summary>
+        private void FinishBake()
+        {
+            if (_bake is not { IsCompleted: true } bake) return;
+            _bake = null;
+            _bakeCancel?.Dispose();
+            _bakeCancel = null;
+
+            if (bake.IsCanceled)
+            {
+                Notify("Baking stopped: the scene keeps the light it had");
+                return;
+            }
+
+            if (bake.Exception is { } failed)
+            {
+                Exception problem = failed.InnerException ?? failed;
+                Log.Write(LogLevel.Error, $"The light didn't bake: {problem.Message}", problem.ToString());
+                ShowConsole();
+                return;
+            }
+
+            if (_bakeScene != Scene)
+            {
+                Notify("Another scene was opened while baking, so the light wasn't kept");
+                return;
+            }
+
+            LightBakeResult result = bake.Result;
+            result.Apply(Scene, _bakeFile);
+            if (ScenePath != null) SaveScene();
+            Texture? lightmap = result.Lighting.Lightmap;
+            Notify($"Baked the light in {_buildTimer.Elapsed.TotalSeconds:0.#} s" + (lightmap != null ? $": a {lightmap.Width} × {lightmap.Height} lightmap for {result.Renderers.Count} meshes" : ""));
+        }
+
         private void UnloadGame()
         {
             WorldGame = null;
@@ -685,6 +790,7 @@ namespace Vertex.Editor
             if (!InputSystem.GetMouseButton(MouseButton.Left)) SaveOpenPrefab();
             RebuildIfCodeChanged();
             FinishGameBuild();
+            FinishBake();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;

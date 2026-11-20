@@ -95,7 +95,56 @@ namespace Vertex.Editor.Panels
             y += 30f + 12f;
 
             Lighting lighting = _context.Scene.Lighting;
-            return Card(lighting, "Lighting & Sky", Icons.Light, x, y, width, removable: false, body: (cy) => _grid.Draw(lighting, x + 12f, cy, width - 24f));
+            y = Card(lighting, "Lighting & Sky", Icons.Light, x, y, width, removable: false, body: (cy) => _grid.Draw(lighting, x + 12f, cy, width - 24f));
+            return Card(_bakeCard, "Baked Lighting", Icons.Light, x, y, width, removable: false, body: (cy) => DrawBaking(x + 12f, cy, width - 24f));
+        }
+
+        // What the Baked Lighting card folds by.
+        private readonly object _bakeCard = new();
+
+        /// <summary>Whether the scene's light is baked, and the buttons to bake it again or take it away; while baking, how far it's got.</summary>
+        private float DrawBaking(float x, float y, float width)
+        {
+            Lighting lighting = _context.Scene.Lighting;
+            int statics = 0;
+            foreach (MeshRenderer renderer in _context.Scene.FindComponents<MeshRenderer>()) if (renderer.Static) statics++;
+
+            if (_context.Baking)
+            {
+                (string step, float done) = _context.BakeProgress;
+                var bar = new Rect(x, y + 4f, width, 8f);
+                float shown = Ui.Smooth(Ui.Id("bake.progress"), done, 10f);
+                Ui.Rect(bar, Theme.Field, 4f);
+                Ui.Rect(new Rect(bar.X, bar.Y, MathF.Max(bar.Width * shown, 8f), bar.Height), Theme.Accent, 4f);
+                Ui.Text(new Rect(x, y + 16f, width - 90f, 20f), step + "…", Theme.TextDim, size: Theme.SmallTextSize);
+                if (Widgets.Button(Ui.Id("bake.cancel"), new Rect(x + width - 84f, y + 16f, 84f, 24f), "Stop")) _context.CancelBake();
+                return y + 48f;
+            }
+
+            BakedLighting? baked = lighting.Baked;
+            string status = baked?.Lightmap is { } map
+                ? $"Baked: a {map.Width} × {map.Height} lightmap for {baked.Meshes.Count} meshes" + (baked.Probes != null ? ", with light probes" : "")
+                : baked != null ? "Baked: light probes only" : "Not baked";
+            Ui.Text(new Rect(x, y, width, 20f), status, baked != null ? Theme.Text : Theme.TextDim);
+            y += 22f;
+
+            string hint = statics == 0
+                ? "Tick Static on the Mesh Renderers of what never moves, and set lights to Baked or Mixed."
+                : $"{statics} static {(statics == 1 ? "mesh" : "meshes")}; lights set to Baked or Mixed light them.";
+            foreach (string line in Ui.Wrap(hint, width, Theme.SmallTextSize))
+            {
+                Ui.Text(new Rect(x, y, width, 16f), line, Theme.TextFaint, size: Theme.SmallTextSize);
+                y += 16f;
+            }
+
+            y = _grid.Draw(lighting.Baking, x, y + 8f, width) + 6f;
+
+            var buttons = new Rect(x, y, width, 30f);
+            if (Widgets.Button(Ui.Id("bake.go"), buttons.Column(0, 2, 6f), baked != null ? "Bake Again" : "Bake", ButtonStyle.Primary,
+                    tooltip: "Works out the light falling on static meshes and in the space between them, and saves the scene")) _context.BakeLighting();
+            if (Widgets.Button(Ui.Id("bake.clear"), buttons.Column(1, 2, 6f), "Clear", tooltip: "Takes away the baked light, so the scene's lit as the game runs")
+                && baked != null) _context.ClearBakedLighting();
+            return y + 34f;
         }
 
         // ---------------------------------------------------------------- An asset
