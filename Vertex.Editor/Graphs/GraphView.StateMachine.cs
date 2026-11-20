@@ -172,10 +172,13 @@ namespace Vertex.Editor.Graphs
             rects.Add(new Rect(machine.AnyPosition.X, machine.AnyPosition.Y, _pillSize.X, _pillSize.Y));
             float left = rects.Min(r => r.X), top = rects.Min(r => r.Y), right = rects.Max(r => r.Right), bottom = rects.Max(r => r.Bottom);
             var size = new Vector2(right - left, bottom - top);
-            // Big enough to read; what doesn't fit is scrolled to.
-            doc.MachineZoom = Math.Clamp(MathF.Min((rect.Width - 160f) / MathF.Max(size.X, 1f), (rect.Height - 160f) / MathF.Max(size.Y, 1f)), 0.8f, 1f);
-            float middle = rect.Width * 0.5f;
-            doc.MachineOffset = new Vector2(left + size.X * 0.5f, top + size.Y * 0.5f) - new Vector2(middle, rect.Height * 0.5f) / doc.MachineZoom;
+            // Big enough to read (what doesn't fit is scrolled to), left of the panel for what's picked.
+            float width = rect.Width - 320f;
+            doc.MachineZoom = Math.Clamp(MathF.Min((width - 80f) / MathF.Max(size.X, 1f), (rect.Height - 160f) / MathF.Max(size.Y, 1f)), 0.8f, 1f);
+            // In the middle if it fits; otherwise from the left, the rest scrolled to.
+            float wide = size.X * doc.MachineZoom;
+            float screenLeft = wide <= width - 80f ? (width - wide) * 0.5f : 40f;
+            doc.MachineOffset = new Vector2(left - screenLeft / doc.MachineZoom, top + size.Y * 0.5f - rect.Height * 0.5f / doc.MachineZoom);
         }
 
         private void PanAndZoomMachine(Rect rect, GraphDocument doc, GraphNode node, bool over, Interaction background, int viewId)
@@ -617,7 +620,7 @@ namespace Vertex.Editor.Graphs
             StateTransition? transition = doc.SelectedTransition is int index && index < machine.Transitions.Count ? machine.Transitions[index] : null;
             if (state == null && transition == null) return;
 
-            float height = state != null ? 236f : 196f + transition!.Conditions.Count * 32f;
+            float height = state != null ? 236f : 200f + transition!.Conditions.Count * 32f + (transition.Conditions.Count == 0 ? 24f : 0f);
             var panel = new Rect(rect.Right - 310f, rect.Y + 10f, 300f, MathF.Min(height, rect.Height - 50f));
             if (panel.X < rect.X + 10f) return;
             Ui.Block(Ui.Id("machine.inspector"), panel);
