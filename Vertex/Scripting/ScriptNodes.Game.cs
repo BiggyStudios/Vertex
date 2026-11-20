@@ -317,6 +317,23 @@ namespace Vertex.Scripting
                 "Sets a Trigger parameter of an Animator's animation graph for one frame: what starts its Play Once (a jump, an attack).",
                 "animator graph trigger action attack jump");
 
+            // ---------------------------------------------------------------- AI
+
+            AI.NavMeshAgent AgentOf(ScriptRun run) =>
+                run.In<GameObject>("Target").GetComponent<AI.NavMeshAgent>() ?? throw new InvalidOperationException("The object has no Nav Mesh Agent");
+
+            Action("AI", "Set Destination", [Target, Vector("Position", tooltip: "Where to go")], run => AgentOf(run).SetDestination(run.In<Vector3>("Position")),
+                "Sends an object's Nav Mesh Agent somewhere: it finds the way, round what's in the way, and walks there.",
+                "navmesh walk go move to path navigate pathfind");
+            Action("AI", "Stop Moving", [Target], run => AgentOf(run).Stop(), "Stops an object's Nav Mesh Agent where it is.", "navmesh halt stand still");
+            Node("AI", "Has Arrived", [Target], [Out("Arrived", PortType.Boolean)], run => run.Out("Arrived", AgentOf(run).Arrived),
+                "Whether an object's Nav Mesh Agent has got to where it was last sent (or as near as it could), and stopped.",
+                "navmesh reached destination there done");
+            Action("AI", "Set Tree Variable", [Target, Text("Variable", "", "The name of one of the tree's variables"), In("Value", PortType.Any)], run =>
+                    (run.In<GameObject>("Target").GetComponent<AI.BehaviorTree>() ?? throw new InvalidOperationException("The object has no Behavior Tree"))
+                    .SetVariable(run.In<string>("Variable"), run.In("Value")),
+                "Sets one of the variables of an object's behaviour tree: tell a guard who to chase.", "behaviour behavior tree blackboard ai memory");
+
             // ---------------------------------------------------------------- Sound and effects
 
             Action("Sound", "Play Sound", [In("Sound", PortType.Sound), Number("Volume", 1f), Bool("In World", true, "From this object, quieter further away; off, it plays everywhere the same")], run =>

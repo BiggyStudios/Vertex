@@ -23,9 +23,13 @@ namespace Vertex.Rendering
     /// <paramref name="ReadBack"/> is given the finished picture's pixels (RGBA, top row first, as <see cref="Texture.Pixels"/>)
     /// once the GPU has drawn them, a frame or two later; a backend that can't read pictures back never calls it.
     /// </para>
+    /// <para>
+    /// <paramref name="Overlay"/> is drawn over the scene in this view only, see-through and behind what's in front of it, like
+    /// sprites: an editor's picture of where characters can walk.
+    /// </para>
     /// </summary>
     public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false, Camera? EffectsFrom = null,
-        Scene? Scene = null, bool Transparent = false, Action<byte[]>? ReadBack = null);
+        Scene? Scene = null, bool Transparent = false, Action<byte[]>? ReadBack = null, IReadOnlyList<WorldQuad>? Overlay = null);
 
     public sealed class Renderer : IDisposable
     {
@@ -167,6 +171,7 @@ namespace Vertex.Rendering
                 Collect(view.Scene ?? scene, view.Camera, view.Target.Width, view.Target.Height, view.Target, view.EffectsFrom);
                 _frame.Grid = view.Grid;
                 _frame.Grid2D = view.Grid2D;
+                if (view.Overlay != null) _frame.WorldQuadList.AddRange(view.Overlay);
                 if (view.Transparent)
                 {
                     // The anti-aliasing reads how bright each pixel is from alpha, which here says what's drawn instead.

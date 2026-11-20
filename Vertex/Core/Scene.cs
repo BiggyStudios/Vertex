@@ -62,6 +62,9 @@ namespace Vertex
         /// <summary>The sky, the soft light it gives, fog and shadow settings.</summary>
         public Lighting Lighting { get; } = new();
 
+        /// <summary>How characters find their way round the scene: what the navmesh is made for, and the one baked for it.</summary>
+        public AI.NavigationSettings Navigation { get; } = new();
+
         /// <summary>
         /// Lights that light the scene without being in it (they belong to another scene): an editor's light for a prefab
         /// shown on its own, which isn't part of the prefab.

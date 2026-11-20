@@ -26,6 +26,12 @@ namespace Vertex.Graphs
         /// output keeps the material's own colour: "Material's"). Null for an input that takes a typed value.
         /// </summary>
         public string? WhenUnlinked { get; init; }
+
+        /// <summary>
+        /// For an output that goes on to one input only, as flow does: linking it somewhere else lets the old link go (a
+        /// behaviour tree's Invert has one task under it).
+        /// </summary>
+        public bool OneLink { get; init; }
     }
 
     /// <summary>
@@ -226,6 +232,7 @@ namespace Vertex.Graphs
             if (kind == Audio.AudioNodes.Kind) _ = Audio.AudioNodes.Library;
             if (kind == ShaderGraphs.ShaderNodes.Kind) _ = ShaderGraphs.ShaderNodes.Library;
             if (kind == Animation.AnimationNodes.Kind) _ = Animation.AnimationNodes.Library;
+            if (kind == AI.BehaviorNodes.Kind) _ = AI.BehaviorNodes.Library;
             lock (_libraries) return _libraries.GetValueOrDefault(kind);
         }
     }

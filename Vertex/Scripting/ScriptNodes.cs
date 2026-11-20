@@ -36,6 +36,7 @@ namespace Vertex.Scripting
                 "Networking" => new Color(0.86f, 0.42f, 0.2f),
                 "Effects" or "Sound" or "UI" => new Color(0.75f, 0.42f, 0.82f),
                 "Animation" => new Color(0.26f, 0.64f, 0.52f),
+                "AI" => new Color(0.86f, 0.62f, 0.25f),
                 _ => base.CategoryColor(category)
             };
         }

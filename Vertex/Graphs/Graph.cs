@@ -168,9 +168,9 @@ namespace Vertex.Graphs
         {
             if (!CanLink(fromNode, fromPort, toNode, toPort)) return false;
 
-            bool flow = Library!.Find(Node(fromNode)!.Type)!.Output(fromPort)!.Type.IsFlow;
-            if (flow) Links.RemoveAll(l => l.FromNode == fromNode && l.FromPort == fromPort);
-            else Links.RemoveAll(l => l.ToNode == toNode && l.ToPort == toPort);
+            Port output = Library!.Find(Node(fromNode)!.Type)!.Output(fromPort)!;
+            if (output.Type.IsFlow || output.OneLink) Links.RemoveAll(l => l.FromNode == fromNode && l.FromPort == fromPort);
+            if (!output.Type.IsFlow) Links.RemoveAll(l => l.ToNode == toNode && l.ToPort == toPort);
 
             Links.Add(new GraphLink(fromNode, fromPort, toNode, toPort));
             Changed();

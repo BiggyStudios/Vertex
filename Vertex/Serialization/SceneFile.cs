@@ -45,7 +45,7 @@ namespace Vertex.Serialization
         public static string Save(Scene scene, params string[] assetFolders)
         {
             scene.ApplyChanges();
-            return Write(scene.GameObjects, scene.Lighting, assetFolders);
+            return Write(scene.GameObjects, scene, assetFolders);
         }
 
         /// <summary>Just these objects and everything under them, as JSON: for copying and duplicating.</summary>
@@ -89,7 +89,7 @@ namespace Vertex.Serialization
             else foreach (GameObject root in roots) AddSubtree(root, objects);
 
             var resources = new Dictionary<string, object>();
-            string json = Write(objects, roots == null ? scene.Lighting : null, [], resources);
+            string json = Write(objects, roots == null ? scene : null, [], resources);
             return new Snapshot { Json = json, Resources = resources };
         }
 
@@ -122,14 +122,14 @@ namespace Vertex.Serialization
             reader.ReadInto(values, material);
         }
 
-        private static string Write(IReadOnlyList<GameObject> objects, Lighting? lighting, string[] assetFolders, Dictionary<string, object>? keepResources = null,
+        private static string Write(IReadOnlyList<GameObject> objects, Scene? settingsOf, string[] assetFolders, Dictionary<string, object>? keepResources = null,
             GameObject? skipPrefabLinkOf = null)
         {
             var writer = new Writer(objects, assetFolders.Length > 0 ? assetFolders : Application.AssetFolders, keepResources) { SkipPrefabLinkOf = skipPrefabLinkOf };
             using var stream = new MemoryStream();
             using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
             {
-                writer.Write(json, lighting);
+                writer.Write(json, settingsOf);
             }
 
             return Encoding.UTF8.GetString(stream.ToArray());
@@ -144,7 +144,7 @@ namespace Vertex.Serialization
             /// <summary>An object whose own prefab link isn't written: the root of a prefab being saved, which is that prefab.</summary>
             public GameObject? SkipPrefabLinkOf { get; init; }
 
-            public void Write(Utf8JsonWriter json, Lighting? lighting)
+            public void Write(Utf8JsonWriter json, Scene? settingsOf)
             {
                 // The objects first, as resources (meshes and textures made in code) are found on the way.
                 using var objectStream = new MemoryStream();
@@ -158,10 +158,13 @@ namespace Vertex.Serialization
                 json.WriteStartObject();
                 json.WriteNumber("version", FormatVersion);
 
-                if (lighting != null)
+                // The scene's own settings, for a whole scene.
+                if (settingsOf != null)
                 {
                     json.WritePropertyName("lighting");
-                    WriteValues(json, lighting);
+                    WriteValues(json, settingsOf.Lighting);
+                    json.WritePropertyName("navigation");
+                    WriteValues(json, settingsOf.Navigation);
                 }
 
                 json.WritePropertyName("objects");
@@ -503,6 +506,7 @@ namespace Vertex.Serialization
             public List<GameObject> Read()
             {
                 if (root.TryGetProperty("lighting", out JsonElement lighting)) ReadValues(lighting, scene.Lighting);
+                if (root.TryGetProperty("navigation", out JsonElement navigation)) ReadValues(navigation, scene.Navigation);
 
                 var created = new List<GameObject>();
                 var componentValues = new List<(Component Component, JsonElement Values)>();
