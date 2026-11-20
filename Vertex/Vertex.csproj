@@ -59,4 +59,15 @@
     <PackageReference Include="Steamworks.NET.AnyCPU" Version="2026.165.3" />
   </ItemGroup>
 
+  <!-- The packages the engine uses, written into it ("Vertex.Package.Silk.NET.Windowing" = "2.23.0"), so the editor can
+       build a game for any system with the same ones, and their native libraries for that system. -->
+  <Target Name="VertexRecordPackages" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute" Condition="'@(PackageReference)' != ''">
+        <_Parameter1>Vertex.Package.%(PackageReference.Identity)</_Parameter1>
+        <_Parameter2>%(PackageReference.Version)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
 </Project>

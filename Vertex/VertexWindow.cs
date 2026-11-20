@@ -31,17 +31,30 @@ namespace Vertex
 
         /// <param name="backend">The graphics API backend to render with. Defaults to <see cref="RenderBackends.CreateDefault"/>: Vulkan where it can, otherwise OpenGL.</param>
         public VertexWindow(int sizeX, int sizeY, Game game, string title = "Window", IRenderBackend? backend = null)
+            : this(game, new PlayerSettings { Name = title, Width = sizeX, Height = sizeY }, backend)
+        {
+        }
+
+        // The picture for the window's icon, from the settings, set once it's open.
+        private readonly string _icon;
+
+        /// <summary>A window for <paramref name="game"/> as its <paramref name="settings"/> say: its title, size, mode and icon.</summary>
+        public VertexWindow(Game game, PlayerSettings settings, IRenderBackend? backend = null)
         {
             Terminal.Attach();
             _loop = new GameLoop(game);
-            Renderer = new Renderer(backend ?? RenderBackends.CreateDefault());
+            Renderer = new Renderer(backend ?? RenderBackends.Create(settings.Renderer));
+            _icon = settings.Icon;
 
             WindowOptions options = Renderer.ConfigureWindow(WindowOptions.Default with
             {
-                Size = new Vector2D<int>(sizeX, sizeY),
-                Title = title
+                Size = new Vector2D<int>(Math.Max(settings.Width, 160), Math.Max(settings.Height, 120)),
+                Title = settings.Name,
+                WindowBorder = settings.Resizable ? WindowBorder.Resizable : WindowBorder.Fixed,
+                WindowState = settings.WindowMode == WindowMode.Maximized ? WindowState.Maximized : WindowState.Normal
             });
 
+            if (settings.WindowMode == WindowMode.Fullscreen) Screen.Fullscreen = true;
             _window = Window.Create(options);
 
             _window.Load += OnLoad;
@@ -65,6 +78,7 @@ namespace Vertex
         private void OnLoad()
         {
             Renderer.Initialise(_window);
+            SetIcon();
             Screen.Initialise(_window);
             _ = new SilkInput(_window);
             Sound.Initialise();
@@ -86,6 +100,30 @@ namespace Vertex
                 () => Renderer.ShadowResolution, value => Renderer.ShadowResolution = Math.Clamp((int)value, 256, 4096));
 
             _loop.Load();
+        }
+
+        /// <summary>Gives the window the game's icon, if it has one (macOS shows the app's own instead).</summary>
+        private void SetIcon()
+        {
+            if (string.IsNullOrEmpty(_icon)) return;
+            string path = Application.AssetPath(_icon);
+            if (!File.Exists(path))
+            {
+                Log.Warning($"The game's icon isn't there: {path}");
+                return;
+            }
+
+            try
+            {
+                using FileStream stream = File.OpenRead(path);
+                StbImageSharp.ImageResult image = StbImageSharp.ImageResult.FromStream(stream, StbImageSharp.ColorComponents.RedGreenBlueAlpha);
+                var icon = new Silk.NET.Core.RawImage(image.Width, image.Height, image.Data);
+                _window.SetWindowIcon(ref icon);
+            }
+            catch (Exception exception)
+            {
+                Log.Warning($"Couldn't set the window's icon: {exception.Message}");
+            }
         }
 
         private void OnUpdate(double deltaTime)

@@ -3,6 +3,15 @@ namespace Vertex
     /// <summary>The running program as a whole.</summary>
     public static class Application
     {
+        /// <summary>The game's name, as its project settings give it (in a built game; in the editor, the project's).</summary>
+        public static string Name { get; set; } = "Game";
+
+        /// <summary>Who made it, as its project settings give it.</summary>
+        public static string Company { get; set; } = "";
+
+        /// <summary>The game's version, as its project settings give it ("0.1"): for a title screen's corner.</summary>
+        public static string Version { get; set; } = "0.1";
+
         /// <summary>Raised by <see cref="Quit"/>. Whatever hosts the game (its window, an editor) closes it.</summary>
         internal static event Action? QuitRequested;
 

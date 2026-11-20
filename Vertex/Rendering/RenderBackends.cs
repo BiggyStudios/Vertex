@@ -11,9 +11,15 @@ namespace Vertex.Rendering
         /// runs on nearly anything. Players can choose for themselves by starting the game with <c>-vulkan</c> or
         /// <c>-opengl</c>, or by setting the <c>VERTEX_RENDERER</c> environment variable to <c>vulkan</c> or <c>opengl</c>.
         /// </summary>
-        public static IRenderBackend CreateDefault()
+        public static IRenderBackend CreateDefault() => Create(RendererChoice.Automatic);
+
+        /// <summary>
+        /// The graphics API a game prefers (<paramref name="preferred"/>), unless the player's chosen with <c>-vulkan</c>,
+        /// <c>-opengl</c> or <c>VERTEX_RENDERER</c>: as <see cref="CreateDefault"/> otherwise.
+        /// </summary>
+        public static IRenderBackend Create(RendererChoice preferred)
         {
-            string choice = Chosen();
+            string choice = Chosen(preferred == RendererChoice.OpenGL ? "opengl" : "vulkan");
 
             if (choice == "opengl") return new GLRenderBackend();
 
@@ -23,7 +29,7 @@ namespace Vertex.Rendering
             return new GLRenderBackend();
         }
 
-        private static string Chosen()
+        private static string Chosen(string preferred)
         {
             foreach (string argument in Environment.GetCommandLineArgs().Skip(1))
             {
@@ -37,7 +43,8 @@ namespace Vertex.Rendering
             return Environment.GetEnvironmentVariable("VERTEX_RENDERER")?.Trim().ToLowerInvariant() switch
             {
                 "opengl" or "gl" => "opengl",
-                _ => "vulkan"
+                "vulkan" or "vk" => "vulkan",
+                _ => preferred
             };
         }
     }
