@@ -131,6 +131,27 @@
 
     <h2>Lighting and sky</h2>
     <p>Click the scene's row at the top of the outliner to edit its lighting: the sky and clouds, fog, the colour of the ground light bounces off, ambient occlusion, bloom, and how far shadows reach. The sky follows the first sun: turn it lower for a sunset.</p>
+    <p>A scene can have up to 256 point and spot lights in view at once. Each part of the screen only works out the lights that reach it, so many small lights cost little.</p>
+
+    <h2>Baked lighting</h2>
+    <p>Baking works out a scene's light ahead of time, so it looks better and costs almost nothing while the game runs. Things that never move get soft shadows, light bounced off what's round them, and no sky light in rooms and under things. Things that move are lit by light probes, baked at the same time, which hold the light in the space between.</p>
+    <ol>
+        <li>Tick <strong>Static</strong> on the Mesh Renderers of what never moves: walls, floors, buildings, furniture.</li>
+        <li>Set each light's <strong>Mode</strong>. Its <strong>Size</strong> sets how soft its baked shadows are.</li>
+        <li>Save the scene, click its row in the outliner, and press <strong>Bake</strong> in the <strong>Baked Lighting</strong> card. It bakes in the background, then saves the light in a <code>.bake</code> file beside the scene, and saves the scene.</li>
+    </ol>
+    <table>
+        <tr><th>Mode</th><th>What it does</th></tr>
+        <tr><td><strong>Realtime</strong></td><td>Worked out every frame, so it can move and change. Its light doesn't bounce.</td></tr>
+        <tr><td><strong>Mixed</strong></td><td>Lights things every frame, and its bounced light is baked. Good for the sun.</td></tr>
+        <tr><td><strong>Baked</strong></td><td>All baked, so it costs nothing while the game runs, however many there are. It can't move or change, and it has no highlights. It still shows in volumetric fog. Good for lamps.</td></tr>
+    </table>
+    <ul>
+        <li><strong>Detail</strong> is how many lightmap pixels there are to a unit of surface. More gives sharper shadows and a slower bake. If the lightmap won't fit in <strong>Max Lightmap Size</strong>, detail is lowered to fit.</li>
+        <li><strong>Quality</strong>: Preview is quick but grainy; Good suits most scenes; High is the smoothest. <strong>Bounces</strong> is how many times light bounces.</li>
+        <li>Moving a static object, or changing a baked light, leaves the old light where it was until you bake again. <strong>Clear</strong> removes the baked light.</li>
+        <li>Until a scene has been baked, Baked lights light it as they're worked out, so you can see them while you build.</li>
+    </ul>
 </main>
 </div>
 <script src="assets/site.js"></script>
