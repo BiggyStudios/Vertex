@@ -17,8 +17,9 @@ namespace Vertex.Editor.Editing
     /// <summary>
     /// Builds a project into a game that runs on its own (File › Build Game), for players without the editor or .NET:
     /// a small program that starts it (<see cref="BuiltGame"/>), the game's code, the engine and everything it uses for
-    /// that system, the Assets folder, and game.json with how it opens. On Windows it's a folder with the game's .exe
-    /// (with its icon and details); on Linux a folder with the program; on macOS a .app.
+    /// that system, the Assets folder, and game.json with how it opens. The program is one file with all of that code (and
+    /// .NET) packed inside, so the folder is just it, Assets and game.json. On Windows the program is the game's .exe
+    /// (with its icon and details); on Linux it has its icon beside it; on macOS it all goes in a .app.
     /// <para>
     /// The program is made with <c>dotnet publish</c>, self-contained, so the .NET SDK has to be there to build (as it
     /// does for a game's code), and the first build for each system downloads that system's runtime.
@@ -203,6 +204,12 @@ namespace Vertex.Editor.Editing
                     <Nullable>enable</Nullable>
                     <RuntimeIdentifier>{rid}</RuntimeIdentifier>
                     <SelfContained>true</SelfContained>
+                    <!-- One program file with .NET, the engine, the game's code and the native libraries inside it, so the
+                         folder players get is just that, the Assets and game.json. The native libraries are unpacked to a
+                         cache folder the first time it runs. -->
+                    <PublishSingleFile>true</PublishSingleFile>
+                    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+                    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
                     <!-- The game's own code can be a program too (one made in code, with its own Main). -->
                     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
                     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -294,6 +301,9 @@ namespace Vertex.Editor.Editing
                 string path = Path.Combine(folder, file);
                 if (File.Exists(path)) File.Delete(path);
             }
+
+            // Debugging symbols that didn't go into the program (the engine's, from the editor): only for whoever made it.
+            foreach (string symbols in Directory.EnumerateFiles(folder, "*.pdb")) File.Delete(symbols);
         }
 
         /// <summary>Whether a folder's a build (made by this), or empty: what a new build can go in place of.</summary>

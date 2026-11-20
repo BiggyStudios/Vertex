@@ -112,6 +112,10 @@ namespace Vertex.Editor.Tests
 
             Assert.Contains("<RuntimeIdentifier>linux-x64</RuntimeIdentifier>", project);
             Assert.Contains("<SelfContained>true</SelfContained>", project);
+
+            // One program file, with the runtime and the native libraries in it, not a folder full of them.
+            Assert.Contains("<PublishSingleFile>true</PublishSingleFile>", project);
+            Assert.Contains("<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>", project);
             Assert.Contains("<Product>Coin &amp; Grab</Product>", project);
             Assert.Contains("<Version>1.2</Version>", project);
             Assert.Contains("<InformationalVersion>1.2 beta</InformationalVersion>", project);
