@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 using Vertex;
+using Vertex.Animation;
 using Vertex.Audio;
 using Vertex.Effects;
 using Vertex.Graphs;
@@ -51,7 +52,7 @@ JsonNode Nodes()
 {
     var types = new JsonObject();
     var libraries = new JsonObject();
-    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library, ShaderNodes.Library })
+    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library, ShaderNodes.Library, AnimationNodes.Library })
     {
         var categories = new JsonObject();
         var nodes = new JsonArray();
@@ -140,7 +141,81 @@ JsonNode Graphs()
     graphs["Lava (Shader)"] = JsonNode.Parse(Lava().ToJson());
     graphs["Colour Grade (Shader)"] = JsonNode.Parse(ShaderNodes.PostEffectStarter().ToJson());
     graphs["Retro Pixels (Shader)"] = JsonNode.Parse(RetroPixels().ToJson());
+
+    // Animation graphs: walking into running by speed, and a character that crouches, aims and attacks too.
+    graphs["Locomotion (Animation)"] = JsonNode.Parse(Locomotion().ToJson());
+    graphs["Character (Animation)"] = JsonNode.Parse(Character().ToJson());
     return graphs;
+}
+
+// A Clip node playing Animations/<name>.anim.
+static GraphNode ClipNode(Graph graph, string name, float x, float y)
+{
+    GraphNode node = graph.AddNode("Animations/Clip", new Vector2(x, y));
+    node.Values["Animation"] = $"Animations/{name}.anim";
+    return node;
+}
+
+// What a new animation graph starts as, with its clips chosen: idle, walk and run by Speed.
+static Graph Locomotion()
+{
+    Graph graph = AnimationNodes.Starter();
+    string[] names = ["Idle", "Walk", "Run"];
+    List<GraphNode> clips = graph.Nodes.Where(n => n.Type == "Animations/Clip").ToList();
+    for (int i = 0; i < clips.Count; i++) clips[i].Values["Animation"] = $"Animations/{names[i]}.anim";
+    return graph;
+}
+
+// A character: walks and runs by speed, crouches while Crouching, aims its upper body while Aiming, and swings when
+// Attack is triggered.
+static Graph Character()
+{
+    var graph = new Graph(AnimationNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Speed", PortType.Number, 0f));
+    graph.Variables.Add(new GraphVariable("Crouching", PortType.Boolean, false));
+    graph.Variables.Add(new GraphVariable("Aiming", PortType.Boolean, false));
+    graph.Variables.Add(new GraphVariable("Attack", AnimationNodes.Trigger));
+
+    GraphNode Parameter(string name, float x, float y) => Node(graph, "Parameters/Get Parameter", x, y, ("Variable", name));
+
+    GraphNode speed = Parameter("Speed", -40f, -140f);
+    GraphNode idle = ClipNode(graph, "Idle", -40f, -40f);
+    GraphNode walk = ClipNode(graph, "Walk", -40f, 100f);
+    GraphNode run = ClipNode(graph, "Run", -40f, 240f);
+    GraphNode moving = Node(graph, "Blend/Blend by Value", 280f, -20f, ("At", "0, 1.5, 4"));
+    graph.Link(speed.Id, "Value", moving.Id, "Value");
+    graph.Link(idle.Id, "Pose", moving.Id, "Pose 1");
+    graph.Link(walk.Id, "Pose", moving.Id, "Pose 2");
+    graph.Link(run.Id, "Pose", moving.Id, "Pose 3");
+
+    GraphNode crouching = Parameter("Crouching", 280f, -180f);
+    GraphNode crouch = ClipNode(graph, "Crouch", 280f, 240f);
+    GraphNode stance = Node(graph, "Blend/Blend by Bool", 580f, -40f, ("Fade", 0.25f));
+    graph.Link(crouching.Id, "Value", stance.Id, "Condition");
+    graph.Link(crouch.Id, "Pose", stance.Id, "True");
+    graph.Link(moving.Id, "Pose", stance.Id, "False");
+
+    // Aiming puts the aim over the upper body (from the spine up), fading in and out.
+    GraphNode aim = ClipNode(graph, "Aim", 580f, 260f);
+    GraphNode layer = Node(graph, "Blend/Layer", 880f, 120f, ("From", "Spine"));
+    graph.Link(stance.Id, "Pose", layer.Id, "Base");
+    graph.Link(aim.Id, "Pose", layer.Id, "Layer");
+    GraphNode aiming = Parameter("Aiming", 880f, -160f);
+    GraphNode upper = Node(graph, "Blend/Blend by Bool", 1180f, -20f, ("Fade", 0.2f));
+    graph.Link(aiming.Id, "Value", upper.Id, "Condition");
+    graph.Link(layer.Id, "Pose", upper.Id, "True");
+    graph.Link(stance.Id, "Pose", upper.Id, "False");
+
+    GraphNode attack = Parameter("Attack", 1180f, 220f);
+    GraphNode swing = ClipNode(graph, "Swing", 1180f, 320f);
+    GraphNode once = Node(graph, "Blend/Play Once", 1480f, 40f);
+    graph.Link(upper.Id, "Pose", once.Id, "Base");
+    graph.Link(swing.Id, "Pose", once.Id, "Action");
+    graph.Link(attack.Id, "Value", once.Id, "Play");
+
+    GraphNode output = Node(graph, "Output/Output", 1780f, 40f);
+    graph.Link(once.Id, "Pose", output.Id, "Pose");
+    return graph;
 }
 
 // A Sound node playing Sounds/<name>.wav.

@@ -78,7 +78,7 @@ namespace Vertex.Rendering
         public Vector3 BoundsExtents { get; private set; }
 
         /// <summary>
-        /// Counts changes to <see cref="Vertices"/> (see <see cref="VerticesChanged"/>): 0 for a mesh that never changes.
+        /// Counts changes to <see cref="Vertices"/> (see <see cref="VerticesChanged()"/>): 0 for a mesh that never changes.
         /// Renderers keep a mesh that has changed somewhere they can write each frame.
         /// </summary>
         public int Version { get; private set; }

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Animation · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Animation</h1>
+    <p class="lead">An <strong>Animator</strong> animates its object and everything under it: a door swinging open, a robot arm, a light that flickers, a character walking. It plays <strong>animations</strong> (<code>.anim</code> files made on the editor's timeline, or a model's own walk and run), or an <strong>animation graph</strong> that blends them by what the game tells it: walking into running as the character speeds up, an attack over the top when a button's pressed.</p>
+
+    <h2>Animating in the editor</h2>
+    <ol>
+        <li>Select the object to animate (the top of everything that moves together) and open the <strong>Animation</strong> panel: <strong>View › Animation</strong>, or <strong>Edit Animation</strong> on an Animator in the inspector. If the object has no Animator, the panel offers to add one.</li>
+        <li>Press <strong>New Animation</strong>. It makes a <code>.anim</code> file in <code>Assets/Animations</code>, and the Animator plays it.</li>
+        <li>Turn on <strong>Record</strong> (the red dot), move the playhead along the ruler, and change things: move, turn and scale the object and the ones under it in the scene, or change their settings in the inspector. Each change becomes a <strong>key</strong> at the playhead. The first change to something also keys it at the start as it was, so it moves from there.</li>
+        <li>Press <strong>Play</strong> (or Space over the panel) to watch it. It's saved as you go.</li>
+    </ol>
+    <div class="figure reveal"><img src="images/animation-panel.jpg" alt="The Animation panel under the scene view: a robot arm's animation, with rows of keys for its shoulder, elbow and hand, two events, and the playhead at 0.6 seconds"><figcaption>A robot arm's animation, posed at 0.6 seconds. Round keys ease into the next, diamonds go straight, squares hold. The flags are events.</figcaption></div>
+
+    <p>While the panel shows an animation, the objects are posed as it has them at the playhead. They're put back as they were when you select something else, before the scene's saved, and before play, so the scene keeps its own pose.</p>
+
+    <table>
+        <tr><th>Do this</th><th>To</th></tr>
+        <tr><td>Drag along the ruler</td><td>Move the playhead (hold <kbd>Shift</kbd> to go between frames)</td></tr>
+        <tr><td>Click a key, <kbd>Shift</kbd>-click more</td><td>Pick them. A key in the <em>All</em> row picks every key at that time.</td></tr>
+        <tr><td>Drag picked keys</td><td>Move them in time, on whole frames</td></tr>
+        <tr><td>Right-click a key</td><td>Choose how it goes on to the next: <strong>Smooth</strong> (eases, without overshooting), <strong>Linear</strong> (steady) or <strong>Step</strong> (holds, then jumps: for switching things on and off)</td></tr>
+        <tr><td><kbd>Del</kbd></td><td>Delete the keys picked</td></tr>
+        <tr><td>Double-click a row</td><td>Add a key there, keeping the curve as it was</td></tr>
+        <tr><td><strong>Add Property</strong></td><td>Animate one of the selected object's values without recording</td></tr>
+        <tr><td>◆ (top right)</td><td>Key everything the selected object has tracks for, as it is now</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+wheel, <kbd>Shift</kbd>+wheel or middle drag</td><td>Zoom the timeline, scroll it along</td></tr>
+    </table>
+    <p><strong>Length</strong> and <strong>Loop</strong> are in the panel's header. An animation that loops starts again at the end; one that doesn't holds its last pose.</p>
+
+    <h3>What can be animated</h3>
+    <p>Anything under the Animator: each object's position, rotation (in degrees, so it can spin round more than once) and scale, whether it's shown, and any setting of its components that's a number, true/false, vector or colour: a light's brightness and colour, a material's colour and glow, an audio source's volume. A track finds its object by where it is under the Animator (<code>Arm/Hand</code>), so renaming or moving an object loses its track: its name turns red in the panel.</p>
+
+    <h3>Events</h3>
+    <p>Double-click the <strong>Events</strong> row to add an event, and type its name. Visual scripts on the object hear it as an event of that name (an <strong>On Event</strong> node) when the animation passes it, and C# hears it through <code>EventReached</code>: footsteps, a sword's swing, a door's clunk. Drag events along like keys.</p>
+
+    <h2>Characters with bones</h2>
+    <p>Drag a model with a skeleton (FBX, glTF, Collada...) into the scene. Its bones come in as objects, its meshes get a <strong>Skinned Mesh Renderer</strong> that bends them with the bones, and its root gets an Animator playing its first animation. The model's animations are offered wherever an animation can be chosen, called by their name and the model's (<em>Walk (Robot)</em>).</p>
+    <ul>
+        <li>A model's own animations can't be changed, as they're part of its file. <strong>Duplicate to Change</strong> in the Animation panel copies one into a <code>.anim</code> file of your own.</li>
+        <li>Bones are objects like any other: put a sword under the hand bone and it's carried.</li>
+        <li>Meshes are bent on the CPU when their bones move, so a skinned mesh draws, casts shadows and takes surface shaders like any other.</li>
+    </ul>
+
+    <h2>Animation graphs</h2>
+    <p>An animation graph works out the pose each frame from its animations, by its <strong>parameters</strong>: numbers, true/false values and triggers that the game sets. In the Assets panel, press <strong>+</strong> and choose <strong>New Animation Graph</strong>, or press the button of that name under an Animator in the inspector. It starts with idle, walk and run blended by a Speed parameter: choose an animation on each Clip node, or drag animations from the Assets panel onto the graph (onto a Blend by Value or a Switch, they're linked into its next input).</p>
+    <p class="chips" id="graph-picks"></p>
+    <div id="graph-demo"></div>
+
+    <table>
+        <tr><th>Node</th><th>What it does</th></tr>
+        <tr><td><strong>Clip</strong></td><td>Plays an animation, at a speed. It starts from the beginning each time it comes back into play.</td></tr>
+        <tr><td><strong>Blend by Value</strong></td><td>Blends any number of poses by a value, each at its own point: idle at 0, walk at 1.5, run at 4.</td></tr>
+        <tr><td><strong>Blend by Bool</strong></td><td>One pose or another, fading between them when a true/false changes: crouching or standing.</td></tr>
+        <tr><td><strong>Switch</strong></td><td>One of any number of poses by number, fading to the new one: a character's states.</td></tr>
+        <tr><td><strong>Layer</strong></td><td>Puts one pose over another from an object down: an upper body aiming while the legs walk.</td></tr>
+        <tr><td><strong>Play Once</strong></td><td>Plays an action over a pose when a trigger's set, then blends back: attacks, jumps, flinches.</td></tr>
+        <tr><td><strong>Blend</strong>, <strong>Rest Pose</strong></td><td>A mix of two poses by a weight; everything as it was before any animation moved it.</td></tr>
+    </table>
+    <p>Get Parameter nodes read the parameters, and there's a little maths and logic to work things out from them. Each Animator using a graph shows its parameters in the inspector, to start at values of its own. The <a href="nodes.html?kind=animation">node reference</a> has every node. While the game plays, the nodes in use light up.</p>
+
+    <h2>From code</h2>
+    <pre class="cs" data-file="Player.cs">public class Player : Component
+{
+    public Transform Head { get; set; } = null!;
+    public GameObject LookingAt { get; set; } = null!;
+
+    private Animator _animator = null!;
+    private CharacterController _body = null!;
+
+    protected override void Start()
+    {
+        _animator = GetComponent&lt;Animator&gt;()!;
+        _body = GetComponent&lt;CharacterController&gt;()!;
+        _animator.EventReached += e =&gt;
+        {
+            if (e.Name == "Footstep") GetComponent&lt;AudioSource&gt;()!.Play();
+        };
+    }
+
+    protected override void Update()
+    {
+        _animator.Set("Speed", _body.Velocity.Length());
+        _animator.Set("Crouching", InputSystem.GetKey(Key.ControlLeft));
+        if (InputSystem.GetMouseButtonDown(MouseButton.Left)) _animator.SetTrigger("Attack");
+    }
+
+    // After animation: turn the head towards what it's looking at.
+    protected override void LateUpdate() =&gt; Head.LookAt(LookingAt.Transform.WorldPosition);
+}</pre>
+    <ul>
+        <li><code>animator.Play(clip, fade: 0.2f)</code> blends into an animation. Over a graph, one that doesn't loop blends back into the graph when it ends; <code>Stop()</code> stops it.</li>
+        <li><code>animator.Sample(clip, seconds)</code> poses the objects at a moment of an animation without playing it, and <code>ResetPose()</code> puts them back.</li>
+        <li>Animations load like any other file: <code>Assets.LoadAnimation("Animations/Wave.anim")</code>, or a model's own, <code>Assets.LoadAnimation("Models/Robot.glb#Walk")</code>.</li>
+        <li>Animation happens after every component's <code>Update</code>, so what's set there shows the same frame. <code>LateUpdate</code> comes after it, to change what the animation did.</li>
+    </ul>
+
+    <h2>From visual scripts</h2>
+    <p><strong>Set Animation Parameter</strong> and <strong>Trigger Animation</strong> set an Animator's parameters, <strong>Play Animation</strong> and <strong>Stop Animation</strong> play animations on it, and an animation's events arrive as events (<strong>On Event</strong>) on its object's scripts.</p>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (async () => {
+        await Site.load("data/nodes.js");
+        await Site.load("data/graphs.js");
+        const names = Object.keys(window.VertexGraphs).filter(n => n.includes("(Animation)"));
+        const picks = document.getElementById("graph-picks");
+        const demo = document.getElementById("graph-demo");
+        const pick = name => {
+            picks.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.name === name));
+            GraphView.mount(demo, name);
+        };
+        picks.innerHTML = names.map(n => `<button class="chip" data-name="${n}">${n.replace(" (Animation)", "")}</button>`).join("");
+        picks.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => pick(c.dataset.name)));
+        pick(names[0]);
+    })();
+</script>
+</body>
+</html>

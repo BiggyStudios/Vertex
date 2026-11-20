@@ -173,7 +173,7 @@ window.GraphView = (() => {
         const name = typeof graphOrName === "string" ? graphOrName : options.title ?? "Graph";
         const bar = document.createElement("div");
         bar.className = "graph-bar";
-        const kindName = { vfx: "VFX graph", audio: "Audio graph", shader: "Shader graph" }[kind] ?? "Visual script";
+        const kindName = { vfx: "VFX graph", audio: "Audio graph", shader: "Shader graph", animation: "Animation graph" }[kind] ?? "Visual script";
         const runButton = kind === "script" ? '<button class="run" title="Send the flow along the wires, as the script runs">▶ Run</button>' : "";
         bar.innerHTML = `<div class="graph-title">${Site.escape(name)}<span>${kindName} · ${graph.nodes.length} nodes</span></div><div class="spacer"></div>
             ${runButton}<button class="fit" title="Fit the graph in view">Fit</button>`;

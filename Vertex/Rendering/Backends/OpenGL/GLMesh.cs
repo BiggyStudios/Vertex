@@ -46,7 +46,7 @@ namespace Vertex.Rendering.OpenGL
             gl.BindVertexArray(0);
         }
 
-        /// <summary>Copies the mesh's vertices in again, after they've changed (<see cref="Mesh.VerticesChanged"/>).</summary>
+        /// <summary>Copies the mesh's vertices in again, after they've changed (<see cref="Mesh.VerticesChanged()"/>).</summary>
         public unsafe void UpdateVertices(Mesh mesh)
         {
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
