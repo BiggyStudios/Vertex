@@ -10,6 +10,12 @@ namespace Vertex.Rendering
         public Vector3 Normal;
         public Vector2 UV;
 
+        /// <summary>
+        /// Where this corner is in the scene's lightmap (see <see cref="BakedLighting"/>): only meshes made for baked lighting
+        /// have them, made when it's baked.
+        /// </summary>
+        public Vector2 LightmapUV;
+
         public MeshVertex(Vector3 position, Vector3 normal, Vector2 uv)
         {
             Position = position;

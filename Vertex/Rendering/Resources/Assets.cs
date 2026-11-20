@@ -20,9 +20,24 @@ namespace Vertex
         private static readonly Dictionary<string, Graphs.Graph> _graphs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Shader> _shaders = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Animation.AnimationClip> _animations = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, BakedLighting?> _bakedLighting = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The texture in <paramref name="path"/>, loaded the first time it's asked for.</summary>
         public static Texture LoadTexture(string path) => Load(_textures, path, Texture.Load);
+
+        /// <summary>A scene's baked light (see <see cref="Lighting.BakedLightingFile"/>), or null, said once, if it can't be read.</summary>
+        public static BakedLighting? LoadBakedLighting(string path) => Load(_bakedLighting, path, full =>
+        {
+            try
+            {
+                return BakedLighting.Load(full);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or EndOfStreamException)
+            {
+                Log.Error($"Couldn't read the baked lighting {Path.GetFileName(full)}: {exception.Message}");
+                return null;
+            }
+        });
 
         /// <summary>
         /// The material in a .material file (made in an editor), loaded the first time it's asked for. Everything given it
@@ -283,6 +298,7 @@ namespace Vertex
             _graphs.Remove(full);
             _shaders.Remove(full);
             _animations.Remove(full);
+            _bakedLighting.Remove(full);
             Model.Forget(full);
 
             // A model's own animations go with it.

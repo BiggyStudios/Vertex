@@ -3,7 +3,58 @@ using System.Numerics;
 namespace Vertex.Rendering
 {
     /// <summary>One mesh to draw with a material at a world transform.</summary>
-    public readonly record struct DrawCall(Mesh Mesh, Material Material, Matrix4x4 WorldMatrix, bool CastShadows);
+    public readonly record struct DrawCall(Mesh Mesh, Material Material, Matrix4x4 WorldMatrix, bool CastShadows)
+    {
+        /// <summary>The baked light it gets instead of the sky's: see <see cref="BakedLight"/>.</summary>
+        public BakedLight Baked { get; init; }
+    }
+
+    /// <summary>
+    /// The baked light a draw gets (see <see cref="BakedLighting"/>), in place of the plain light from the sky: from the
+    /// scene's lightmap, for a static mesh drawn with its <see cref="MeshVertex.LightmapUV"/>s, or from the light probes
+    /// round it, for anything else. Neither, it's lit by the sky as usual.
+    /// </summary>
+    public readonly record struct BakedLight
+    {
+        /// <summary>Lit from the lightmap, where its mesh's lightmap coordinates say.</summary>
+        public bool Lightmapped { get; init; }
+
+        /// <summary>Lit by <see cref="Probe"/>.</summary>
+        public bool FromProbes { get; init; }
+
+        /// <summary>The light round it from the probes: see <see cref="ProbeLight"/>.</summary>
+        public ProbeLight Probe { get; init; }
+    }
+
+    /// <summary>
+    /// The light arriving at a point from all round, as a few numbers for each of red, green and blue: how much a
+    /// surface facing way n gets is x + dot(yzw, n) (low-order spherical harmonics, ready for that). Linear light.
+    /// </summary>
+    public readonly record struct ProbeLight(Vector4 Red, Vector4 Green, Vector4 Blue)
+    {
+        /// <summary>
+        /// What a surface facing <paramref name="normal"/> gets, as the shaders work it out: the average, brighter towards
+        /// where the light comes from, on a curve that never goes below nothing (Hazel's, from Geomerics).
+        /// </summary>
+        public Vector3 Toward(Vector3 normal) => new(Channel(Red, normal), Channel(Green, normal), Channel(Blue, normal));
+
+        private static float Channel(Vector4 c, Vector3 n)
+        {
+            float average = MathF.Max(c.X, 0f);
+            Vector3 lean = new Vector3(c.Y, c.Z, c.W) * 0.5f;
+            float leaning = lean.Length();
+            if (average <= 1e-6f || leaning <= 1e-6f) return average;
+
+            float ratio = MathF.Min(leaning / average, 1f);
+            float q = 0.5f * (1f + Vector3.Dot(lean / leaning, n));
+            float p = 1f + 2f * ratio;
+            float a = (1f - ratio) / (1f + ratio);
+            return average * (a + (1f - a) * (p + 1f) * MathF.Pow(MathF.Max(q, 0f), p));
+        }
+
+        public static ProbeLight operator +(ProbeLight a, ProbeLight b) => new(a.Red + b.Red, a.Green + b.Green, a.Blue + b.Blue);
+        public static ProbeLight operator *(ProbeLight a, float b) => new(a.Red * b, a.Green * b, a.Blue * b);
+    }
 
     /// <summary>The scene's <see cref="Rendering.Lighting"/> settings for this frame. Colours are as authored (sRGB).</summary>
     public readonly record struct EnvironmentData
@@ -74,6 +125,9 @@ namespace Vertex.Rendering
     /// <summary>A directional light. Color already includes intensity.</summary>
     public readonly record struct DirectionalLightData(Vector3 Direction, Color Color)
     {
+        /// <summary>Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only the sky and fog.</summary>
+        public bool Baked { get; init; }
+
         /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
         public float FogStrength { get; init; } = 1f;
     }
@@ -88,6 +142,9 @@ namespace Vertex.Rendering
         public Vector3 Direction { get; init; } = -Vector3.UnitZ;
         public float SpotOuter { get; init; } = -2f;
         public float SpotInner { get; init; } = -1f;
+
+        /// <summary>Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only volumetric fog.</summary>
+        public bool Baked { get; init; }
 
         /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
         public float FogStrength { get; init; } = 1f;
@@ -236,6 +293,9 @@ namespace Vertex.Rendering
         internal readonly List<FogVolumeData> FogVolumeList = new();
         internal readonly List<PostEffectData> PostEffectList = new();
 
+        /// <summary>The scene's baked light, which draws with <see cref="BakedLight.Lightmapped"/> on read; null if it has none.</summary>
+        public Texture? Lightmap { get; internal set; }
+
         /// <summary>Which of <see cref="PointLights"/> reach each part of the view.</summary>
         internal readonly LightClusters Clusters = new();
 
@@ -341,6 +401,7 @@ namespace Vertex.Rendering
             PostEffectList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
             HasShadows = false;
+            Lightmap = null;
             Grid = false;
             Grid2D = false;
         }

@@ -42,6 +42,8 @@ namespace Vertex.Rendering.OpenGL
             gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
             gl.EnableVertexAttribArray(2);
             gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
+            gl.EnableVertexAttribArray(3);
+            gl.VertexAttribPointer(3, 2, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
 
             gl.BindVertexArray(0);
         }

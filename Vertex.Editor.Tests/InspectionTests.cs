@@ -69,7 +69,7 @@ namespace Vertex.Editor.Tests
         {
             IReadOnlyList<InspectedMember> members = InspectedMember.Of(typeof(Light));
 
-            Assert.Equal(["Type", "Color", "Intensity", "Range", "Spot Angle", "Spot Softness", "Fog Strength", "Cast Shadows"], members.Select(m => m.Name));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Size", "Range", "Spot Angle", "Spot Softness", "Fog Strength", "Cast Shadows"], members.Select(m => m.Name));
             Assert.Equal(MemberKind.Enum, members[0].Kind);
             Assert.Equal(MemberKind.Color, members[1].Kind);
         }
@@ -81,13 +81,17 @@ namespace Vertex.Editor.Tests
             string[] Shown(Light light) => members.Where(m => m.IsShown(light)).Select(m => m.Name).ToArray();
             var light = new Light();
 
-            Assert.Equal(["Type", "Color", "Intensity", "Fog Strength", "Cast Shadows"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Fog Strength", "Cast Shadows"], Shown(light));
 
             light.Type = LightType.Point;
-            Assert.Equal(["Type", "Color", "Intensity", "Range", "Fog Strength"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Fog Strength"], Shown(light));
 
             light.Type = LightType.Spot;
-            Assert.Equal(["Type", "Color", "Intensity", "Range", "Spot Angle", "Spot Softness", "Fog Strength"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Spot Angle", "Spot Softness", "Fog Strength"], Shown(light));
+
+            // A light that bakes has a size, for how soft its baked shadows are.
+            light.Mode = LightMode.Baked;
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Size", "Range", "Spot Angle", "Spot Softness", "Fog Strength"], Shown(light));
         }
 
         [Fact]

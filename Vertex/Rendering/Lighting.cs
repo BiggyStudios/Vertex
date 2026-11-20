@@ -15,6 +15,19 @@ namespace Vertex.Rendering
         Gradient
     }
 
+    /// <summary>How carefully baked light is worked out: better takes longer, and is smoother.</summary>
+    public enum BakeQuality
+    {
+        /// <summary>Quick, for trying things out: grainy in places.</summary>
+        Preview,
+
+        /// <summary>Smooth enough for most scenes.</summary>
+        Good,
+
+        /// <summary>The smoothest: for the finished game.</summary>
+        High
+    }
+
     /// <summary>
     /// A scene's sky, the light that comes from it, and how the picture is finished. The sky is drawn behind everything,
     /// lights every surface softly from all around (from above, and bounced up off the ground), and is reflected in
@@ -141,6 +154,46 @@ namespace Vertex.Rendering
 
         /// <summary>How far from the camera the fog is worked out. Nearer is sharper, as it's worked out in the same number of steps.</summary>
         public float VolumetricDistance { get; set; } = 80f;
+
+        /// <summary>
+        /// How much detail baked light has (see <see cref="MeshRenderer.Static"/> and <see cref="LightMode.Baked"/>): how
+        /// many of the lightmap's pixels there are along a unit of surface. More gives sharper shadows and takes longer to
+        /// bake; if the lightmap can't hold it all at <see cref="MaxLightmapSize"/>, it's made less.
+        /// </summary>
+        [Header("Baked Lighting")]
+        [Tooltip("Lightmap pixels to a unit of surface: more is sharper and slower to bake")]
+        public float BakeDetail { get; set; } = 4f;
+
+        /// <summary>How many times light bounces off things on its way round the scene, 0 for none. Each is a little dimmer.</summary>
+        [Range(0f, 4f)]
+        public int BakeBounces { get; set; } = 2;
+
+        /// <summary>How carefully baked light is worked out: see <see cref="Rendering.BakeQuality"/>.</summary>
+        public BakeQuality BakeQuality { get; set; } = BakeQuality.Good;
+
+        /// <summary>How far apart the light probes are, which light things that move from the baked light. Closer follows the light better.</summary>
+        public float ProbeSpacing { get; set; } = 2f;
+
+        /// <summary>The biggest the lightmap can be, in pixels across.</summary>
+        [Range(256f, 4096f)]
+        public int MaxLightmapSize { get; set; } = 2048;
+
+        /// <summary>The scene's baked light (a .bake file, from the Assets folder), made by baking; empty if it hasn't been.</summary>
+        [HideInInspector]
+        public string BakedLightingFile { get; set; } = "";
+
+        /// <summary>The baked light in <see cref="BakedLightingFile"/>, read the first time it's asked for; null if there's none.</summary>
+        [HideInInspector]
+        [Serialization.DontSave]
+        public BakedLighting? Baked
+        {
+            get
+            {
+                if (BakedLightingFile.Length == 0) return null;
+                if (Assets.FindFile(BakedLightingFile) is not { } file) return null;
+                return Assets.LoadBakedLighting(file);
+            }
+        }
 
         /// <summary>
         /// For the look of early 3D consoles (the first PlayStation): corners of meshes snap to a coarse grid on the

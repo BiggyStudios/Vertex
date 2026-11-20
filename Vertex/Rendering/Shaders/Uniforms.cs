@@ -92,20 +92,7 @@ namespace Vertex.Rendering.Shaders
             // The light from the sky and ground. The atmosphere's needs a sun to work from; without one, the gradient's.
             Vector3 groundColor = ToLinear(environment.GroundColor);
             bool atmosphere = environment.Sky == SkyStyle.Atmosphere && hasSun;
-            Vector3 skyLight, groundLight, horizon, zenith;
-            if (atmosphere)
-            {
-                (skyLight, horizon) = Atmosphere.Ambient(sun, sunColor);
-                zenith = Atmosphere.Radiance(Vector3.UnitY, sun, sunColor);
-                groundLight = groundColor * (sunColor * Atmosphere.SunlightTint(sun.Y) * MathF.Max(sun.Y, 0f) + skyLight);
-            }
-            else
-            {
-                zenith = ToLinear(environment.SkyColor);
-                horizon = ToLinear(environment.HorizonColor);
-                skyLight = (zenith + horizon) * 0.5f;
-                groundLight = groundColor;
-            }
+            (Vector3 skyLight, Vector3 groundLight, Vector3 horizon, Vector3 zenith) = Sky(environment, hasSun, sun, sunColor);
 
             float kind = !environment.DrawSky ? 0f : atmosphere ? 2f : 1f;
             data.SkyLight = new Vector4(skyLight, environment.AmbientIntensity);
@@ -127,7 +114,7 @@ namespace Vertex.Rendering.Shaders
                 // The sun turns golden as it gets low, and goes out once it's set, through the same air the sky is made of.
                 if (atmosphere && i == sunIndex) color *= Atmosphere.SunlightTint(sun.Y);
 
-                data.DirectionalDirection[i] = new Vector4(light.Direction, 0f);
+                data.DirectionalDirection[i] = new Vector4(light.Direction, light.Baked ? 1f : 0f);
                 data.DirectionalColor[i] = new Vector4(color, light.FogStrength);
             }
 
@@ -136,7 +123,8 @@ namespace Vertex.Rendering.Shaders
             for (int i = 0; i < data.PointCount; i++)
             {
                 PointLightData light = frame.PointLights[i];
-                data.PointPositionRange[i] = new Vector4(light.Position, light.Range);
+                // A baked light's range is negative: it only lights volumetric fog.
+                data.PointPositionRange[i] = new Vector4(light.Position, light.Baked ? -light.Range : light.Range);
                 data.PointColor[i] = new Vector4(light.Color.R, light.Color.G, light.Color.B, light.FogStrength);
 
                 // The cone packed so the shader needs one dot product: see ShaderLibrary's pointLight.
@@ -174,6 +162,25 @@ namespace Vertex.Rendering.Shaders
             }
 
             return data;
+        }
+
+        /// <summary>
+        /// The light from the sky above and the ground below (linear), as ambientLight blends between them, and the sky at
+        /// the horizon and overhead. <paramref name="sun"/> points towards the sun.
+        /// </summary>
+        internal static (Vector3 SkyLight, Vector3 GroundLight, Vector3 Horizon, Vector3 Zenith) Sky(EnvironmentData environment, bool hasSun, Vector3 sun, Vector3 sunColor)
+        {
+            Vector3 groundColor = ToLinear(environment.GroundColor);
+            if (environment.Sky == SkyStyle.Atmosphere && hasSun)
+            {
+                (Vector3 skyLight, Vector3 horizon) = Atmosphere.Ambient(sun, sunColor);
+                Vector3 zenith = Atmosphere.Radiance(Vector3.UnitY, sun, sunColor);
+                return (skyLight, groundColor * (sunColor * Atmosphere.SunlightTint(sun.Y) * MathF.Max(sun.Y, 0f) + skyLight), horizon, zenith);
+            }
+
+            Vector3 top = ToLinear(environment.SkyColor);
+            Vector3 edge = ToLinear(environment.HorizonColor);
+            return ((top + edge) * 0.5f, groundColor, edge, top);
         }
 
         private static float Wrap(float value, float period) => value - MathF.Floor(value / period) * period;

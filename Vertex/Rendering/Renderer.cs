@@ -167,16 +167,24 @@ namespace Vertex.Rendering
             else Stats.GpuPassList.Clear();
         }
 
+        // The scene's baked light, while it's being gathered.
+        private BakedLighting? _baked;
+
         /// <summary>A light, into the frame's lists of lights (the first directional one that casts shadows gets them).</summary>
         private void AddLight(Light light)
         {
             if (!light.Enabled) return;
             Color color = light.Color * light.Intensity;
 
+            // Once the scene's baked, a baked light's light is in the lightmap and probes: it only lights volumetric fog
+            // (and for the sun, the sky). Until then it lights as a realtime one, so it's seen while the scene's made.
+            bool baked = light.Mode == LightMode.Baked && _baked != null;
+            if (baked && light.Type != LightType.Directional && (!_frame.Environment.VolumetricFog || light.FogStrength <= 0f)) return;
+
             if (light.Type == LightType.Directional)
             {
-                if (light.CastShadows && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
-                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color) { FogStrength = MathF.Max(light.FogStrength, 0f) });
+                if (light.CastShadows && !baked && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
+                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color) { FogStrength = MathF.Max(light.FogStrength, 0f), Baked = baked });
             }
             else if (light.Type == LightType.Spot)
             {
@@ -188,14 +196,16 @@ namespace Vertex.Rendering
                     Direction = light.Transform.Forward,
                     SpotOuter = MathF.Cos(half),
                     SpotInner = MathF.Max(MathF.Cos(inner), MathF.Cos(half) + 1e-4f),
-                    FogStrength = MathF.Max(light.FogStrength, 0f)
+                    FogStrength = MathF.Max(light.FogStrength, 0f),
+                    Baked = baked
                 });
             }
             else
             {
                 _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range)
                 {
-                    FogStrength = MathF.Max(light.FogStrength, 0f)
+                    FogStrength = MathF.Max(light.FogStrength, 0f),
+                    Baked = baked
                 });
             }
         }
@@ -325,6 +335,8 @@ namespace Vertex.Rendering
             _frame.CameraPosition = camera.Transform.WorldPosition;
             _frame.CameraForward = camera.Transform.Forward;
 
+            _baked = scene.Lighting.Baked;
+            _frame.Lightmap = _baked?.Lightmap;
             foreach (Light light in scene.FindComponents<Light>()) AddLight(light);
             foreach (Light light in scene.OutsideLights) AddLight(light);
 
@@ -349,8 +361,25 @@ namespace Vertex.Rendering
                 if (meshRenderer.DrawnMesh is not { } mesh) continue;
 
                 bool lit = meshRenderer.Material.Shading == ShadingModel.Lit;
-                var draw = new DrawCall(mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, meshRenderer.CastShadows && lit);
-                Culling.WorldBounds(draw.Mesh, draw.WorldMatrix, out Vector3 centre, out Vector3 extents);
+                Matrix4x4 world = meshRenderer.Transform.WorldMatrix;
+                Culling.WorldBounds(mesh, world, out Vector3 centre, out Vector3 extents);
+
+                // Baked light: from the lightmap, drawn with the mesh made for it, or from the probes round it.
+                BakedLight bakedLight = default;
+                if (lit && _baked != null)
+                {
+                    if (mesh == meshRenderer.Mesh && _baked.MeshFor(meshRenderer) is { } lightmapped)
+                    {
+                        mesh = lightmapped;
+                        bakedLight = new BakedLight { Lightmapped = true };
+                    }
+                    else if (_baked.Probes is { } probes && probes.Sample(centre, out ProbeLight probe))
+                    {
+                        bakedLight = new BakedLight { FromProbes = true, Probe = probe };
+                    }
+                }
+
+                var draw = new DrawCall(mesh, meshRenderer.Material, world, meshRenderer.CastShadows && lit) { Baked = bakedLight };
 
                 if (frustum.Intersects(centre, extents)) (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
                 else Stats.CulledDrawCalls++;

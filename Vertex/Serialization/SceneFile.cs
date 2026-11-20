@@ -424,6 +424,24 @@ namespace Vertex.Serialization
                 return id;
             }
 
+            /// <summary>
+            /// A mesh's corners as they're saved: position, normal and texture coordinates, eight floats each. Lightmap
+            /// coordinates aren't: a mesh drawn with them is made from the scene's baked lighting when it loads.
+            /// </summary>
+            internal static float[] SavedVertices(MeshVertex[] vertices)
+            {
+                var floats = new float[vertices.Length * 8];
+                for (int i = 0; i < vertices.Length; i++)
+                {
+                    MeshVertex v = vertices[i];
+                    v.Position.CopyTo(floats, i * 8);
+                    v.Normal.CopyTo(floats, i * 8 + 3);
+                    v.UV.CopyTo(floats, i * 8 + 6);
+                }
+
+                return floats;
+            }
+
             private static void WriteResource(Utf8JsonWriter json, object resource)
             {
                 json.WriteStartObject();
@@ -431,7 +449,7 @@ namespace Vertex.Serialization
                 {
                     case Mesh mesh:
                         json.WriteString("kind", "mesh");
-                        json.WriteBase64String("vertices", MemoryMarshal.AsBytes(mesh.Vertices.AsSpan()));
+                        json.WriteBase64String("vertices", MemoryMarshal.AsBytes(SavedVertices(mesh.Vertices).AsSpan()));
                         json.WriteBase64String("indices", MemoryMarshal.AsBytes(mesh.Indices.AsSpan()));
                         break;
                     case Texture texture:
@@ -756,6 +774,19 @@ namespace Vertex.Serialization
                 return null;
             }
 
+            /// <summary>A mesh's corners as they're saved (see <see cref="Writer.SavedVertices"/>).</summary>
+            private static MeshVertex[] LoadedVertices(ReadOnlySpan<float> floats)
+            {
+                var vertices = new MeshVertex[floats.Length / 8];
+                for (int i = 0; i < vertices.Length; i++)
+                {
+                    ReadOnlySpan<float> v = floats.Slice(i * 8, 8);
+                    vertices[i] = new MeshVertex(new Vector3(v[0], v[1], v[2]), new Vector3(v[3], v[4], v[5]), new Vector2(v[6], v[7]));
+                }
+
+                return vertices;
+            }
+
             private object? Resource(string id)
             {
                 if (_resources.TryGetValue(id, out object? made)) return made;
@@ -763,7 +794,7 @@ namespace Vertex.Serialization
 
                 object? resource = saved.GetProperty("kind").GetString() switch
                 {
-                    "mesh" => new Mesh(MemoryMarshal.Cast<byte, MeshVertex>(saved.GetProperty("vertices").GetBytesFromBase64()).ToArray(),
+                    "mesh" => new Mesh(LoadedVertices(MemoryMarshal.Cast<byte, float>(saved.GetProperty("vertices").GetBytesFromBase64())),
                         MemoryMarshal.Cast<byte, uint>(saved.GetProperty("indices").GetBytesFromBase64()).ToArray()),
                     "texture" => new Texture(saved.GetProperty("width").GetInt32(), saved.GetProperty("height").GetInt32(), saved.GetProperty("pixels").GetBytesFromBase64()),
                     _ => null

@@ -15,15 +15,47 @@ namespace Vertex.Rendering
         Spot
     }
 
+    /// <summary>How a light's light is worked out: as the game runs, or baked beforehand (the scene's Lighting › Bake).</summary>
+    public enum LightMode
+    {
+        /// <summary>Worked out as the game runs, every frame: it can move and change. Its light doesn't bounce.</summary>
+        Realtime,
+
+        /// <summary>
+        /// Lights things directly as the game runs, like <see cref="Realtime"/>, and its light bouncing off things is
+        /// baked. Move or change it and the bounce stays as it was baked. Good for the sun.
+        /// </summary>
+        Mixed,
+
+        /// <summary>
+        /// All baked: static things get its light with soft shadows and its bounce, and moving ones get it from the light
+        /// probes baked with it, so it costs nothing as the game runs, however many there are. It can't move or change
+        /// once baked, and it has no highlights. It still shows in volumetric fog. For lamps and lights that stay put.
+        /// </summary>
+        Baked
+    }
+
     /// <summary>
     /// Lights the scene. Up to 4 directional lights are used at once, and up to 256 point and spot lights: those in view
-    /// and nearest the camera, if there are more.
+    /// and nearest the camera, if there are more. Baked lights (see <see cref="Mode"/>) cost nothing as the game runs.
     /// </summary>
     public class Light : Component
     {
         public LightType Type { get; set; } = LightType.Directional;
         public Color Color { get; set; } = Color.White;
         public float Intensity { get; set; } = 1f;
+
+        /// <summary>Whether its light is worked out as the game runs, or baked beforehand, or both: see <see cref="LightMode"/>.</summary>
+        [Tooltip("Realtime: worked out as the game runs. Mixed: that, and its bounce baked. Baked: all baked, costing nothing as the game runs")]
+        public LightMode Mode { get; set; } = LightMode.Realtime;
+
+        /// <summary>
+        /// How big the light itself is, for its baked shadows: they're sharp from a small light and softer from a bigger
+        /// one. For a point or spot light, its radius in units (a bulb's is about 0.05); for the sun, how wide it looks
+        /// in degrees (the real sun's is 0.5).
+        /// </summary>
+        [ShowWhen(nameof(Mode), LightMode.Mixed, LightMode.Baked)]
+        public float Size { get; set; } = 0.2f;
 
         /// <summary>Distance at which a point or spot light fades to nothing.</summary>
         [ShowWhen(nameof(Type), LightType.Point, LightType.Spot)]

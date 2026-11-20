@@ -172,6 +172,17 @@ namespace Vertex.Rendering.Shaders
             #define CLUSTER_WORD(i) texelFetch(lightClusterWords, i).r
             #endif
 
+            // The scene's baked light (see BakedLighting): RGBM, a square root of light over LIGHTMAP_RANGE.
+            TEXTURE(0, 5) sampler2D lightmap;
+            const float LIGHTMAP_RANGE = 16.0;
+
+            vec3 bakedLightAt(vec2 at)
+            {
+                vec4 texel = textureLod(lightmap, at, 0.0);
+                vec3 root = texel.rgb * texel.a;
+                return root * root * LIGHTMAP_RANGE;
+            }
+
             const int CLUSTER_TILES_X = 16;
             const int CLUSTER_TILES_Y = 9;
             const int CLUSTER_SLICES = 24;
@@ -278,7 +289,7 @@ namespace Vertex.Rendering.Shaders
             vec3 pointLight(int i, vec3 position, out vec3 L)
             {
                 vec3 toLight = frame.pointPositionRange[i].xyz - position;
-                float range = frame.pointPositionRange[i].w;
+                float range = abs(frame.pointPositionRange[i].w);   // negative for a baked light, which only lights fog
                 float distanceSquared = dot(toLight, toLight);
                 L = toLight * inversesqrt(max(distanceSquared, 1e-8));
                 if (distanceSquared >= range * range) return vec3(0.0);
@@ -610,10 +621,12 @@ namespace Vertex.Rendering.Shaders
             """;
 
         private const string DrawConstants = """
+            // Each draw's: where it is, and its baked light (lightmap.x is 1 for the lightmap, lightmap.y 1 for probes;
+            // probe is the probes' light round it, for red, green and blue: see ProbeLight).
             #ifdef VERTEX_VULKAN
-            layout (push_constant) uniform DrawBlock { mat4 model; mat4 normalMatrix; } draw;
+            layout (push_constant) uniform DrawBlock { mat4 model; vec4 lightmap; vec4 probe[3]; } draw;
             #else
-            struct DrawBlock { mat4 model; mat4 normalMatrix; };
+            struct DrawBlock { mat4 model; vec4 lightmap; vec4 probe[3]; };
             uniform DrawBlock draw;
             #endif
 
@@ -623,6 +636,7 @@ namespace Vertex.Rendering.Shaders
             layout (location = 0) in vec3 aPosition;
             layout (location = 1) in vec3 aNormal;
             layout (location = 2) in vec2 aUV;
+            layout (location = 3) in vec2 aLightmapUV;
 
             VARYING(0) out vec3 vWorldPosition;
             VARYING(1) out vec3 vNormal;
@@ -631,12 +645,28 @@ namespace Vertex.Rendering.Shaders
             VARYING(3) noperspective out vec2 vAffineUV;
             // Where the object's origin is, for surface shaders.
             VARYING(4) flat out vec3 vObjectPosition;
+            VARYING(5) out vec2 vLightmapUV;
+            VARYING(6) flat out vec4 vBaked;
+            VARYING(7) flat out vec4 vProbeRed;
+            VARYING(8) flat out vec4 vProbeGreen;
+            VARYING(9) flat out vec4 vProbeBlue;
 
             void main()
             {
                 vec4 worldPosition = draw.model * vec4(aPosition, 1.0);
                 vWorldPosition = worldPosition.xyz;
-                vNormal = mat3(draw.normalMatrix) * aNormal;
+
+                // Normals turn with the object but stay square to its surface however it's stretched: by the cofactors of
+                // its rotation and scale (the inverse transposed, but for size, which doesn't matter as it's normalised).
+                mat3 m = mat3(draw.model);
+                mat3 cofactors = mat3(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1]));
+                vNormal = cofactors * aNormal * sign(dot(m[0], cross(m[1], m[2])));
+
+                vLightmapUV = aLightmapUV;
+                vBaked = draw.lightmap;
+                vProbeRed = draw.probe[0];
+                vProbeGreen = draw.probe[1];
+                vProbeBlue = draw.probe[2];
                 vUV = aUV;
                 vAffineUV = aUV;
                 vObjectPosition = draw.model[3].xyz;
@@ -662,6 +692,34 @@ namespace Vertex.Rendering.Shaders
             VARYING(2) in vec2 vUV;
             VARYING(3) noperspective in vec2 vAffineUV;
             VARYING(4) flat in vec3 vObjectPosition;
+            VARYING(5) in vec2 vLightmapUV;
+            VARYING(6) flat in vec4 vBaked;
+            VARYING(7) flat in vec4 vProbeRed;
+            VARYING(8) flat in vec4 vProbeGreen;
+            VARYING(9) flat in vec4 vProbeBlue;
+
+            // One colour of the probes' light for a surface facing n: its average, brighter towards where the light comes
+            // from. Not straight average + dot(change, n), which goes below nothing away from a bright light, but a curve
+            // with the same average and lean that never does (Hazel's, from Geomerics).
+            float probeChannel(vec4 c, vec3 n)
+            {
+                float average = max(c.x, 0.0);
+                vec3 lean = 0.5 * c.yzw;
+                float leaning = length(lean);
+                if (average <= 1e-6 || leaning <= 1e-6) return average;
+
+                float ratio = min(leaning / average, 1.0);
+                float q = 0.5 * (1.0 + dot(lean / leaning, n));
+                float p = 1.0 + 2.0 * ratio;
+                float a = (1.0 - ratio) / (1.0 + ratio);
+                return average * (a + (1.0 - a) * (p + 1.0) * pow(max(q, 0.0), p));
+            }
+
+            // The light probes' light arriving from way n, for a surface facing it (see ProbeLight).
+            vec3 probeLight(vec3 n)
+            {
+                return vec3(probeChannel(vProbeRed, n), probeChannel(vProbeGreen, n), probeChannel(vProbeBlue, n));
+            }
 
             layout (location = 0) out vec4 FragColor;
             // The part of the colour that's soft light from all around, which ambient occlusion takes away from.
@@ -970,6 +1028,8 @@ namespace Vertex.Rendering.Shaders
                 int shadowLight = int(frame.shadow.y);
                 for (int i = 0; i < frame.lightCounts.x; i++)
                 {
+                    // A baked one's light is in the lightmap and probes.
+                    if (frame.directionalDirection[i].w > 0.5) continue;
                     vec3 L = normalize(-frame.directionalDirection[i].xyz);
                     vec3 color = frame.directionalColor[i].rgb;
                     if (i == shadowLight) color *= sunShadow(worldNormal, L);
@@ -980,6 +1040,7 @@ namespace Vertex.Rendering.Shaders
                 for (int k = 0; k < cluster.y; k++)
                 {
                     int i = clusterLight(cluster.x + k);
+                    if (frame.pointPositionRange[i].w < 0.0) continue;
                     vec3 L;
                     vec3 color = pointLight(i, vWorldPosition, L);
                     if (color.r + color.g + color.b > 0.0) addLight(N, V, L, color, F0, roughness);
@@ -989,10 +1050,28 @@ namespace Vertex.Rendering.Shaders
                 // light from that side in rough ones. Reflections that would point into the surface fade out.
                 float ambientIntensity = frame.skyLight.w;
                 vec3 R = reflect(-V, N);
-                vec3 reflected = mix(skyRadiance(R), ambientLight(R), smoothstep(0.0, 0.7, roughness));
+                float blur = smoothstep(0.0, 0.7, roughness);
+                vec3 around = ambientLight(N) * ambientIntensity;
+                vec3 reflected = mix(skyRadiance(R), ambientLight(R), blur) * ambientIntensity;
+                float ambientShare = 1.0;
+
+                // Baked light, where there is some, in place of the sky's: from the lightmap or the probes round it, with
+                // the sky's shadows, the bounce and the baked lights in it. The sky's reflection is kept out of where
+                // its light didn't reach (indoors, under things), and rough surfaces reflect the baked light instead.
+                if (vBaked.x > 0.5 || vBaked.y > 0.5)
+                {
+                    vec3 bakedAround = vBaked.x > 0.5 ? bakedLightAt(vLightmapUV) : probeLight(N);
+                    vec3 bakedReflected = vBaked.x > 0.5 ? bakedAround : probeLight(R);
+                    float open = clamp(dot(bakedReflected, vec3(0.3, 0.6, 0.1)) / max(dot(ambientLight(R) * ambientIntensity, vec3(0.3, 0.6, 0.1)), 1e-4), 0.0, 1.0);
+                    around = bakedAround;
+                    reflected = mix(skyRadiance(R) * ambientIntensity * open, bakedReflected, blur);
+                    // The lightmap's corners are already darkened, so ambient occlusion only adds a little to them.
+                    if (vBaked.x > 0.5) ambientShare = 0.5;
+                }
+
                 reflected *= clamp(1.0 + dot(R, worldNormal), 0.0, 1.0);
                 vec2 brdf = environmentBRDF(roughness, NdotV);
-                vec3 ambient = (diffuseColor * ambientLight(N) + reflected * (F0 * brdf.x + brdf.y)) * ambientIntensity;
+                vec3 ambient = diffuseColor * around + reflected * (F0 * brdf.x + brdf.y);
 
                 vec3 emission = max(s.emission, vec3(0.0));
                 vec3 color = diffuseColor * diffuseLight + specularLight + ambient + emission;
@@ -1002,7 +1081,7 @@ namespace Vertex.Rendering.Shaders
                 float fog = fogAmount(distance);
                 vec4 haze = fogAtPoint(vWorldPosition);
                 FragColor = vec4(mix(color, fogColor(-V), fog) * haze.a + haze.rgb, 1.0);
-                AmbientColor = vec4(ambient * ((1.0 - fog) * haze.a), 1.0);
+                AmbientColor = vec4(ambient * (ambientShare * (1.0 - fog) * haze.a), 1.0);
                 GlowColor = vec4(emission * (GLOW_STRENGTH * (1.0 - fog) * haze.a), 1.0);
             }
             """;

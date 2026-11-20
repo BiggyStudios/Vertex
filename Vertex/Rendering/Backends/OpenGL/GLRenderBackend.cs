@@ -34,6 +34,9 @@ namespace Vertex.Rendering.OpenGL
         // Where the scene's and fog's shaders find which lights reach each part of the view (see LightClusters).
         private const int _clusterUnit = 7;
 
+        // Where the scene's shaders find its baked light.
+        private const int _lightmapUnit = 12;
+
         // Where a game's shaders (surface shaders and post effects) find their textures: four, one after another.
         private const int _shaderTextureUnit = 8;
 
@@ -180,7 +183,7 @@ namespace Vertex.Rendering.OpenGL
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
             shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
-                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit));
+                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit), ("lightmap", _lightmapUnit));
             SetShaderTextureUnits(shader);
             return shader;
         }
@@ -318,6 +321,7 @@ namespace Vertex.Rendering.OpenGL
                 fixed (uint* words = clusters) _gl.BufferData(BufferTargetARB.TextureBuffer, (nuint)(clusters.Length * sizeof(uint)), words, BufferUsageARB.StreamDraw);
                 _gl.ActiveTexture(TextureUnit.Texture0 + _clusterUnit);
                 _gl.BindTexture(TextureTarget.TextureBuffer, _clusterTexture);
+                (frame.Lightmap != null ? GetTexture(frame.Lightmap) : _white).Bind(_lightmapUnit);
 
                 if (fog)
                 {
@@ -510,8 +514,11 @@ namespace Vertex.Rendering.OpenGL
 
                 GLShader shader = currentShader!;
                 shader.SetMatrix4("draw.model", draw.WorldMatrix);
-                Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
-                shader.SetMatrix4("draw.normalMatrix", Matrix4x4.Transpose(inverseModel));
+                BakedLight baked = draw.Baked;
+                shader.SetVector4("draw.lightmap", new Vector4(baked.Lightmapped ? 1f : 0f, baked.FromProbes ? 1f : 0f, 0f, 0f));
+                shader.SetVector4("draw.probe[0]", baked.Probe.Red);
+                shader.SetVector4("draw.probe[1]", baked.Probe.Green);
+                shader.SetVector4("draw.probe[2]", baked.Probe.Blue);
 
                 if (draw.Mesh != currentMesh)
                 {

@@ -28,7 +28,10 @@ namespace Vertex.Rendering.Vulkan
         private struct DrawConstants
         {
             public Matrix4x4 Model;
-            public Matrix4x4 NormalMatrix;
+            public Vector4 Lightmap;
+            public Vector4 ProbeRed;
+            public Vector4 ProbeGreen;
+            public Vector4 ProbeBlue;
         }
 
         /// <summary>
@@ -254,7 +257,8 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
-                (DescriptorType.StorageBuffer, vertexAndFragment));
+                (DescriptorType.StorageBuffer, vertexAndFragment),
+                (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
@@ -329,7 +333,8 @@ namespace Vertex.Rendering.Vulkan
             [
                 (0, Format.R32G32B32Sfloat, 0),
                 (1, Format.R32G32B32Sfloat, 12),
-                (2, Format.R32G32Sfloat, 24)
+                (2, Format.R32G32Sfloat, 24),
+                (3, Format.R32G32Sfloat, 32)
             ];
 
             VkPipelineDescription Scene(ShaderModule fragmentShader) => new()
@@ -666,6 +671,7 @@ namespace Vertex.Rendering.Vulkan
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
                 _clusters = _frame.Uploads.Write(frame.Clusters.Words);
                 _clustersSize = (ulong)(frame.Clusters.Words.Length * sizeof(uint));
+                _lightmap = frame.Lightmap != null ? TextureImage(frame.Lightmap) : _white.Image;
 
                 VkImageResource fogImage = _noFog;
                 if (uniforms.FogReach.Z > 0.5f)
@@ -853,6 +859,7 @@ namespace Vertex.Rendering.Vulkan
             _uploadedThisView = false;
 
             GetTexture(commands, CloudNoise.Texture);
+            if (frame.Lightmap != null) GetTexture(commands, frame.Lightmap);
 
             IReadOnlyList<DrawCall> draws = frame.DrawCalls;
             Material? previous = null;
@@ -1124,6 +1131,7 @@ namespace Vertex.Rendering.Vulkan
         // Where this view's light clusters went (see LightClusters), for its frame data to point to.
         private (VkBuffer Buffer, ulong Offset) _clusters;
         private ulong _clustersSize;
+        private VkImageResource _lightmap = null!;
 
         private DescriptorSet WriteFrameData(in FrameUniforms data, VkImageResource fog)
         {
@@ -1134,6 +1142,7 @@ namespace Vertex.Rendering.Vulkan
             VkDescriptors.WriteImage(_context, set, 2, TextureImage(CloudNoise.Texture).View, _repeatSampler);
             VkDescriptors.WriteImage(_context, set, 3, fog.View, _clampSampler);
             VkDescriptors.WriteBuffer(_context, set, 4, DescriptorType.StorageBuffer, _clusters.Buffer, _clusters.Offset, _clustersSize);
+            VkDescriptors.WriteImage(_context, set, 5, _lightmap.View, _clampSampler);
             return set;
         }
 
@@ -1239,8 +1248,15 @@ namespace Vertex.Rendering.Vulkan
                     currentMesh = draw.Mesh;
                 }
 
-                Matrix4x4.Invert(draw.WorldMatrix, out Matrix4x4 inverseModel);
-                var constants = new DrawConstants { Model = draw.WorldMatrix, NormalMatrix = Matrix4x4.Transpose(inverseModel) };
+                BakedLight baked = draw.Baked;
+                var constants = new DrawConstants
+                {
+                    Model = draw.WorldMatrix,
+                    Lightmap = new Vector4(baked.Lightmapped ? 1f : 0f, baked.FromProbes ? 1f : 0f, 0f, 0f),
+                    ProbeRed = baked.Probe.Red,
+                    ProbeGreen = baked.Probe.Green,
+                    ProbeBlue = baked.Probe.Blue
+                };
                 _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(DrawConstants), &constants);
                 _context.Vk.CmdDrawIndexed(commands, mesh!.IndexCount, 1, 0, 0, 0);
             }
