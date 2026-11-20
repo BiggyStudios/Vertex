@@ -582,11 +582,14 @@ namespace Vertex.Editor.Panels
                     else SetValue.Apply(_context.History, enabled ? "Enable" : "Disable", component, enabledProperty, enabled);
                 }
 
+                // The menu hangs from its button, or opens where the mouse is on a right-click anywhere on the header.
                 int menuId = Ui.Id(id, "menu");
-                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More"))
+                bool rightClicked = Ui.MousePressed(MouseButton.Right) && (Ui.HotId == id || Ui.HotId == menuId) && header.Contains(Ui.Mouse);
+                if (Widgets.IconButton(menuId, menuButton, Icons.More, "More") || rightClicked)
                 {
                     List<MenuItem> items = alsoOn is { Count: > 0 } ? RemoveFromAllMenu([component, .. alsoOn]) : ComponentMenu(component);
-                    Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), items, flipBy: menuButton.Height + 6f);
+                    if (rightClicked) Menu.Open(menuId, Ui.Mouse, items);
+                    else Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), items, flipBy: menuButton.Height + 6f);
                 }
             }
 
