@@ -267,6 +267,7 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.StorageBuffer, vertexAndFragment),
                 (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
@@ -687,6 +688,7 @@ namespace Vertex.Rendering.Vulkan
                 _clusters = _frame.Uploads.Write(frame.Clusters.Words);
                 _clustersSize = (ulong)(frame.Clusters.Words.Length * sizeof(uint));
                 _lightmap = frame.Lightmap != null ? TextureImage(frame.Lightmap) : _white.Image;
+                _shadowMask = frame.ShadowMask != null ? TextureImage(frame.ShadowMask) : _white.Image;
 
                 VkImageResource fogImage = _noFog;
                 if (uniforms.FogReach.Z > 0.5f)
@@ -875,6 +877,7 @@ namespace Vertex.Rendering.Vulkan
 
             GetTexture(commands, CloudNoise.Texture);
             if (frame.Lightmap != null) GetTexture(commands, frame.Lightmap);
+            if (frame.ShadowMask != null) GetTexture(commands, frame.ShadowMask);
 
             IReadOnlyList<DrawCall> draws = frame.DrawCalls;
             Material? previous = null;
@@ -1182,6 +1185,7 @@ namespace Vertex.Rendering.Vulkan
         private (VkBuffer Buffer, ulong Offset) _clusters;
         private ulong _clustersSize;
         private VkImageResource _lightmap = null!;
+        private VkImageResource _shadowMask = null!;
 
         private DescriptorSet WriteFrameData(in FrameUniforms data, VkImageResource fog)
         {
@@ -1194,6 +1198,7 @@ namespace Vertex.Rendering.Vulkan
             VkDescriptors.WriteBuffer(_context, set, 4, DescriptorType.StorageBuffer, _clusters.Buffer, _clusters.Offset, _clustersSize);
             VkDescriptors.WriteImage(_context, set, 5, _lightmap.View, _clampSampler);
             VkDescriptors.WriteImage(_context, set, 6, _localShadowMaps.Array.View, _shadowSampler);
+            VkDescriptors.WriteImage(_context, set, 7, _shadowMask.View, _clampSampler);
             return set;
         }
 

@@ -117,7 +117,8 @@ namespace Vertex.Rendering.Shaders
                 // The sun turns golden as it gets low, and goes out once it's set, through the same air the sky is made of.
                 if (atmosphere && i == sunIndex) color *= Atmosphere.SunlightTint(sun.Y);
 
-                data.DirectionalDirection[i] = new Vector4(light.Direction, light.Baked ? 1f : 0f);
+                // w: 0 realtime, 1 baked, 2 to 5 baked with that channel of the shadow mask plus two.
+                data.DirectionalDirection[i] = new Vector4(light.Direction, !light.Baked ? 0f : light.ShadowMask >= 0 ? 2f + light.ShadowMask : 1f);
                 data.DirectionalColor[i] = new Vector4(color, light.FogStrength);
             }
 
@@ -132,11 +133,15 @@ namespace Vertex.Rendering.Shaders
                 data.LocalShadowParams[i] = new Vector4(shadow.FirstLayer, shadow.TexelSize, shadow.Near, shadow.Point ? -shadow.Far : shadow.Far);
             }
 
-            // Which of them each light has, plus one: a byte each, four to a word.
+            // Which of them each light has, plus one (the low five bits), and for a baked light, its channel of the shadow
+            // mask plus one (the top three): a byte each, four to a word.
             for (int i = 0; i < data.PointCount; i++)
             {
                 int shadow = frame.Clusters.ShadowOf(i);
-                if (shadow >= 0) data.LightShadows[i / 4] |= (uint)(shadow + 1) << (i % 4 * 8);
+                if (shadow < 0) continue;
+                PointLightData light = frame.PointLights[i];
+                int mask = light.Baked ? light.ShadowMask + 1 : 0;
+                data.LightShadows[i / 4] |= (uint)((shadow + 1) | (mask << 5)) << (i % 4 * 8);
             }
             for (int i = 0; i < data.PointCount; i++)
             {

@@ -65,6 +65,7 @@ namespace Vertex.Editor.Tests
             Assert.Equal(0, context.Scene.Find("Floor")!.GetComponent<MeshRenderer>()!.LightmapIndex);
             Assert.Equal(-1, context.Scene.Find("Ball")!.GetComponent<MeshRenderer>()!.LightmapIndex);
             Assert.NotNull(context.Scene.Lighting.Baked);
+            Assert.Equal(0, context.Scene.Find("Lamp")!.GetComponent<Light>()!.ShadowMaskChannel);
 
             // The saved scene opens with it.
             context.OpenScene(Path.Combine(_folder, "Room.scene"));
@@ -74,6 +75,7 @@ namespace Vertex.Editor.Tests
             Assert.False(File.Exists(bakeFile));
             Assert.Equal("", context.Scene.Lighting.BakedLightingFile);
             Assert.Equal(-1, context.Scene.Find("Floor")!.GetComponent<MeshRenderer>()!.LightmapIndex);
+            Assert.Equal(-1, context.Scene.Find("Lamp")!.GetComponent<Light>()!.ShadowMaskChannel);
         }
 
         [Fact]

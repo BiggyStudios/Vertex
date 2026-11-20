@@ -30,7 +30,8 @@ namespace Vertex.Rendering
         /// <summary>
         /// All baked: static things get its light with soft shadows and its bounce, and moving ones get it from the light
         /// probes baked with it, so it costs nothing as the game runs, however many there are. It can't move or change
-        /// once baked, and it has no highlights. It still shows in volumetric fog. For lamps and lights that stay put.
+        /// once baked, and it has no highlights. It still shows in volumetric fog, and with <see cref="Light.CastShadows"/>
+        /// on, things that move cast shadows from it. For lamps and lights that stay put.
         /// </summary>
         Baked
     }
@@ -83,9 +84,17 @@ namespace Vertex.Rendering
         /// Whether objects block this light, casting shadows. For the sun, the first directional light that has this
         /// on (see <see cref="Lighting.ShadowDistance"/>). Point and spot lights' shadows are kept from frame to frame and
         /// only drawn again when the light or something near it moves, so lamps in a still room cost little; the nearest
-        /// 16 in view that have this on get them. A baked light's shadows are baked, so it doesn't need this.
+        /// 16 in view that have this on get them. A baked light's shadows from static things are baked whatever this is;
+        /// with it on, things that move cast shadows from it too (from up to 4 baked lights that reach the same place).
         /// </summary>
-        [Tooltip("Objects block its light. Point and spot lights' shadows are only drawn again when something near them moves")]
+        [Tooltip("Objects block its light. Point and spot lights' shadows are only drawn again when something near them moves. A baked light's static shadows are baked: with this on, moving things cast shadows from it too")]
         public bool CastShadows { get; set; } = true;
+
+        /// <summary>
+        /// Which channel of the scene's shadow mask (see <see cref="BakedLighting.ShadowMask"/>) has how much of this
+        /// light reached each static surface when it was baked, or -1 if none. Set by baking.
+        /// </summary>
+        [HideInInspector]
+        public int ShadowMaskChannel { get; set; } = -1;
     }
 }

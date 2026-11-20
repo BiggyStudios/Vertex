@@ -128,6 +128,12 @@ namespace Vertex.Rendering
         /// <summary>Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only the sky and fog.</summary>
         public bool Baked { get; init; }
 
+        /// <summary>
+        /// For a baked light, which channel of the shadow mask it has (see <see cref="BakedLighting.ShadowMask"/>), so things
+        /// that move can cast shadows from it; -1 if none.
+        /// </summary>
+        public int ShadowMask { get; init; } = -1;
+
         /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
         public float FogStrength { get; init; } = 1f;
     }
@@ -143,8 +149,17 @@ namespace Vertex.Rendering
         public float SpotOuter { get; init; } = -2f;
         public float SpotInner { get; init; } = -1f;
 
-        /// <summary>Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only volumetric fog.</summary>
+        /// <summary>
+        /// Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only volumetric fog; and
+        /// with a <see cref="ShadowMask"/> channel, things that move take its light back out of the lightmap where they block it.
+        /// </summary>
         public bool Baked { get; init; }
+
+        /// <summary>
+        /// For a baked light, which channel of the shadow mask it has (see <see cref="BakedLighting.ShadowMask"/>), so things
+        /// that move can cast shadows from it; -1 if none.
+        /// </summary>
+        public int ShadowMask { get; init; } = -1;
 
         /// <summary>Whether it casts shadows (see <see cref="Light.CastShadows"/>): the nearest that do get them.</summary>
         public bool CastsShadows { get; init; }
@@ -302,6 +317,9 @@ namespace Vertex.Rendering
         /// <summary>The scene's baked light, which draws with <see cref="BakedLight.Lightmapped"/> on read; null if it has none.</summary>
         public Texture? Lightmap { get; internal set; }
 
+        /// <summary>The scene's shadow mask (see <see cref="BakedLighting.ShadowMask"/>), read with the lightmap; null if it has none.</summary>
+        public Texture? ShadowMask { get; internal set; }
+
         /// <summary>Which of <see cref="PointLights"/> reach each part of the view.</summary>
         internal readonly LightClusters Clusters = new();
 
@@ -424,6 +442,7 @@ namespace Vertex.Rendering
             LocalShadowCasterList.Clear();
             HasShadows = false;
             Lightmap = null;
+            ShadowMask = null;
             Grid = false;
             Grid2D = false;
         }

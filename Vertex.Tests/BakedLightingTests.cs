@@ -68,6 +68,18 @@ namespace Vertex.Tests
         /// <summary>The baked light on the top of <paramref name="floor"/> at <paramref name="point"/>, read back from the lightmap.</summary>
         private static Vector3 LightOnFloor(BakedLighting baked, GameObject floor, Vector2 point)
         {
+            Texture lightmap = baked.Lightmap!;
+            int i = PixelOnFloor(baked, floor, point) * 4;
+            return BakedLighting.Decode(lightmap.Pixels[i], lightmap.Pixels[i + 1], lightmap.Pixels[i + 2], lightmap.Pixels[i + 3]);
+        }
+
+        /// <summary>How much of the light with shadow mask channel <paramref name="channel"/> reached the top of <paramref name="floor"/> at <paramref name="point"/>, 0 to 1.</summary>
+        private static float MaskOnFloor(BakedLighting baked, GameObject floor, Vector2 point, int channel) =>
+            baked.ShadowMask!.Pixels[PixelOnFloor(baked, floor, point) * 4 + channel] / 255f;
+
+        /// <summary>Which pixel of the lightmap the top of <paramref name="floor"/> at <paramref name="point"/> is in.</summary>
+        private static int PixelOnFloor(BakedLighting baked, GameObject floor, Vector2 point)
+        {
             MeshRenderer renderer = floor.GetComponent<MeshRenderer>()!;
             Mesh mesh = baked.MeshFor(renderer)!;
             Matrix4x4 world = floor.Transform.WorldMatrix;
@@ -86,8 +98,7 @@ namespace Vertex.Tests
 
                 Vector2 uv = a.LightmapUV * (1f - u - v) + b.LightmapUV * u + c.LightmapUV * v;
                 int x = (int)(uv.X * lightmap.Width), y = (int)(uv.Y * lightmap.Height);
-                int i = (y * lightmap.Width + x) * 4;
-                return BakedLighting.Decode(lightmap.Pixels[i], lightmap.Pixels[i + 1], lightmap.Pixels[i + 2], lightmap.Pixels[i + 3]);
+                return y * lightmap.Width + x;
             }
 
             throw new InvalidOperationException("Not over the floor.");
@@ -127,6 +138,146 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void The_shadow_mask_holds_how_much_of_a_baked_light_reached_the_floor_past_a_wall()
+        {
+            Scene.Active.Lighting.AmbientIntensity = 0f;
+            Scene.Active.Lighting.Baking.Quality = BakeQuality.Preview;
+            Scene.Active.Lighting.Baking.Bounces = 0;
+            GameObject floor = StaticBox("Floor", new Vector3(0f, -0.5f, 0f), new Vector3(10f, 1f, 10f));
+            StaticBox("Wall", new Vector3(0f, 1f, 0f), new Vector3(0.5f, 2f, 4f));
+            Light lamp = Lamp(new Vector3(-2f, 1.5f, 0f), LightMode.Baked);
+            Scene.Active.ApplyChanges();
+
+            LightBakeResult result = LightBaker.Prepare(Scene.Active).Run();
+            result.Apply(Scene.Active, Path.Combine(_folder, "Wall.bake"));
+            Assert.Equal(0, lamp.ShadowMaskChannel);
+            Texture mask = result.Lighting.ShadowMask!;
+            Assert.Equal((result.Lighting.Lightmap!.Width, result.Lighting.Lightmap.Height), (mask.Width, mask.Height));
+            Assert.True(MaskOnFloor(result.Lighting, floor, new Vector2(-1f, 0f), 0) > 0.9f);
+            Assert.True(MaskOnFloor(result.Lighting, floor, new Vector2(1f, 0f), 0) < 0.1f);
+
+            // It's saved with the rest.
+            BakedLighting loaded = BakedLighting.Load(Path.Combine(_folder, "Wall.bake"));
+            Assert.Equal(mask.Pixels, loaded.ShadowMask!.Pixels);
+        }
+
+        [Fact]
+        public void Baked_lights_that_cast_shadows_share_the_masks_four_channels_where_their_light_doesnt_meet()
+        {
+            Scene.Active.Lighting.Baking.Quality = BakeQuality.Preview;
+            Scene.Active.Lighting.Baking.Bounces = 0;
+            StaticBox("Floor", new Vector3(0f, -0.5f, 0f), new Vector3(10f, 1f, 10f));
+
+            // Five whose light all meets, the brightest first: the dimmest is left out.
+            var lamps = new List<Light>();
+            for (int i = 0; i < 5; i++)
+            {
+                Light lamp = Lamp(new Vector3(i * 0.5f, 2f, 0f), LightMode.Baked, range: 3f);
+                lamp.Intensity = 5f - i;
+                lamps.Add(lamp);
+            }
+
+            Light far = Lamp(new Vector3(40f, 2f, 0f), LightMode.Baked, range: 3f);
+            Light mixed = Lamp(new Vector3(0f, 2f, 1f), LightMode.Mixed);
+            Light noShadows = Lamp(new Vector3(0f, 2f, -1f), LightMode.Baked);
+            noShadows.CastShadows = false;
+            Scene.Active.ApplyChanges();
+
+            LightBaker.Prepare(Scene.Active).Run().Apply(Scene.Active, Path.Combine(_folder, "Lamps.bake"));
+            Assert.Equal([0, 1, 2, 3, -1], lamps.Select(l => l.ShadowMaskChannel));
+            Assert.Equal(0, far.ShadowMaskChannel);
+            Assert.Equal(-1, mixed.ShadowMaskChannel);
+            Assert.Equal(-1, noShadows.ShadowMaskChannel);
+        }
+
+        [Fact]
+        public void Something_that_moves_casts_a_shadow_from_a_baked_lamp_drawn_with_only_what_moves()
+        {
+            BakeRoom();
+            Light lamp = Scene.Active.Find("Lamp")!.GetComponent<Light>()!;
+            Assert.Equal(0, lamp.ShadowMaskChannel);
+            var camera = new GameObject("Camera");
+            camera.Transform.Position = new Vector3(0f, 3f, 8f);
+            camera.Transform.LookAt(Vector3.Zero);
+            camera.AddComponent<Camera>();
+
+            // With nothing moving near it, it needs no shadow, though it's kept to take its light back out of the lightmap.
+            Scene.Active.Update();
+            _renderer.Render(Scene.Active);
+            PointLightData kept = Assert.Single(_backend.LastPointLights);
+            Assert.True(kept.Baked);
+            Assert.Equal(0, kept.ShadowMask);
+            Assert.Empty(_backend.LastLocalShadows);
+            Assert.Equal(0u, _backend.LastUniforms.LightShadows[0]);
+
+            // Something moving near it: it gets one, of that alone, and the shaders know its channel.
+            GameObject ball = GameObject.CreateSphere(new Vector3(2f, 1f, -2f), Color.White, "Ball");
+            Scene.Active.Update();
+            _renderer.Render(Scene.Active);
+            Assert.Single(_backend.LastLocalShadows);
+            Assert.NotEmpty(_backend.LastLocalShadowCasters);
+            Assert.All(_backend.LastLocalShadowCasters, d => Assert.Equal(ball.Transform.WorldMatrix, d.WorldMatrix));
+            Assert.Equal(1u | (1u << 5), _backend.LastUniforms.LightShadows[0] & 255u);
+
+            // Gone out of its reach, it needs none again.
+            ball.Transform.Position = new Vector3(30f, 1f, 0f);
+            Scene.Active.Update();
+            _renderer.Render(Scene.Active);
+            Assert.Empty(_backend.LastLocalShadows);
+        }
+
+        [Fact]
+        public void A_baked_suns_shadow_maps_only_have_what_moves_in_them()
+        {
+            Scene.Active.Lighting.Baking.Quality = BakeQuality.Preview;
+            Scene.Active.Lighting.Baking.Bounces = 0;
+            GameObject floor = StaticBox("Floor", new Vector3(0f, -0.5f, 0f), new Vector3(10f, 1f, 10f));
+            var sunObject = new GameObject("Sun");
+            sunObject.Transform.EulerAngles = new Vector3(-50f, 30f, 0f);
+            Light sun = sunObject.AddComponent<Light>();
+            sun.Mode = LightMode.Baked;
+            Scene.Active.ApplyChanges();
+            LightBaker.Prepare(Scene.Active).Run().Apply(Scene.Active, Path.Combine(_folder, "Sun.bake"));
+            Assert.Equal(0, sun.ShadowMaskChannel);
+
+            GameObject ball = GameObject.CreateSphere(new Vector3(0f, 1f, 0f), Color.White, "Ball");
+            var camera = new GameObject("Camera");
+            camera.Transform.Position = new Vector3(0f, 3f, 8f);
+            camera.Transform.LookAt(Vector3.Zero);
+            camera.AddComponent<Camera>();
+            Scene.Active.Update();
+            _renderer.Render(Scene.Active);
+
+            Assert.Equal(2f, _backend.LastUniforms.DirectionalDirection[0].W);
+            Assert.Equal(0f, _backend.LastUniforms.Shadow.Y);
+            List<DrawCall> casters = _backend.LastShadowCasters.SelectMany(c => c).ToList();
+            Assert.Contains(casters, d => d.WorldMatrix == ball.Transform.WorldMatrix);
+            Assert.DoesNotContain(casters, d => d.WorldMatrix == floor.Transform.WorldMatrix);
+        }
+
+        [Fact]
+        public void Baked_lighting_from_before_the_shadow_mask_still_loads()
+        {
+            using var stream = new MemoryStream();
+            stream.Write("VXBAKE"u8);
+            stream.WriteByte(1);
+            using (var zip = new System.IO.Compression.ZLibStream(stream, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+            using (var writer = new BinaryWriter(zip))
+            {
+                writer.Write(2);
+                writer.Write(1);
+                writer.Write(new byte[8]);
+                writer.Write(0);
+                writer.Write(false);
+            }
+
+            stream.Position = 0;
+            BakedLighting baked = BakedLighting.Read(stream);
+            Assert.Equal(2, baked.Lightmap!.Width);
+            Assert.Null(baked.ShadowMask);
+        }
+
+        [Fact]
         public void Once_baked_a_baked_lamp_costs_nothing_static_meshes_draw_with_the_lightmap_and_moving_ones_with_probes()
         {
             Light realtime = Lamp(new Vector3(3f, 1f, 3f), LightMode.Realtime);
@@ -139,8 +290,9 @@ namespace Vertex.Tests
             Scene.Active.Update();
             _renderer.Render(Scene.Active);
 
-            // The baked lamp's gone from the lights the GPU works out; the realtime one's still there.
-            Assert.Equal([realtime.Transform.WorldPosition], _backend.LastPointLights.Select(l => l.Position));
+            // The baked lamp's gone from the lights that light surfaces as the game runs; the realtime one's still there.
+            // (The baked one's only kept for the ball's shadow from it: see the shadow mask's tests.)
+            Assert.Equal([realtime.Transform.WorldPosition], _backend.LastPointLights.Where(l => !l.Baked).Select(l => l.Position));
 
             DrawCall floorDraw = _backend.LastDraws.Single(d => d.WorldMatrix == floor.Transform.WorldMatrix);
             Assert.True(floorDraw.Baked.Lightmapped);

@@ -13,7 +13,8 @@ namespace Vertex.Rendering
     {
         public const string Extension = ".bake";
 
-        private const int FormatVersion = 1;
+        // 2 added the shadow mask; 1 is still read, without it.
+        private const int FormatVersion = 2;
         private static ReadOnlySpan<byte> Magic => "VXBAKE"u8;
 
         /// <summary>
@@ -24,6 +25,14 @@ namespace Vertex.Rendering
 
         /// <summary>The brightest light the lightmap holds: brighter is kept at this.</summary>
         public const float LightmapRange = 16f;
+
+        /// <summary>
+        /// How much of each of up to four baked lights reached each pixel of the lightmap past what's in its way, from 0 to
+        /// 255, a light to a channel (see <see cref="Light.ShadowMaskChannel"/>; lights whose light meets don't share one).
+        /// The shaders take a light's share back out of the lightmap where something that moves blocks it. Null if no baked
+        /// light casts shadows.
+        /// </summary>
+        public Texture? ShadowMask { get; set; }
 
         /// <summary>The static meshes as they're drawn with the lightmap, by <see cref="MeshRenderer.LightmapIndex"/>.</summary>
         public List<BakedMesh> Meshes { get; } = new();
@@ -91,6 +100,11 @@ namespace Vertex.Rendering
 
             writer.Write(Probes != null);
             Probes?.Write(writer);
+
+            // The same size as the lightmap.
+            bool mask = ShadowMask != null && Lightmap != null;
+            writer.Write(mask);
+            if (mask) writer.Write(ShadowMask!.Pixels);
         }
 
         public static BakedLighting Read(Stream stream)
@@ -99,7 +113,7 @@ namespace Vertex.Rendering
             stream.ReadExactly(magic);
             if (!magic.SequenceEqual(Magic)) throw new InvalidDataException("This isn't baked lighting.");
             int version = stream.ReadByte();
-            if (version != FormatVersion) throw new InvalidDataException($"This baked lighting is from a different version of Vertex ({version}): bake it again.");
+            if (version is < 1 or > FormatVersion) throw new InvalidDataException($"This baked lighting is from a different version of Vertex ({version}): bake it again.");
 
             using var zip = new ZLibStream(stream, CompressionMode.Decompress, leaveOpen: true);
             using var reader = new BinaryReader(zip);
@@ -112,6 +126,11 @@ namespace Vertex.Rendering
             for (int i = 0; i < meshes; i++) baked.Meshes.Add(BakedMesh.Read(reader));
 
             if (reader.ReadBoolean()) baked.Probes = LightProbeGrid.Read(reader);
+            if (version >= 2 && reader.ReadBoolean() && baked.Lightmap is { } lightmap)
+            {
+                baked.ShadowMask = new Texture(lightmap.Width, lightmap.Height, reader.ReadBytes(lightmap.Width * lightmap.Height * 4));
+            }
+
             return baked;
         }
     }

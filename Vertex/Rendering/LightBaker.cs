@@ -11,6 +11,9 @@ namespace Vertex.Rendering
         public required BakedLighting Lighting { get; init; }
         public required IReadOnlyList<MeshRenderer> Renderers { get; init; }
 
+        /// <summary>The lights with a channel of the shadow mask (see <see cref="BakedLighting.ShadowMask"/>), and which.</summary>
+        public IReadOnlyList<(Light Light, int Channel)> MaskChannels { get; init; } = [];
+
         /// <summary>The detail the lightmap was made at: <see cref="BakeSettings.Detail"/>, or less if it wouldn't fit.</summary>
         public float Detail { get; init; }
 
@@ -28,6 +31,8 @@ namespace Vertex.Rendering
             Assets.Forget(file);
             foreach (MeshRenderer renderer in scene.FindComponents<MeshRenderer>()) renderer.LightmapIndex = -1;
             for (int i = 0; i < Renderers.Count; i++) Renderers[i].LightmapIndex = i;
+            foreach (Light light in scene.FindComponents<Light>()) light.ShadowMaskChannel = -1;
+            foreach ((Light light, int channel) in MaskChannels) light.ShadowMaskChannel = channel;
             scene.Lighting.BakedLightingFile = Assets.RelativePath(file);
         }
     }
@@ -71,8 +76,9 @@ namespace Vertex.Rendering
             public uint[] Indices = [];
         }
 
-        private readonly record struct BakeLight(LightType Type, Vector3 Position, Vector3 Direction, Vector3 Color, float Range,
-            float SpotScale, float SpotOffset, float Size, bool Direct);
+        // Channel: which of the shadow mask's it has (see BakedLighting.ShadowMask), or -1.
+        private readonly record struct BakeLight(Light Source, LightType Type, Vector3 Position, Vector3 Direction, Vector3 Color, float Range,
+            float SpotScale, float SpotOffset, float Size, bool Direct, int Channel);
 
         private readonly List<BakeObject> _objects = new();
         private readonly List<BakeLight> _lights = new();
@@ -160,12 +166,51 @@ namespace Vertex.Rendering
                     offset = -cosOuter * scale;
                 }
 
-                baker._lights.Add(new BakeLight(light.Type, light.Transform.WorldPosition, Vector3.Normalize(light.Transform.Forward), color,
-                    MathF.Max(light.Range, 0.01f), scale, offset, MathF.Max(light.Size, 0f), light.Mode == LightMode.Baked));
+                baker._lights.Add(new BakeLight(light, light.Type, light.Transform.WorldPosition, Vector3.Normalize(light.Transform.Forward), color,
+                    MathF.Max(light.Range, 0.01f), scale, offset, MathF.Max(light.Size, 0f), light.Mode == LightMode.Baked, -1));
             }
 
+            baker.ShareMaskChannels();
             return baker;
         }
+
+        /// <summary>
+        /// Gives each baked light that casts shadows a channel of the shadow mask, so things that move can cast shadows from
+        /// it: lights whose light could meet need different ones, and there are four. The sun first (it reaches everything),
+        /// then the brightest and furthest-reaching; those left over get none, and only cast their baked shadows.
+        /// </summary>
+        private void ShareMaskChannels()
+        {
+            var order = new List<int>();
+            for (int i = 0; i < _lights.Count; i++)
+            {
+                if (_lights[i].Direct && _lights[i].Source.CastShadows) order.Add(i);
+            }
+
+            static float Importance(in BakeLight light) => light.Type == LightType.Directional
+                ? float.MaxValue
+                : (light.Color.X + light.Color.Y + light.Color.Z) * light.Range;
+            order.Sort((a, b) => Importance(_lights[b]).CompareTo(Importance(_lights[a])));
+
+            static bool Meet(in BakeLight a, in BakeLight b) => a.Type == LightType.Directional || b.Type == LightType.Directional ||
+                Vector3.Distance(a.Position, b.Position) < a.Range + b.Range;
+
+            Span<bool> taken = stackalloc bool[4];
+            foreach (int i in order)
+            {
+                taken.Clear();
+                foreach (int j in order)
+                {
+                    if (j != i && _lights[j].Channel >= 0 && Meet(_lights[i], _lights[j])) taken[_lights[j].Channel] = true;
+                }
+
+                int channel = taken.IndexOf(false);
+                if (channel >= 0) _lights[i] = _lights[i] with { Channel = channel };
+            }
+        }
+
+        /// <summary>Whether any light has a channel of the shadow mask.</summary>
+        private bool Masked => _lights.Any(l => l.Channel >= 0);
 
         // How many rays for each part, by quality.
         private (int Direct, int Gather, int Probe) Samples => _quality switch
@@ -224,10 +269,19 @@ namespace Vertex.Rendering
             progress?.Invoke("Lighting from the lights", 0.1f);
             var direct = new Vector3[count];
             var directAll = new Vector3[count];
+
+            // And how much of each light in the shadow mask gets past what's in its way: channels 0 to 2 in one, 3 in the
+            // other's x, so they're smoothed as the light is.
+            bool masked = Masked;
+            Vector3[] maskLow = masked ? new Vector3[count] : [], maskHigh = masked ? new Vector3[count] : [];
             ParallelTexels(cancel, i =>
             {
                 var random = new Random32((uint)i * 9781u + 17u);
-                (direct[i], directAll[i]) = DirectAt(_position[i], _normal[i], _face[i], directSamples, ref random);
+                Span<float> mask = [1f, 1f, 1f, 1f];
+                (direct[i], directAll[i]) = DirectAt(_position[i], _normal[i], _face[i], directSamples, ref random, mask);
+                if (!masked) return;
+                maskLow[i] = new Vector3(mask[0], mask[1], mask[2]);
+                maskHigh[i] = new Vector3(mask[3], 0f, 0f);
             });
 
             // Light gathered from all round: the sky, glowing things, and the light on everything else, bounce by bounce.
@@ -281,6 +335,7 @@ namespace Vertex.Rendering
             if (_objects.Any(o => o.Unwrap != null))
             {
                 baked.Lightmap = new Texture(_width, _height, pixels);
+                if (masked) baked.ShadowMask = new Texture(_width, _height, MaskPixels(maskLow, maskHigh));
                 foreach (BakeObject o in _objects)
                 {
                     if (o.Unwrap is not { } unwrap) continue;
@@ -300,7 +355,42 @@ namespace Vertex.Rendering
             progress?.Invoke("Done", 1f);
             int texels = 0;
             for (int i = 0; i < count; i++) if (_valid[i]) texels++;
-            return new LightBakeResult { Lighting = baked, Renderers = renderers, Detail = detail, Texels = texels };
+            var channels = new List<(Light, int)>();
+            if (baked.ShadowMask != null)
+            {
+                foreach (BakeLight bakeLight in _lights) if (bakeLight.Channel >= 0) channels.Add((bakeLight.Source, bakeLight.Channel));
+            }
+
+            return new LightBakeResult { Lighting = baked, Renderers = renderers, MaskChannels = channels, Detail = detail, Texels = texels };
+        }
+
+        /// <summary>The shadow mask's pixels, smoothed and spread over the gaps as the light is.</summary>
+        private byte[] MaskPixels(Vector3[] low, Vector3[] high)
+        {
+            int count = _width * _height;
+            Smooth(low, 1);
+            Smooth(high, 1);
+            for (int i = 0; i < count; i++)
+            {
+                if (_valid[i]) continue;
+                low[i] = Vector3.One;
+                high[i] = Vector3.One;
+            }
+
+            Dilate(low, _padding + 2);
+            Dilate(high, _padding + 2);
+
+            static byte Byte(float value) => (byte)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
+            var pixels = new byte[count * 4];
+            for (int i = 0; i < count; i++)
+            {
+                pixels[i * 4] = Byte(low[i].X);
+                pixels[i * 4 + 1] = Byte(low[i].Y);
+                pixels[i * 4 + 2] = Byte(low[i].Z);
+                pixels[i * 4 + 3] = Byte(high[i].X);
+            }
+
+            return pixels;
         }
 
         // ---- Laying out the lightmap ----------------------------------------------------------------------------
@@ -540,9 +630,10 @@ namespace Vertex.Rendering
         /// <summary>
         /// The light reaching a point straight from the lights, in their light's units (a white surface facing one fully
         /// gets its colour): from the baked lights only, and from every light that bakes (for bouncing on). Each light's
-        /// seen from points over its size, so its shadows are soft.
+        /// seen from points over its size, so its shadows are soft. How much of each light with a channel in the shadow
+        /// mask gets through goes in <paramref name="mask"/>.
         /// </summary>
-        private (Vector3 Baked, Vector3 All) DirectAt(Vector3 position, Vector3 normal, Vector3 face, int samples, ref Random32 random)
+        private (Vector3 Baked, Vector3 All) DirectAt(Vector3 position, Vector3 normal, Vector3 face, int samples, ref Random32 random, Span<float> mask)
         {
             Vector3 baked = Vector3.Zero, all = Vector3.Zero;
             Vector3 origin = position + face * _offset;
@@ -552,6 +643,7 @@ namespace Vertex.Rendering
                 if (arriving == Vector3.Zero) continue;
 
                 float lit = Visible(light, origin, samples, ref random);
+                if (light.Channel >= 0) mask[light.Channel] = lit;
                 if (lit <= 0f) continue;
                 all += arriving * lit;
                 if (light.Direct) baked += arriving * lit;

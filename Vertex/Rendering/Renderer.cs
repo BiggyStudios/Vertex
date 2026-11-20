@@ -183,14 +183,23 @@ namespace Vertex.Rendering
             Color color = light.Color * light.Intensity;
 
             // Once the scene's baked, a baked light's light is in the lightmap and probes: it only lights volumetric fog
-            // (and for the sun, the sky). Until then it lights as a realtime one, so it's seen while the scene's made.
+            // (and for the sun, the sky), and things that move take its light back out of the lightmap where they block it,
+            // if it has a channel of the shadow mask. Until then it lights as a realtime one, so it's seen while the
+            // scene's made.
             bool baked = light.Mode == LightMode.Baked && _baked != null;
-            if (baked && light.Type != LightType.Directional && (!_frame.Environment.VolumetricFog || light.FogStrength <= 0f)) return;
+            int mask = baked && light.CastShadows && _baked!.ShadowMask != null ? light.ShadowMaskChannel : -1;
+            if (baked && light.Type != LightType.Directional && mask < 0 && (!_frame.Environment.VolumetricFog || light.FogStrength <= 0f)) return;
 
             if (light.Type == LightType.Directional)
             {
-                if (light.CastShadows && !baked && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
-                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color) { FogStrength = MathF.Max(light.FogStrength, 0f), Baked = baked });
+                // A baked sun's shadows are only of what moves (see Collect).
+                if (light.CastShadows && (!baked || mask >= 0) && _frame.ShadowLightIndex < 0) _frame.ShadowLightIndex = _frame.DirectionalLightList.Count;
+                _frame.DirectionalLightList.Add(new DirectionalLightData(light.Transform.Forward, color)
+                {
+                    FogStrength = MathF.Max(light.FogStrength, 0f),
+                    Baked = baked,
+                    ShadowMask = mask
+                });
             }
             else if (light.Type == LightType.Spot)
             {
@@ -204,6 +213,7 @@ namespace Vertex.Rendering
                     SpotInner = MathF.Max(MathF.Cos(inner), MathF.Cos(half) + 1e-4f),
                     FogStrength = MathF.Max(light.FogStrength, 0f),
                     Baked = baked,
+                    ShadowMask = mask,
                     CastsShadows = light.CastShadows,
                     Owner = light
                 });
@@ -214,6 +224,7 @@ namespace Vertex.Rendering
                 {
                     FogStrength = MathF.Max(light.FogStrength, 0f),
                     Baked = baked,
+                    ShadowMask = mask,
                     CastsShadows = light.CastShadows,
                     Owner = light
                 });
@@ -347,6 +358,7 @@ namespace Vertex.Rendering
 
             _baked = scene.Lighting.Baked;
             _frame.Lightmap = _baked?.Lightmap;
+            _frame.ShadowMask = _baked?.ShadowMask;
             foreach (Light light in scene.FindComponents<Light>()) AddLight(light);
             foreach (Light light in scene.OutsideLights) AddLight(light);
 
@@ -354,6 +366,9 @@ namespace Vertex.Rendering
             _frame.HasShadows = sun >= 0 && sun < Shaders.ShaderLibrary.MaxDirectionalLights && _frame.ShadowDistance > 0f;
             _frame.Cascades.Resolution = Math.Clamp(ShadowResolution, 256, 4096);
             if (_frame.HasShadows) _frame.Cascades.Place(_frame, Vector3.Normalize(_frame.DirectionalLightList[sun].Direction));
+
+            // A baked sun's static shadows are in the lightmap: its shadow maps only need what isn't.
+            bool movingOnly = _frame.HasShadows && _frame.DirectionalLightList[sun].Baked;
 
             // Only what the camera can see is drawn, but anything can cast a shadow into view, so shadow casters are
             // checked against each cascade instead.
@@ -396,7 +411,7 @@ namespace Vertex.Rendering
 
                 if (!draw.CastShadows) continue;
                 _casters.Add((draw, centre, extents));
-                if (!_frame.HasShadows) continue;
+                if (!_frame.HasShadows || (movingOnly && bakedLight.Lightmapped)) continue;
                 for (int cascade = 0; cascade < casters.Length; cascade++)
                 {
                     if (Culling.InOrthographic(_frame.Cascades.Matrices[cascade], centre, extents)) casters[cascade].Add(draw);

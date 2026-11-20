@@ -741,6 +741,7 @@ namespace Vertex.Editor
 
             Scene.Lighting.BakedLightingFile = "";
             foreach (MeshRenderer renderer in Scene.FindComponents<MeshRenderer>()) renderer.LightmapIndex = -1;
+            foreach (Light light in Scene.FindComponents<Light>()) light.ShadowMaskChannel = -1;
             if (ScenePath != null) SaveScene();
         }
 

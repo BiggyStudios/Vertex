@@ -40,6 +40,9 @@ namespace Vertex.Rendering.OpenGL
         // Where they find the point and spot lights' shadows.
         private const int _localShadowUnit = 13;
 
+        // And how much of the baked lights reached each pixel of the lightmap (see BakedLighting.ShadowMask).
+        private const int _shadowMaskUnit = 14;
+
         // Where a game's shaders (surface shaders and post effects) find their textures: four, one after another.
         private const int _shaderTextureUnit = 8;
 
@@ -188,7 +191,7 @@ namespace Vertex.Rendering.OpenGL
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
             shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
-                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit), ("lightmap", _lightmapUnit), ("localShadowMap", _localShadowUnit));
+                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit), ("lightmap", _lightmapUnit), ("localShadowMap", _localShadowUnit), ("shadowMask", _shadowMaskUnit));
             SetShaderTextureUnits(shader);
             return shader;
         }
@@ -333,6 +336,7 @@ namespace Vertex.Rendering.OpenGL
                 _gl.ActiveTexture(TextureUnit.Texture0 + _clusterUnit);
                 _gl.BindTexture(TextureTarget.TextureBuffer, _clusterTexture);
                 (frame.Lightmap != null ? GetTexture(frame.Lightmap) : _white).Bind(_lightmapUnit);
+                (frame.ShadowMask != null ? GetTexture(frame.ShadowMask) : _white).Bind(_shadowMaskUnit);
                 _localShadowMaps.Bind(_localShadowUnit);
 
                 if (fog)

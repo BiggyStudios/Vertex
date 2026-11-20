@@ -140,7 +140,7 @@ namespace Vertex.Rendering.Shaders
                 vec4 sunColor;          // w: how bright the atmosphere is for it
                 vec4 clearColor;        // what's behind everything with no sky
                 ivec4 lightCounts;      // x: directional, y: point and spot, z: fog volumes
-                vec4 directionalDirection[4];
+                vec4 directionalDirection[4];   // w: 0 realtime, 1 baked, 2 to 5 baked with shadow mask channel w - 2
                 vec4 directionalColor[4];   // w: how brightly it shows in volumetric fog
                 vec4 pointPositionRange[256];
                 vec4 pointColor[256];   // w: how brightly it shows in volumetric fog
@@ -157,7 +157,7 @@ namespace Vertex.Rendering.Shaders
                 vec4 clusters;          // x, y: a point's light cluster slice is log(depth) * x + y (see lightCluster)
                 mat4 localShadowMatrix[16];   // into each spot light's shadow map (see LocalShadows)
                 vec4 localShadowParams[16];   // x: its first layer, y: a texel's size a unit from the light, z: near, w: far (negative for a point light)
-                uvec4 lightShadows[16];       // which of those each point and spot light has, plus one (0 for none): a byte each, four to a word
+                uvec4 lightShadows[16];       // a byte for each point and spot light, four to a word: which of those it has plus one (0 for none) in the low 5 bits, a baked one's shadow mask channel plus one in the top 3
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
@@ -185,6 +185,10 @@ namespace Vertex.Rendering.Shaders
                 vec3 root = texel.rgb * texel.a;
                 return root * root * LIGHTMAP_RANGE;
             }
+
+            // How much of each of up to four baked lights got past what's in its way to each pixel of the lightmap, a light
+            // to a channel (see BakedLighting.ShadowMask).
+            TEXTURE(0, 7) sampler2D shadowMask;
 
             const int CLUSTER_TILES_X = 16;
             const int CLUSTER_TILES_Y = 9;
@@ -339,7 +343,14 @@ namespace Vertex.Rendering.Shaders
             int lightShadow(int light)
             {
                 uint word = frame.lightShadows[light >> 4][(light >> 2) & 3];
-                return int((word >> uint((light & 3) * 8)) & 255u) - 1;
+                return int((word >> uint((light & 3) * 8)) & 31u) - 1;
+            }
+
+            // For a baked light, which channel of the shadow mask it has, or -1.
+            int lightMaskChannel(int light)
+            {
+                uint word = frame.lightShadows[light >> 4][(light >> 2) & 3];
+                return int((word >> uint((light & 3) * 8 + 5)) & 7u) - 1;
             }
 
             // How much of a light reaches a point past what's in its way, from 1 (all) to 0 (in shadow): softened over a
@@ -1091,13 +1102,28 @@ namespace Vertex.Rendering.Shaders
                 diffuseLight = vec3(0.0);
                 specularLight = vec3(0.0);
 
+                // A baked light's light is in the lightmap and probes. Where something that moves blocks one that has a
+                // channel of the shadow mask, the light it blocks (as much of it as reached here when it was baked) is
+                // added up here, to take back out of the lightmap's.
+                bool lightmapped = vBaked.x > 0.5;
+                vec4 bakedReach = lightmapped ? textureLod(shadowMask, vLightmapUV, 0.0) : vec4(0.0);
+                vec3 blocked = vec3(0.0);
+
                 int shadowLight = int(frame.shadow.y);
                 for (int i = 0; i < frame.lightCounts.x; i++)
                 {
-                    // A baked one's light is in the lightmap and probes.
-                    if (frame.directionalDirection[i].w > 0.5) continue;
                     vec3 L = normalize(-frame.directionalDirection[i].xyz);
                     vec3 color = frame.directionalColor[i].rgb;
+                    float kind = frame.directionalDirection[i].w;
+                    if (kind > 0.5)
+                    {
+                        if (kind > 1.5 && lightmapped && i == shadowLight)
+                        {
+                            float facing = max(dot(worldNormal, L), 0.0);
+                            if (facing > 0.0) blocked += color * (facing * bakedReach[int(kind) - 2] * (1.0 - sunShadow(worldNormal, L)));
+                        }
+                        continue;
+                    }
                     if (i == shadowLight) color *= sunShadow(worldNormal, L);
                     addLight(N, V, L, color, F0, roughness);
                 }
@@ -1106,7 +1132,20 @@ namespace Vertex.Rendering.Shaders
                 for (int k = 0; k < cluster.y; k++)
                 {
                     int i = clusterLight(cluster.x + k);
-                    if (frame.pointPositionRange[i].w < 0.0) continue;
+                    if (frame.pointPositionRange[i].w < 0.0)
+                    {
+                        int shadow = lightShadow(i);
+                        int channel = lightMaskChannel(i);
+                        if (!lightmapped || shadow < 0 || channel < 0) continue;
+                        vec3 L;
+                        vec3 color = pointLight(i, vWorldPosition, L);
+                        float facing = max(dot(worldNormal, L), 0.0);
+                        if (facing > 0.0 && color.r + color.g + color.b > 0.0)
+                        {
+                            blocked += color * (facing * bakedReach[channel] * (1.0 - localShadow(shadow, frame.pointPositionRange[i].xyz, vWorldPosition, worldNormal, true)));
+                        }
+                        continue;
+                    }
                     vec3 L;
                     vec3 color = pointLight(i, vWorldPosition, L);
                     int shadow = lightShadow(i);
@@ -1128,7 +1167,7 @@ namespace Vertex.Rendering.Shaders
                 // its light didn't reach (indoors, under things), and rough surfaces reflect the baked light instead.
                 if (vBaked.x > 0.5 || vBaked.y > 0.5)
                 {
-                    vec3 bakedAround = vBaked.x > 0.5 ? bakedLightAt(vLightmapUV) : probeLight(N);
+                    vec3 bakedAround = lightmapped ? max(bakedLightAt(vLightmapUV) - blocked, vec3(0.0)) : probeLight(N);
                     vec3 bakedReflected = vBaked.x > 0.5 ? bakedAround : probeLight(R);
                     float open = clamp(dot(bakedReflected, vec3(0.3, 0.6, 0.1)) / max(dot(ambientLight(R) * ambientIntensity, vec3(0.3, 0.6, 0.1)), 1e-4), 0.0, 1.0);
                     around = bakedAround;

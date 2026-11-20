@@ -15,6 +15,10 @@ namespace Vertex.Rendering
     /// when something changes: the light moves or changes, or something that casts a shadow in its reach moves, changes
     /// or comes or goes. So a still scene's lamps cost a lookup or four per pixel, and nothing to draw. The nearest
     /// <see cref="MaxPerView"/> lights to the camera get them.
+    /// <para>
+    /// Baked lights with a channel of the shadow mask (see <see cref="BakedLighting.ShadowMask"/>) get them too, of only
+    /// what moves (their static shadows are baked), and only while something that moves is in their reach.
+    /// </para>
     /// </summary>
     internal sealed class LocalShadows
     {
@@ -79,7 +83,7 @@ namespace Vertex.Rendering
             var wanted = new List<int>();
             for (int i = 0; i < lights.Count && i < Shaders.ShaderLibrary.MaxPointLights; i++)
             {
-                if (lights[i].CastsShadows && !lights[i].Baked && lights[i].Owner != null) wanted.Add(i);
+                if (lights[i].CastsShadows && (!lights[i].Baked || lights[i].ShadowMask >= 0) && lights[i].Owner != null) wanted.Add(i);
             }
 
             Vector3 eye = frame.CameraPosition;
@@ -90,6 +94,19 @@ namespace Vertex.Rendering
             foreach (int index in wanted)
             {
                 PointLightData light = lights[index];
+
+                // What casts shadows within its reach. A baked light's static shadows are in the lightmap, so its are only
+                // of what moves (anything not drawn with the lightmap), and it needs none while nothing that moves is near.
+                inReach.Clear();
+                foreach ((DrawCall draw, Vector3 centre, Vector3 extents) in casters)
+                {
+                    if (light.Baked && draw.Baked.Lightmapped) continue;
+                    Vector3 nearest = Vector3.Clamp(light.Position, centre - extents, centre + extents);
+                    if (Vector3.DistanceSquared(nearest, light.Position) <= light.Range * light.Range) inReach.Add(draw);
+                }
+
+                if (light.Baked && inReach.Count == 0) continue;
+
                 bool point = !light.IsSpot;
                 int layers = point ? 6 : 1;
                 Slot? slot = SlotFor(light.Owner!, layers);
@@ -99,8 +116,7 @@ namespace Vertex.Rendering
                 float near = Math.Clamp(light.Range * 0.01f, 0.03f, 0.5f);
                 float far = MathF.Max(light.Range, near * 2f);
 
-                // What casts shadows within its reach, and a fingerprint of it all with the light, to tell whether it's changed.
-                inReach.Clear();
+                // A fingerprint of the light and what's in its reach, to tell whether it's changed.
                 ulong hash = 14695981039346656037UL;
                 void Add(float value) => hash = (hash ^ BitConverter.SingleToUInt32Bits(value)) * 1099511628211UL;
                 void AddVector(Vector3 v) { Add(v.X); Add(v.Y); Add(v.Z); }
@@ -108,11 +124,9 @@ namespace Vertex.Rendering
                 AddVector(light.Direction);
                 Add(light.Range);
                 Add(light.SpotOuter);
-                foreach ((DrawCall draw, Vector3 centre, Vector3 extents) in casters)
+                Add(light.Baked ? 1f : 0f);
+                foreach (DrawCall draw in inReach)
                 {
-                    Vector3 nearest = Vector3.Clamp(light.Position, centre - extents, centre + extents);
-                    if (Vector3.DistanceSquared(nearest, light.Position) > light.Range * light.Range) continue;
-                    inReach.Add(draw);
                     hash = (hash ^ (uint)RuntimeHelpers.GetHashCode(draw.Mesh)) * 1099511628211UL;
                     Add(draw.Mesh.Version);
                     Matrix4x4 m = draw.WorldMatrix;

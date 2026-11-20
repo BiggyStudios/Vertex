@@ -61,13 +61,19 @@ namespace Vertex.Editor.Panels
                 else moving++;
             }
 
-            int realtime = 0, mixed = 0, baked = 0, shadowed = 0;
+            // Baked lights that cast shadows have things that move cast shadows from them, if the bake found them a channel
+            // of the shadow mask: at most four can reach the same place.
+            bool isBaked = _context.Scene.Lighting.BakedLightingFile != "";
+            int realtime = 0, mixed = 0, baked = 0, shadowed = 0, movingShadows = 0, leftOut = 0;
             foreach (Light light in _context.Scene.FindComponents<Light>())
             {
                 if (light.Mode == LightMode.Baked) baked++;
                 else if (light.Mode == LightMode.Mixed) mixed++;
                 else realtime++;
                 if (light.Type != LightType.Directional && light.Mode != LightMode.Baked && light.CastShadows) shadowed++;
+                if (light.Mode != LightMode.Baked || !light.CastShadows) continue;
+                movingShadows++;
+                if (isBaked && light.ShadowMaskChannel < 0) leftOut++;
             }
 
             void Row(string label, string value, string? tooltip = null)
@@ -84,6 +90,10 @@ namespace Vertex.Editor.Panels
             Row("Mixed lights", $"{mixed}", "Light things as the game runs; their bounced light's baked");
             Row("Realtime lights", $"{realtime}", "Worked out every frame, with no bounce");
             Row("With shadows", $"{shadowed}", "Point and spot lights that aren't baked and cast shadows as the game runs");
+            Row("Moving shadows", leftOut > 0 ? $"{movingShadows - leftOut} ({leftOut} left out)" : $"{movingShadows}",
+                leftOut > 0
+                    ? "Baked lights with Cast Shadows on, so things that move cast shadows from them. Only four can reach the same place: the dimmest that overlap are left out, and only have their baked shadows"
+                    : "Baked lights with Cast Shadows on, so things that move cast shadows from them too");
             return y;
         }
 
