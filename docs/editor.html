@@ -93,7 +93,28 @@
     <p>Opening a game's <code>.csproj</code> directly (<strong>File › Open Project</strong>) works too: it's how a game made only in code is opened. See <a href="workflows.html#mixing-them">mixing workflows</a>.</p>
 
     <h2>Project settings</h2>
-    <p><strong>File › Project Settings</strong> holds the game's name and version, the <strong>Startup Scene</strong> the project opens on, how many <strong>physics steps</strong> a second it runs (FixedUpdate runs that often), and how detailed the sun's shadows are.</p>
+    <p><strong>File › Project Settings</strong> holds:</p>
+    <ul>
+        <li><strong>Game:</strong> its name, company and version (code reads them as <code>Application.Name</code>, <code>Company</code> and <code>Version</code>), and its <strong>Icon</strong>: a square picture from the Assets folder, ideally 256 × 256 or bigger.</li>
+        <li><strong>Starting:</strong> the <strong>Startup Scene</strong> the project opens on and the built game starts in, and the game's code.</li>
+        <li><strong>Window:</strong> how the built game's window opens (a window, maximized, or fullscreen), its size, whether it can be resized, and whether it uses Vulkan where it can or always OpenGL.</li>
+        <li><strong>Physics and graphics:</strong> how many physics steps a second it runs (FixedUpdate runs that often), and how detailed the sun's shadows are.</li>
+    </ul>
+
+    <h2>Building the game</h2>
+    <p><strong>File › Build Game</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) makes the game into something to give to players, who don't need the editor or .NET to play it. Choose the systems to build for and press <strong>Build</strong>. Each goes in a folder of its own in the project's <code>Builds</code> folder:</p>
+    <table>
+        <tr><th>System</th><th>What it makes</th></tr>
+        <tr><td><strong>Windows</strong></td><td>A folder with the game's <code>.exe</code>, named after the game, with its icon, name, version and company in its details. Zip the folder to share it.</td></tr>
+        <tr><td><strong>Linux</strong></td><td>A folder with the game's program, and its icon as <code>icon.png</code>.</td></tr>
+        <tr><td><strong>macOS</strong></td><td>A <code>.app</code> for Macs with Apple Silicon, with its icon. Built anywhere but a Mac, it has to be signed on a Mac before it opens: <code>codesign --force --deep -s - "My Game.app"</code>.</td></tr>
+    </table>
+    <ul>
+        <li>The game starts in its Startup Scene, or for a game whose code has a <code>Game</code> class of its own, with that.</li>
+        <li>Everything in the Assets folder goes with it, except the C# (that's built into the game). The open scene is saved first.</li>
+        <li>Building needs the .NET SDK, as building game code does. The first build for each system downloads that system's .NET runtime, so it takes a minute or two; after that a build takes seconds.</li>
+        <li>Files built on Windows lose the mark that says they're programs: on Linux and macOS, mark the game's program as one (<code>chmod +x</code>) if it doesn't start.</li>
+    </ul>
 
     <h2>Lighting and sky</h2>
     <p>Click the scene's row at the top of the outliner to edit its lighting: the sky and clouds, fog, the colour of the ground light bounces off, ambient occlusion, bloom, and how far shadows reach. The sky follows the first sun: turn it lower for a sunset.</p>
