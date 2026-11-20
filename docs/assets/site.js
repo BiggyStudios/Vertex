@@ -21,6 +21,7 @@ const Site = (() => {
             { href: "shaders.html", title: "Shaders and post effects", icon: "▦" },
             { href: "animation.html", title: "Animation", icon: "◈" },
             { href: "audio.html", title: "Sound and audio graphs", icon: "♪" },
+            { href: "ai.html", title: "Navigation and AI", icon: "⌖" },
             { href: "multiplayer.html", title: "Multiplayer", icon: "⇆" },
             { href: "workflows.html", title: "Code and the editor", icon: "⊞" }
         ] },

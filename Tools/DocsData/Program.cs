@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 using Vertex;
+using Vertex.AI;
 using Vertex.Animation;
 using Vertex.Audio;
 using Vertex.Effects;
@@ -52,7 +53,7 @@ JsonNode Nodes()
 {
     var types = new JsonObject();
     var libraries = new JsonObject();
-    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library, ShaderNodes.Library, AnimationNodes.Library })
+    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library, ShaderNodes.Library, AnimationNodes.Library, BehaviorNodes.Library })
     {
         var categories = new JsonObject();
         var nodes = new JsonArray();
@@ -146,11 +147,51 @@ JsonNode Graphs()
     graphs["Locomotion (Animation)"] = JsonNode.Parse(Locomotion().ToJson());
     graphs["Character (Animation)"] = JsonNode.Parse(Character().ToJson());
     graphs["States (Animation)"] = JsonNode.Parse(States().ToJson());
+
+    // Behaviour trees: the guard a new one starts as, and a sentry that patrols, turns to what it hears and chases what it sees.
+    graphs["Guard (Behavior)"] = JsonNode.Parse(BehaviorNodes.Starter().ToJson());
+    graphs["Sentry (Behavior)"] = JsonNode.Parse(Sentry().ToJson());
     return graphs;
 }
 
 // A state machine: idle, moving (walk and run blended by speed, linked in), and a jump from any state that falls once
 // it's played, until the character's on the ground again.
+// A sentry: chases the player while it sees them; turns to look when they're close by but unseen (it heard them); and
+// otherwise walks its route, stopping at each point.
+static Graph Sentry()
+{
+    var graph = new Graph(BehaviorNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Player", PortType.Object));
+    graph.Variables.Add(new GraphVariable("Route", PortType.Object));
+
+    GraphNode Add(string type, float x, float y, params (string Port, object Value)[] values)
+    {
+        GraphNode node = graph.AddNode(type, new Vector2(x, y));
+        foreach ((string port, object value) in values) node.Values[port] = value;
+        return node;
+    }
+
+    void Under(GraphNode parent, string port, params GraphNode[] children)
+    {
+        foreach (GraphNode child in children) graph.Link(parent.Id, port, child.Id, "Parent");
+    }
+
+    GraphNode root = Add("Root/Root", 0f, 200f);
+    GraphNode choose = Add("Composites/Selector", 220f, 200f);
+    Under(root, "Start", choose);
+
+    GraphNode chase = Add("Composites/Sequence", 460f, 0f, ("Recheck", "Both"));
+    Under(chase, "Children", Add("Conditions/Can See", 760f, -60f, ("Target", "Player")), Add("Movement/Move To", 760f, 100f, ("Target", "Player"), ("Stop Within", 1.5f), ("Speed", 5f)));
+
+    GraphNode listen = Add("Composites/Sequence", 460f, 270f, ("Recheck", "Both"));
+    Under(listen, "Children", Add("Conditions/Is Near", 760f, 250f, ("Target", "Player"), ("Distance", 5f)), Add("Movement/Look At", 760f, 370f, ("Target", "Player")));
+
+    GraphNode patrol = Add("Composites/Sequence", 460f, 500f);
+    Under(patrol, "Children", Add("Movement/Patrol", 760f, 490f, ("Waypoints", "Route")), Add("Actions/Wait", 760f, 610f, ("Seconds", 1f), ("Random", 1f)));
+    Under(choose, "Children", chase, listen, patrol);
+    return graph;
+}
+
 static Graph States()
 {
     var graph = new Graph(AnimationNodes.Kind);

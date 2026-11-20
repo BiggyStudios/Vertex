@@ -155,6 +155,9 @@
         <li>Until a scene has been baked, Baked lights light it as they're worked out, so you can see them while you build.</li>
         <li>Things that move cast shadows from Baked lights that have <strong>Cast Shadows</strong> on, onto static things too: the bake keeps how much of each light reached each part of the lightmap, and where something that moves blocks one, its light is taken back out. Up to four of these lights can reach the same place; if more overlap, the dimmest only have their baked shadows, and the Lighting panel's <strong>Moving shadows</strong> says how many were left out. These shadows only cost anything while something that moves is near the light.</li>
     </ul>
+
+    <h2>Navigation</h2>
+    <p>The <strong>Navigation</strong> panel (<strong>View › Navigation</strong>) bakes the scene's navmesh, where characters can walk, from its scenery's colliders and static meshes, for the size of character set there. While it's open, the navmesh is drawn over the scene view. <a href="ai.html">Navigation and AI</a> has the rest: agents, and behaviour trees to decide what characters do.</p>
 </main>
 </div>
 <script src="assets/site.js"></script>

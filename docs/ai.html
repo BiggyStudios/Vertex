@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Navigation and AI · Vertex docs</title>
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="layout">
+<main class="content">
+    <span class="eyebrow">Guide</span>
+    <h1>Navigation and AI</h1>
+    <p class="lead">Characters that find their way round and decide what to do. A <strong>navmesh</strong> says where they can walk, a <strong>Nav Mesh Agent</strong> walks them there the shortest way, and a <strong>behaviour tree</strong> decides where: chase the player when they're seen, look round when they're heard, otherwise patrol.</p>
+
+    <h2>Examples</h2>
+    <p>Two behaviour trees, as they look in the editor. Drag to pan, scroll to zoom, and hover a node to see what it does.</p>
+    <p class="chips" id="graph-picks"></p>
+    <div id="graph-demo"></div>
+
+    <h2>The navmesh</h2>
+    <p>The navmesh is the ground characters can walk on: floors, stairs and ramps that are flat enough, with room above for a character, kept a character's width away from walls and drops. It's made from what never moves:</p>
+    <ul>
+        <li>the colliders of objects without a <strong>Rigidbody</strong> (scenery), and</li>
+        <li>the meshes of Mesh Renderers with <strong>Static</strong> ticked.</li>
+    </ul>
+    <p>Characters, and things physics moves, aren't part of it, and nor is anything under them (a character's body).</p>
+    <ol>
+        <li>Open <strong>View › Navigation</strong>. It says how many objects the navmesh is made from.</li>
+        <li>Set the size of your characters under <strong>Agents</strong> (see below).</li>
+        <li>Save the scene, then press <strong>Bake</strong>. It bakes in the background, saves the navmesh in a <code>.navmesh</code> file beside the scene, and saves the scene.</li>
+    </ol>
+    <div class="figure reveal"><img src="images/navmesh.jpg" alt="A yard in the scene view with the navmesh drawn over it in blue: round a crate, up a ramp onto a platform, and kept clear of the walls"><figcaption>While the Navigation panel's open, the navmesh is drawn over the scene: up the ramp and onto the platform, round the crate, and clear of the walls by a character's radius.</figcaption></div>
+    <table>
+        <tr><th>Setting</th><th></th></tr>
+        <tr><td>Agent Radius</td><td>How far from their middle the characters reach. The navmesh keeps this far from walls and edges.</td></tr>
+        <tr><td>Agent Height</td><td>How tall they are: they don't go under anything lower.</td></tr>
+        <tr><td>Step Height</td><td>The highest step they walk up or down: kerbs and stairs.</td></tr>
+        <tr><td>Max Slope</td><td>The steepest slope they walk on, in degrees.</td></tr>
+        <tr><td>Cell Size</td><td>The size of the squares the navmesh is made of. Smaller follows the ground more closely and fits through narrower gaps, and takes longer to bake.</td></tr>
+        <tr><td>Min Area</td><td>Patches smaller than this many square units are left out: the tops of crates and tables.</td></tr>
+    </table>
+    <p>Move a wall or change a setting and bake again; <strong>Clear</strong> takes the navmesh away. A scene that hasn't been baked gets a navmesh made when the game starts, so agents work straight away. That takes a moment in a big scene (a city block took about a second), so bake it before you ship. A level built as the game runs can make its own: <code>scene.Navigation.NavMesh = NavMesh.Build(scene);</code></p>
+
+    <h2>Agents</h2>
+    <p>A <strong>Nav Mesh Agent</strong> (<strong>Add Component › AI › Nav Mesh Agent</strong>) walks its object round the navmesh. Send it somewhere and it finds the way, round walls and up stairs. It speeds up, turns to face where it's going, slows to stop where it was sent, and steps round other agents rather than through them.</p>
+    <table>
+        <tr><th>Setting</th><th></th></tr>
+        <tr><td>Speed</td><td>The fastest it walks, in units a second.</td></tr>
+        <tr><td>Acceleration</td><td>How quickly it gets up to speed and slows down.</td></tr>
+        <tr><td>Turn Speed</td><td>How fast it turns to face where it's going, in degrees a second. 0 leaves its turning to you.</td></tr>
+        <tr><td>Stopping Distance</td><td>How near where it's going it stops.</td></tr>
+        <tr><td>Radius</td><td>How far it keeps from other agents.</td></tr>
+        <tr><td>Avoid Others</td><td>Steps round other agents. Two meeting head on each keep to their right.</td></tr>
+    </table>
+    <p>On its own, an agent moves its object along the navmesh's ground. With a <strong>Character Controller</strong> on the same object, it moves that instead, with gravity, so the character is blocked and pushed like any other.</p>
+    <pre class="cs">var agent = GetComponent&lt;NavMeshAgent&gt;()!;
+agent.SetDestination(player.Transform.WorldPosition);
+
+if (agent.Arrived) Log.Info("Got there");
+agent.Stop();
+
+// Ways across the navmesh, without an agent.
+NavMesh navMesh = NavMesh.For(Scene.Active);
+var path = new NavMeshPath();
+if (navMesh.FindPath(from, to, path)) Log.Info($"{path.Corners.Count} corners, {path.Length:0.0} long");
+navMesh.RandomPoint(Transform.WorldPosition, 10f, out Vector3 somewhere);</pre>
+    <p>If where it's sent can't be reached (the top of a wall), it goes as near as it can. Its <code>PathStatus</code> says <code>Partial</code>.</p>
+
+    <h2>Behaviour trees</h2>
+    <p>A behaviour tree (a <code>.btree</code> file) is how a character decides what to do. Add a <strong>Behavior Tree</strong> component to the character, beside its Nav Mesh Agent, and press <strong>New Behavior Tree</strong> under it. The new tree is a guard: it chases its <strong>Target</strong> while it can see it, and otherwise wanders about, stopping now and then. Choose its Target (the player) under the component.</p>
+    <div class="figure reveal"><img src="images/behavior-tree.jpg" alt="The new guard tree in the editor while the game plays: Root, a Selector, a chase Sequence of Can See and Move To, and an idle Sequence of Wander and Wait, the running ones outlined"><figcaption>The tree a new one starts as, while the game plays. What's running lights up, with the wires to it.</figcaption></div>
+    <p>Each frame the tree runs from the <strong>Root</strong>, along the wires to the right. Each task it reaches says how it's doing:</p>
+    <ul>
+        <li><strong>running</strong> (still walking somewhere, still waiting), and it carries on from there next frame;</li>
+        <li><strong>succeeded</strong>; or</li>
+        <li><strong>failed</strong> (it can't see the player).</li>
+    </ul>
+    <p>The tasks under a node run <strong>from the top down</strong>, in the order they're placed: drag one higher to make it go first. The small numbers on their headers show the order. A task has one parent, so linking it somewhere else moves it. When the Root's task finishes, the tree starts again from the top (unless the component's <strong>Loop</strong> is off).</p>
+    <table>
+        <tr><th>Node</th><th>Does</th></tr>
+        <tr><td><strong>Selector</strong></td><td>Tries what's under it in order until one doesn't fail. Put what matters most at the top: chase, otherwise patrol.</td></tr>
+        <tr><td><strong>Sequence</strong></td><td>Does what's under it in order, and fails as soon as one fails. Put conditions first: Can See, then Move To.</td></tr>
+        <tr><td><strong>Parallel</strong></td><td>Runs everything under it at once, until all have succeeded (or any has, as you choose).</td></tr>
+        <tr><td><strong>Random</strong></td><td>Does one of what's under it, picked at random.</td></tr>
+        <tr><td><strong>Invert</strong>, <strong>Always Succeed</strong></td><td>Swap or ignore what the task under them says.</td></tr>
+        <tr><td><strong>Repeat</strong>, <strong>Retry</strong></td><td>Run the task under them again when it succeeds, or when it fails.</td></tr>
+        <tr><td><strong>Cooldown</strong>, <strong>Time Limit</strong></td><td>Don't run it again too soon; give up on it if it takes too long.</td></tr>
+        <tr><td><strong>If</strong></td><td>Runs the task under it while a condition (linked from Compare, Get Variable...) is true.</td></tr>
+        <tr><td><strong>Can See</strong>, <strong>Is Near</strong>, <strong>Is Variable Set</strong>, <strong>Check</strong>, <strong>Chance</strong></td><td>Conditions: they succeed or fail straight away.</td></tr>
+        <tr><td><strong>Move To</strong>, <strong>Wander</strong>, <strong>Patrol</strong>, <strong>Flee</strong>, <strong>Look At</strong>, <strong>Stop</strong></td><td>Movement, with the character's Nav Mesh Agent. Move To follows an object as it moves; Patrol goes to the next child of a waypoints object each time.</td></tr>
+        <tr><td><strong>Wait</strong>, <strong>Set Variable</strong>, <strong>Play Animation</strong>, <strong>Play Sound</strong>, <strong>Send Event</strong>, <strong>Call Method</strong>, <strong>Log</strong></td><td>Actions. Send Event starts visual scripts' On Event nodes; Call Method runs a method of the character's own C# components.</td></tr>
+    </table>
+    <p>The <a href="nodes.html?kind=behavior">node reference</a> has every input of every one. A task that goes wrong (a Move To on a character with no Nav Mesh Agent) is outlined red with what's wrong, said in the Console, and the tree stops.</p>
+
+    <h3>Reacting as things change</h3>
+    <p>A condition is checked when it's reached, so a guard walking somewhere wouldn't notice the player until it got there. A Sequence's <strong>Recheck</strong> says when its conditions (the ones before what's running) are checked again:</p>
+    <table>
+        <tr><th>Recheck</th><th></th></tr>
+        <tr><td>Never</td><td>Only when they're reached.</td></tr>
+        <tr><td>While Running</td><td>Every frame while it runs: when one stops being true, it stops what it's doing and fails. The guard stops chasing when it loses sight of the player.</td></tr>
+        <tr><td>To Interrupt</td><td>Every frame while something after it, under the same Selector, runs: when they're all true, that's stopped and this runs instead. The guard stops patrolling as soon as it sees the player.</td></tr>
+        <tr><td>Both</td><td>Both: the usual choice for a chase.</td></tr>
+    </table>
+    <p>An <strong>If</strong> has the same setting, for its condition.</p>
+
+    <h3>Variables</h3>
+    <p>A tree's <strong>Variables</strong> (the button in its toolbar) are what the character knows: the player it's after, the route it patrols, where it last heard something. Each character running the tree has its own.</p>
+    <ul>
+        <li><strong>In the inspector:</strong> under the Behavior Tree component. Set one there and it's this character's own.</li>
+        <li><strong>In the tree:</strong> Set Variable, and Get Variable for values (Position Of and Distance To read objects and places).</li>
+        <li><strong>From C#:</strong> <code>tree.SetVariable("Target", player)</code> and <code>tree.GetVariable("Target")</code>.</li>
+        <li><strong>From a visual script:</strong> the <strong>Set Tree Variable</strong> node.</li>
+    </ul>
+    <p>Trees save themselves as you edit them. While the game plays, open a tree's tab to watch it: what's running lights up. Changes take effect straight away.</p>
+
+    <h3>Your own tasks in C#</h3>
+    <p><strong>Call Method</strong> runs a method of one of the character's components that takes nothing. One that returns nothing (or <code>true</code>) succeeds, <code>false</code> fails, and <code>BehaviorStatus.Running</code> keeps it going: it's called again next frame.</p>
+    <pre class="cs">public class Turret : Component
+{
+    private float _heat;
+
+    // In the tree: Call Method, with Method set to "Fire".
+    public BehaviorStatus Fire()
+    {
+        if (_heat > 1f) return BehaviorStatus.Failure;
+        _heat += 0.25f;
+        return BehaviorStatus.Success;
+    }
+}</pre>
+
+    <h2>From visual scripts</h2>
+    <table>
+        <tr><th>Node</th><th>Does</th></tr>
+        <tr><td>Set Destination</td><td>Sends an object's Nav Mesh Agent somewhere.</td></tr>
+        <tr><td>Stop Moving</td><td>Stops it where it is.</td></tr>
+        <tr><td>Has Arrived</td><td>Whether it's got to where it was sent.</td></tr>
+        <tr><td>Set Tree Variable</td><td>Sets one of the variables of an object's behaviour tree.</td></tr>
+    </table>
+
+    <div class="note"><p>Not yet: links for jumping across gaps or climbing ladders; obstacles that move cutting holes in the navmesh as the game runs; and one navmesh for characters of different sizes.</p></div>
+</main>
+</div>
+<script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (async () => {
+        await Site.load("data/nodes.js");
+        await Site.load("data/graphs.js");
+        const names = Object.keys(window.VertexGraphs).filter(n => n.includes("(Behavior)"));
+        const picks = document.getElementById("graph-picks");
+        const demo = document.getElementById("graph-demo");
+        const pick = name => {
+            picks.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.name === name));
+            GraphView.mount(demo, name);
+        };
+        picks.innerHTML = names.map(n => `<button class="chip" data-name="${n}">${n.replace(" (Behavior)", "")}</button>`).join("");
+        picks.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => pick(c.dataset.name)));
+        pick(names[0]);
+    })();
+</script>
+</body>
+</html>
