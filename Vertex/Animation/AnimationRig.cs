@@ -15,9 +15,18 @@ namespace Vertex.Animation
         public Vector3[] Scales = [];
         public Vector4[] Values = [];
 
+        /// <summary>
+        /// With root motion (<see cref="Animator.RootMotion"/>): how far the character moves this frame, in its own space,
+        /// and how much it turns. Blended like the rest, so half a walk moves half as far.
+        /// </summary>
+        public Vector3 Move;
+        public Quaternion Turn = Quaternion.Identity;
+
         /// <summary>Makes it the same as <paramref name="other"/>, resizing to fit if the rig has grown.</summary>
         public void CopyFrom(Pose other)
         {
+            Move = other.Move;
+            Turn = other.Turn;
             Fit(ref Positions, other.Positions.Length);
             Fit(ref Rotations, other.Rotations.Length);
             Fit(ref Scales, other.Scales.Length);
@@ -35,7 +44,8 @@ namespace Vertex.Animation
 
         /// <summary>
         /// Moves it <paramref name="weight"/> of the way to <paramref name="other"/> (0 leaves it, 1 makes it the same).
-        /// With a <paramref name="mask"/>, only the objects marked in it move; component settings always do.
+        /// With a <paramref name="mask"/>, only the objects marked in it move, and the character's root motion stays this
+        /// pose's; component settings always do.
         /// </summary>
         public void Blend(Pose other, float weight, bool[]? mask = null)
         {
@@ -44,6 +54,12 @@ namespace Vertex.Animation
             {
                 CopyFrom(other);
                 return;
+            }
+
+            if (mask == null)
+            {
+                Move = Vector3.Lerp(Move, other.Move, Math.Min(weight, 1f));
+                Turn = Quaternion.Slerp(Turn, other.Turn, Math.Min(weight, 1f));
             }
 
             int transforms = Math.Min(Positions.Length, other.Positions.Length);
@@ -113,6 +129,8 @@ namespace Vertex.Animation
 
         private readonly List<Transform> _transforms = new();
         private readonly Dictionary<Transform, int> _indices = new();
+        private readonly List<int> _parents = new();
+        private readonly List<int> _depths = new();
         private readonly List<ValueChannel> _values = new();
         private readonly Dictionary<string, int> _valueIndices = new();
         private readonly Dictionary<AnimationClip, ClipBinding> _bindings = new(ReferenceEqualityComparer.Instance);
@@ -129,7 +147,7 @@ namespace Vertex.Animation
         public AnimationRig(GameObject root)
         {
             Root = root;
-            Collect(root.Transform);
+            Collect(root.Transform, -1, 0);
             _uses = new byte[_transforms.Count];
             Rest.Positions = new Vector3[_transforms.Count];
             Rest.Rotations = new Quaternion[_transforms.Count];
@@ -142,11 +160,14 @@ namespace Vertex.Animation
             }
         }
 
-        private void Collect(Transform transform)
+        private void Collect(Transform transform, int parent, int depth)
         {
-            _indices[transform] = _transforms.Count;
+            int index = _transforms.Count;
+            _indices[transform] = index;
             _transforms.Add(transform);
-            foreach (Transform child in transform.Children) Collect(child);
+            _parents.Add(parent);
+            _depths.Add(depth);
+            foreach (Transform child in transform.Children) Collect(child, index, depth + 1);
         }
 
         /// <summary>A new pose, at rest.</summary>
@@ -437,5 +458,177 @@ namespace Vertex.Animation
 
         /// <summary>Puts everything any clip has animated back as it was when the rig was made.</summary>
         public void ResetPose() => Apply(Rest);
+
+        // ---------------------------------------------------------------- Root motion
+
+        /// <summary>
+        /// The object whose movement through an animation is the character's (see <see cref="Animator.RootMotion"/>): the one
+        /// called <paramref name="name"/>, or with no name, the highest one an animation moves (the animator's own object, or
+        /// a model's hips). -1 if there's none.
+        /// </summary>
+        public int MotionRoot(string name)
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                string trimmed = name.Trim();
+                for (int i = 0; i < _transforms.Count; i++)
+                {
+                    if (_transforms[i].GameObject.Name == trimmed) return i;
+                }
+
+                return -1;
+            }
+
+            if ((_uses[0] & (_usesPosition | _usesRotation)) != 0) return 0;
+            int best = -1;
+            for (int i = 1; i < _transforms.Count; i++)
+            {
+                if ((_uses[i] & _usesPosition) != 0 && (best < 0 || _depths[i] < _depths[best])) best = i;
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Works out how far <paramref name="clip"/> moves and turns the character going from <paramref name="from"/> to
+        /// <paramref name="to"/> seconds of playing (round the loop as many times as that takes), into the pose's
+        /// <see cref="Pose.Move"/> and <see cref="Pose.Turn"/>.
+        /// </summary>
+        public void Move(AnimationClip clip, float from, float to, int root, Pose pose)
+        {
+            pose.Move = Vector3.Zero;
+            pose.Turn = Quaternion.Identity;
+            float length = clip.Length;
+            if (root < 0 || root >= _transforms.Count || to == from || length <= 0f) return;
+
+            ClipBinding binding = Bind(clip);
+            (Vector3 Move, Quaternion Turn) total;
+            if (!clip.Loop)
+            {
+                total = Step(binding, root, Math.Clamp(from, 0f, length), Math.Clamp(to, 0f, length));
+            }
+            else
+            {
+                float round = MathF.Floor(from / length), last = MathF.Floor(to / length);
+                float start = from - round * length, end = to - last * length;
+                if (round == last) total = Step(binding, root, start, end);
+                else if (to > from)
+                {
+                    // To the end, round again as many whole times as it went, then on from the start.
+                    total = Step(binding, root, start, length);
+                    var whole = Step(binding, root, 0f, length);
+                    for (float r = round + 1f; r < last && r < round + 8f; r++) total = Then(total, whole);
+                    total = Then(total, Step(binding, root, 0f, end));
+                }
+                else
+                {
+                    total = Then(Step(binding, root, start, 0f), Step(binding, root, length, end));
+                }
+            }
+
+            pose.Move = total.Move;
+            pose.Turn = total.Turn;
+        }
+
+        private static (Vector3 Move, Quaternion Turn) Then((Vector3 Move, Quaternion Turn) first, (Vector3 Move, Quaternion Turn) second) =>
+            (first.Move + Vector3.Transform(second.Move, first.Turn), Quaternion.Normalize(first.Turn * second.Turn));
+
+        /// <summary>How the character moves from one moment of a clip to another, in the way it faces at the first.</summary>
+        private (Vector3 Move, Quaternion Turn) Step(ClipBinding binding, int root, float from, float to)
+        {
+            (Vector3 p0, Quaternion q0) = RootAt(binding, root, from);
+            (Vector3 p1, Quaternion q1) = RootAt(binding, root, to);
+            Quaternion facing0 = Facing(root, q0), facing1 = Facing(root, q1);
+            Vector3 move = Vector3.Transform(p1 - p0, Quaternion.Inverse(facing0));
+            // A bone's movement up and down (a walk's bob) stays in the pose: only its movement along the ground is the character's.
+            if (root != 0) move.Y = 0f;
+            return (move, Quaternion.Normalize(Quaternion.Inverse(facing0) * facing1));
+        }
+
+        /// <summary>Which way the character faces, from how its root is turned: all of the turn for its own object, a bone's turn round the up axis.</summary>
+        private Quaternion Facing(int root, Quaternion rotation)
+        {
+            if (root == 0) return rotation;
+            Quaternion rest = InRootSpace(root, Rest.Positions[root], Rest.Rotations[root], Rest).Rotation;
+            return Yaw(rotation * Quaternion.Inverse(rest));
+        }
+
+        /// <summary>The part of a rotation that's round the up axis.</summary>
+        private static Quaternion Yaw(Quaternion rotation)
+        {
+            var twist = new Quaternion(0f, rotation.Y, 0f, rotation.W);
+            float length = twist.Length();
+            return length < 1e-6f ? Quaternion.Identity : Quaternion.Normalize(twist);
+        }
+
+        /// <summary>Where the root is in a clip at <paramref name="time"/>, in the animator's space (its own object's: in its parent's).</summary>
+        private (Vector3 Position, Quaternion Rotation) RootAt(ClipBinding binding, int root, float time)
+        {
+            Vector3 position = Rest.Positions[root];
+            Quaternion rotation = Rest.Rotations[root];
+            foreach (BoundTrack bound in binding.Tracks)
+            {
+                if (bound.Kind == ChannelKind.Value || bound.Index != root) continue;
+                Vector4 value = bound.Track.Sample(time);
+                switch (bound.Kind)
+                {
+                    case ChannelKind.Position: position = new Vector3(value.X, value.Y, value.Z); break;
+                    case ChannelKind.Rotation:
+                        var q = new Quaternion(value.X, value.Y, value.Z, value.W);
+                        rotation = q.LengthSquared() > 1e-8f ? Quaternion.Normalize(q) : Quaternion.Identity;
+                        break;
+                    case ChannelKind.Euler: rotation = Transform.FromEuler(new Vector3(value.X, value.Y, value.Z)); break;
+                }
+            }
+
+            return root == 0 ? (position, rotation) : InRootSpace(root, position, rotation, Rest);
+        }
+
+        /// <summary>A position and rotation of object <paramref name="index"/>, from its parent's space into the root's (with the objects between as <paramref name="chain"/> has them).</summary>
+        private (Vector3 Position, Quaternion Rotation) InRootSpace(int index, Vector3 position, Quaternion rotation, Pose chain)
+        {
+            for (int p = _parents[index]; p > 0; p = _parents[p])
+            {
+                position = Vector3.Transform(position * chain.Scales[p], chain.Rotations[p]) + chain.Positions[p];
+                rotation = chain.Rotations[p] * rotation;
+            }
+
+            return (position, rotation);
+        }
+
+        /// <summary>The other way to <see cref="InRootSpace"/>: from the root's space into object <paramref name="index"/>'s parent's.</summary>
+        private (Vector3 Position, Quaternion Rotation) FromRootSpace(int index, Vector3 position, Quaternion rotation, Pose chain)
+        {
+            var between = new List<int>();
+            for (int p = _parents[index]; p > 0; p = _parents[p]) between.Add(p);
+            for (int i = between.Count - 1; i >= 0; i--)
+            {
+                int p = between[i];
+                Quaternion inverse = Quaternion.Inverse(chain.Rotations[p]);
+                Vector3 scale = chain.Scales[p];
+                position = Vector3.Transform(position - chain.Positions[p], inverse);
+                position = new Vector3(Divide(position.X, scale.X), Divide(position.Y, scale.Y), Divide(position.Z, scale.Z));
+                rotation = inverse * rotation;
+            }
+
+            return (position, rotation);
+
+            static float Divide(float value, float by) => MathF.Abs(by) > 1e-8f ? value / by : value;
+        }
+
+        /// <summary>
+        /// Takes the root's movement along the ground and its turn out of <paramref name="pose"/>, so the character animates
+        /// in place while the animator moves it instead. For the animator's own object, nothing's taken: it's moved.
+        /// </summary>
+        public void KeepInPlace(int root, Pose pose)
+        {
+            if (root <= 0 || root >= _transforms.Count || root >= pose.Positions.Length) return;
+            (Vector3 position, Quaternion rotation) = InRootSpace(root, pose.Positions[root], pose.Rotations[root], pose);
+            (Vector3 restPosition, _) = InRootSpace(root, Rest.Positions[root], Rest.Rotations[root], Rest);
+            Quaternion facing = Facing(root, rotation);
+            position = new Vector3(restPosition.X, position.Y, restPosition.Z);
+            rotation = Quaternion.Normalize(Quaternion.Inverse(facing) * rotation);
+            (pose.Positions[root], pose.Rotations[root]) = FromRootSpace(root, position, rotation, pose);
+        }
     }
 }

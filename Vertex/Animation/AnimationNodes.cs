@@ -58,6 +58,7 @@ namespace Vertex.Animation
         internal const string Switch = "Blend/Switch";
         internal const string Layer = "Blend/Layer";
         internal const string PlayOnce = "Blend/Play Once";
+        internal const string StateMachine = "Blend/State Machine";
         internal const string GetParameter = "Parameters/Get Parameter";
         internal const string Add = "Math/Add";
         internal const string Subtract = "Math/Subtract";
@@ -138,6 +139,15 @@ namespace Vertex.Animation
                     In("Fade In", PortType.Number, 0.15f, "Seconds to blend into the action"), In("Fade Out", PortType.Number, 0.25f, "Seconds to blend back out at its end")],
                 [PoseOut], "Plays an action once over a pose when Play turns true (a trigger the game sets), then blends back: attacks, jumps, reloads.",
                 "one shot action trigger attack jump montage");
+
+            library.Add(new NodeType(StateMachine, "State Machine", "Blend", [], [PoseOut])
+            {
+                Description = "States the character is in (idle, running, jumping, attacking), each playing an animation or what's linked into its input, " +
+                              "and transitions between them, taken when parameters say (Speed over 0.1, Jump triggered) or when an animation's done. " +
+                              "Double-click it to open: drag animations in to make states, and drag from one state to another to join them.",
+                Keywords = "states transitions fsm state machine locomotion controller",
+                InputsFromNode = node => AnimationStateMachine.Of(node).Ports()
+            });
 
             // ---------------------------------------------------------------- Parameters
 

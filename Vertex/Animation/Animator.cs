@@ -1,3 +1,5 @@
+using System.Numerics;
+
 using Vertex.Graphs;
 using Vertex.Scripting;
 
@@ -29,6 +31,22 @@ namespace Vertex.Animation
         [Range(0f, 3f)]
         public float Speed { get; set; } = 1f;
 
+        [Tooltip("The animations move the character through the world (a walk walks it forward) instead of playing on the spot. With a Character Controller or Rigidbody, it sets their velocity along the ground instead")]
+        public bool RootMotion { get; set; }
+
+        [Tooltip("The object whose movement is the character's, by name (a model's hips or root bone). Empty for the highest one the animations move")]
+        public string RootMotionFrom { get; set; } = "";
+
+        /// <summary>With <see cref="RootMotion"/> on, how fast the animation moved the character last frame, in the world (units a second).</summary>
+        [HideInInspector]
+        [Serialization.DontSave]
+        public Vector3 RootMotionVelocity { get; private set; }
+
+        /// <summary>With <see cref="RootMotion"/> on, how much the animation turned the character last frame.</summary>
+        [HideInInspector]
+        [Serialization.DontSave]
+        public Quaternion RootMotionTurn { get; private set; } = Quaternion.Identity;
+
         /// <summary>This object's own starting values for the animation graph's parameters, in place of the graph's. Set in the inspector, under the animator.</summary>
         [HideInInspector]
         public List<ScriptVariableValue> Parameters { get; set; } = new();
@@ -56,6 +74,20 @@ namespace Vertex.Animation
 
         /// <summary>What it animates, looked up the first time it's needed.</summary>
         internal AnimationRig Rig => _rig ??= new AnimationRig(GameObject);
+
+        private int? _motionRoot;
+
+        /// <summary>The object root motion comes from, as a place in the rig; -1 with root motion off. Looked up once a frame, the first time a clip's sampled.</summary>
+        internal int MotionRoot => _motionRoot ??= RootMotion ? Rig.MotionRoot(RootMotionFrom) : -1;
+
+        /// <summary>A clip sampled from <paramref name="from"/> to <paramref name="to"/> seconds of playing: with root motion, how far it moved the character, into the pose.</summary>
+        internal void Moved(AnimationClip clip, float from, float to, Pose pose)
+        {
+            if (RootMotion) Rig.Move(clip, from, to, MotionRoot, pose);
+        }
+
+        /// <summary>The state its animation graph's state machine is in ("Idle", "Jump"); null without one.</summary>
+        public string? State => _layers.Count > 0 ? _layers[0].Graph?.CurrentState : null;
 
         /// <summary>Whether it's playing anything.</summary>
         public bool IsPlaying => _layers.Count > 0;
@@ -179,6 +211,7 @@ namespace Vertex.Animation
         public void Rebind()
         {
             _rig = null;
+            _motionRoot = null;
             _pose = _layerPose = null;
             foreach (Layer layer in _layers) layer.Graph?.Rebind();
         }
@@ -190,6 +223,9 @@ namespace Vertex.Animation
             {
                 if (animator.Started) animator.Animate(deltaTime);
             }
+
+            // Then IK bends what they posed: a hand to a handle, a head to look, feet onto the ground.
+            InverseKinematics.SolveAll(scene);
         }
 
         /// <summary>Moves what's playing on by <paramref name="deltaTime"/> seconds and poses the objects.</summary>
@@ -198,6 +234,7 @@ namespace Vertex.Animation
             if (_layers.Count == 0) return;
             float step = deltaTime * Speed;
             AnimationRig rig = Rig;
+            _motionRoot = null;
 
             // Fades, and clips over a graph that are ending.
             for (int i = 0; i < _layers.Count; i++)
@@ -251,16 +288,68 @@ namespace Vertex.Animation
                     float before = layer.Time;
                     layer.Time += step;
                     rig.Sample(clip, clip.Wrap(layer.Time), target);
+                    Moved(clip, before, layer.Time, target);
                     if (layer.Weight >= 0.5f) Passed(clip, before, layer.Time);
                 }
 
                 if (i != top) _pose.Blend(_layerPose, layer.Weight);
             }
 
+            if (RootMotion) MoveByRoot(_pose, deltaTime);
             rig.Apply(_pose);
 
             foreach (string trigger in _triggers) _parameters[trigger] = false;
             _triggers.Clear();
+        }
+
+        /// <summary>
+        /// Root motion: moves and turns the object by what the animations moved their root this frame, and keeps the root in
+        /// place in the pose. A Character Controller or Rigidbody on the object is given the movement as its velocity along
+        /// the ground instead (its fall kept), so it still collides.
+        /// </summary>
+        private void MoveByRoot(Pose pose, float deltaTime)
+        {
+            int root = MotionRoot;
+            RootMotionVelocity = default;
+            RootMotionTurn = Quaternion.Identity;
+            if (root < 0) return;
+
+            Transform transform = Transform;
+            // The movement is in the character's own space: its own object's moves along the way it faces now; a bone's
+            // through the object, scaled with it.
+            Vector3 local = root == 0
+                ? Vector3.Transform(pose.Move, transform.Rotation)
+                : Vector3.Transform(pose.Move * transform.Scale, transform.Rotation);
+            Vector3 world = transform.Parent is { } parent ? Vector3.TransformNormal(local, parent.WorldMatrix) : local;
+            RootMotionVelocity = deltaTime > 0f ? world / deltaTime : default;
+            RootMotionTurn = pose.Turn;
+
+            Vector3 velocity = RootMotionVelocity;
+            if (GetComponent<Physics.CharacterController>() is { } controller)
+            {
+                controller.Velocity = new Vector3(velocity.X, controller.Velocity.Y, velocity.Z);
+            }
+            else if (GetComponent<Physics.Rigidbody>() is { IsKinematic: false } body)
+            {
+                body.Velocity = new Vector3(velocity.X, body.Velocity.Y, velocity.Z);
+            }
+            else
+            {
+                transform.Position += local;
+            }
+
+            transform.Rotation = Quaternion.Normalize(transform.Rotation * pose.Turn);
+
+            if (root == 0)
+            {
+                // The object's own tracks are its movement now, not where it's put.
+                pose.Positions[0] = transform.Position;
+                pose.Rotations[0] = transform.Rotation;
+            }
+            else
+            {
+                Rig.KeepInPlace(root, pose);
+            }
         }
 
         /// <summary>Sends the events <paramref name="clip"/> passed going from <paramref name="from"/> to <paramref name="to"/> seconds of playing.</summary>

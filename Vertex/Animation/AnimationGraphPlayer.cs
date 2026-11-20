@@ -21,7 +21,21 @@ namespace Vertex.Animation
             public float[] Weights = [];
             public bool Playing, WasPlay;
             public float Elapsed, Length;
+
+            // A state machine's: the state it's in, how long it's been in it, each state's share of the pose and how far
+            // into its own animation it is, and how fast the fade going on goes.
+            public int Current = -1;
+            public float InState;
+            public float[] Times = [];
+            public float Fade;
+            public AnimationStateMachine? Machine;
         }
+
+        /// <summary>The state the graph's state machine is in (the first one played this frame), for <see cref="Animator.State"/>.</summary>
+        public string? CurrentState { get; private set; }
+
+        // The frame State was last set in: the first state machine played in a frame sets it.
+        private int _stateFrame = -1;
 
         private const int _maxDepth = 64;
 
@@ -57,6 +71,7 @@ namespace Vertex.Animation
             if (_settingsVersion != _graph.Version)
             {
                 _settings.Clear();
+                _stateClips.Clear();
                 _settingsVersion = _graph.Version;
             }
 
@@ -141,6 +156,7 @@ namespace Vertex.Animation
                     case AnimationNodes.Switch: Switch(node, into, weight); break;
                     case AnimationNodes.Layer: Layer(node, into, weight); break;
                     case AnimationNodes.PlayOnce: PlayOnce(node, into, weight); break;
+                    case AnimationNodes.StateMachine: StateMachine(node, into, weight); break;
                     default: into.CopyFrom(Rig.Rest); break;
                 }
             }
@@ -168,6 +184,7 @@ namespace Vertex.Animation
             state.Time += _deltaTime * Number(node, "Speed");
             into.CopyFrom(Rig.Rest);
             Rig.Sample(clip, clip.Wrap(state.Time), into);
+            _animator.Moved(clip, before, state.Time, into);
             if (weight >= 0.5f) _animator.Passed(clip, before, state.Time);
         }
 
@@ -369,11 +386,158 @@ namespace Vertex.Animation
             Return(action2);
         }
 
+        // ---------------------------------------------------------------- State machines
+
+        private void StateMachine(GraphNode node, Pose into, float weight)
+        {
+            NodeState state = State(node);
+            AnimationStateMachine machine = AnimationStateMachine.Of(node);
+            int count = machine.States.Count;
+            if (count == 0)
+            {
+                into.CopyFrom(Rig.Rest);
+                return;
+            }
+
+            // In again after a while (or changed under it): it starts in its entry state.
+            bool continues = Continues(state);
+            if (!continues || state.Machine != machine || state.Weights.Length != count)
+            {
+                string? was = state.Machine != null && state.Current >= 0 && state.Current < state.Machine.States.Count ? state.Machine.States[state.Current].Name : null;
+                int current = continues && was != null && machine.IndexOf(was) >= 0 ? machine.IndexOf(was) : machine.EntryIndex;
+                state.Machine = machine;
+                state.Weights = new float[count];
+                state.Times = new float[count];
+                state.Current = current;
+                state.Weights[current] = 1f;
+                if (!continues) state.InState = 0f;
+            }
+
+            // A transition from where it is (or from any state), the first whose conditions hold.
+            if (Transition(node, machine, state) is { } taken)
+            {
+                int to = machine.IndexOf(taken.To);
+                state.Current = to;
+                state.InState = 0f;
+                state.Fade = taken.Fade;
+                if (state.Weights[to] <= 0.001f)
+                {
+                    // Coming into play, it starts from the beginning.
+                    state.Times[to] = 0f;
+                    if (Linked(node, machine.States[to].Name) is { } linked) Restart(linked, 0);
+                }
+            }
+
+            state.InState += _deltaTime;
+            for (int i = 0; i < count; i++) state.Weights[i] = Toward(state.Weights[i], i == state.Current ? 1f : 0f, state.Fade);
+            AnimationStateMachine.Playing(_graph, node.Id, machine.States[state.Current].Name);
+            if (_stateFrame != _frame)
+            {
+                _stateFrame = _frame;
+                CurrentState = machine.States[state.Current].Name;
+            }
+
+            // A running mix of the states in play, by each one's share.
+            float total = 0f;
+            Pose? other = null;
+            for (int i = 0; i < count; i++)
+            {
+                float w = state.Weights[i];
+                if (w <= 0.001f) continue;
+                Pose target = total == 0f ? into : other ??= Rent();
+                PlayState(node, machine.States[i], state, i, target, weight * w);
+                if (total > 0f) into.Blend(target, w / (total + w));
+                total += w;
+            }
+
+            if (other != null) Return(other);
+            if (total == 0f) into.CopyFrom(Rig.Rest);
+        }
+
+        /// <summary>What one state plays: what's linked into its input, or its own animation.</summary>
+        private void PlayState(GraphNode node, AnimationState animationState, NodeState state, int index, Pose into, float weight)
+        {
+            if (Linked(node, animationState.Name) is { } linked)
+            {
+                Evaluate(linked, into, weight);
+                return;
+            }
+
+            into.CopyFrom(Rig.Rest);
+            if (StateClip(animationState) is not { } clip) return;
+            float before = state.Times[index];
+            state.Times[index] += _deltaTime * animationState.Speed;
+            Rig.Sample(clip, clip.Wrap(state.Times[index]), into);
+            _animator.Moved(clip, before, state.Times[index], into);
+            if (weight >= 0.5f) _animator.Passed(clip, before, state.Times[index]);
+        }
+
+        private readonly Dictionary<string, AnimationClip?> _stateClips = new();
+
+        private AnimationClip? StateClip(AnimationState state)
+        {
+            if (state.Animation.Length == 0) return null;
+            if (_stateClips.TryGetValue(state.Animation, out AnimationClip? known)) return known;
+            AnimationClip? clip = PortType.Animation.Convert(state.Animation) as AnimationClip;
+            _stateClips[state.Animation] = clip;
+            return clip;
+        }
+
+        /// <summary>The transition to take now, if any: from the state it's in, or from any state (not to the one it's in).</summary>
+        private StateTransition? Transition(GraphNode node, AnimationStateMachine machine, NodeState state)
+        {
+            string current = machine.States[state.Current].Name;
+            foreach (StateTransition transition in machine.Transitions)
+            {
+                bool fromHere = transition.From == current, fromAny = transition.From == AnimationStateMachine.AnyState;
+                if (!fromHere && !(fromAny && transition.To != current)) continue;
+                if (machine.IndexOf(transition.To) < 0) continue;
+                if (transition.AtEnd)
+                {
+                    float length = StateLength(node, machine.States[state.Current]);
+                    if (length > 0f && state.InState + _deltaTime < length - transition.Fade) continue;
+                }
+                else if (transition.Conditions.Count == 0)
+                {
+                    // Nothing to wait for: it would go straight away, every frame.
+                    continue;
+                }
+
+                bool holds = true;
+                foreach (TransitionCondition condition in transition.Conditions)
+                {
+                    if (!condition.Holds(_animator.NumberParameter(condition.Parameter)))
+                    {
+                        holds = false;
+                        break;
+                    }
+                }
+
+                if (holds) return transition;
+            }
+
+            return null;
+        }
+
+        /// <summary>How long a state's animation lasts at its speed: its own, or what's linked into its input.</summary>
+        private float StateLength(GraphNode node, AnimationState state)
+        {
+            if (Linked(node, state.Name) is { } linked) return LengthOf(linked, 1);
+            return StateClip(state) is { } clip ? clip.Length / MathF.Max(MathF.Abs(state.Speed), 0.01f) : 0f;
+        }
+
         /// <summary>How long what a node plays lasts, in seconds: its animation's length at its speed, or the longest of what's linked into it.</summary>
         private float LengthOf(GraphNode node, int depth)
         {
             if (depth > _maxDepth) return 0f;
             if (node.Type == AnimationNodes.Clip) return ClipOf(node) is { } clip ? clip.Length / MathF.Max(MathF.Abs(Number(node, "Speed")), 0.01f) : 0f;
+            if (node.Type == AnimationNodes.StateMachine)
+            {
+                AnimationStateMachine machine = AnimationStateMachine.Of(node);
+                NodeState state = State(node);
+                int current = state.Machine == machine && state.Current >= 0 ? state.Current : machine.EntryIndex;
+                return current >= 0 ? StateLength(node, machine.States[current]) : 0f;
+            }
 
             float longest = 0f;
             foreach (GraphLink link in _graph.Links)

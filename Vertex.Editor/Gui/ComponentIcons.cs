@@ -24,6 +24,8 @@ namespace Vertex.Editor.Gui
             [typeof(MeshRenderer)] = Icons.Cube,
             [typeof(SkinnedMeshRenderer)] = Icons.Bone,
             [typeof(Vertex.Animation.Animator)] = Icons.Keyframes,
+            [typeof(Vertex.Animation.TwoBoneIK)] = Icons.Reach,
+            [typeof(Vertex.Animation.LookAtIK)] = Icons.Eye,
             [typeof(SpriteRenderer)] = Icons.Sprite,
             [typeof(SpriteAnimator)] = Icons.Animation,
             [typeof(WorldText)] = Icons.WorldText,

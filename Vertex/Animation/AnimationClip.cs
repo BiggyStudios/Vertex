@@ -18,8 +18,22 @@ namespace Vertex.Animation
         Step
     }
 
-    /// <summary>A value at a time in a track, and how it goes on to the next key.</summary>
-    public record struct Keyframe(float Time, Vector4 Value, KeyInterpolation Interpolation = KeyInterpolation.Smooth);
+    /// <summary>
+    /// A value at a time in a track, and how it goes on to the next key. A smooth key's curve has a slope either side of
+    /// it, worked out so it flows through without overshooting, unless the curve editor's set them (<see cref="InSlope"/>,
+    /// <see cref="OutSlope"/>).
+    /// </summary>
+    public record struct Keyframe(float Time, Vector4 Value, KeyInterpolation Interpolation = KeyInterpolation.Smooth)
+    {
+        /// <summary>How fast the value is changing as it arrives at the key, a second; null to work it out.</summary>
+        public Vector4? InSlope { get; init; }
+
+        /// <summary>How fast the value is changing as it leaves the key, a second; null to work it out.</summary>
+        public Vector4? OutSlope { get; init; }
+
+        /// <summary>Whether its slopes are set rather than worked out.</summary>
+        public readonly bool HasSlopes => InSlope != null || OutSlope != null;
+    }
 
     /// <summary>
     /// One value of one object, changing over a clip: the position of "Arm/Hand", the brightness of a light. The object is
@@ -113,7 +127,7 @@ namespace Vertex.Animation
             if (Property != "Rotation") return;
             for (int i = Math.Max(1, index); i < Keys.Count; i++)
             {
-                if (Vector4.Dot(Keys[i].Value, Keys[i - 1].Value) < 0f) Keys[i] = Keys[i] with { Value = -Keys[i].Value };
+                if (Vector4.Dot(Keys[i].Value, Keys[i - 1].Value) < 0f) Keys[i] = Keys[i] with { Value = -Keys[i].Value, InSlope = -Keys[i].InSlope, OutSlope = -Keys[i].OutSlope };
             }
         }
 
@@ -146,18 +160,24 @@ namespace Vertex.Animation
                 case KeyInterpolation.Linear:
                     return Vector4.Lerp(a.Value, b.Value, t);
                 default:
-                    Vector4 before = Tangent(low), after = Tangent(low + 1);
+                    Vector4 before = OutSlopeAt(low), after = InSlopeAt(low + 1);
                     float t2 = t * t, t3 = t2 * t;
                     return a.Value * (2f * t3 - 3f * t2 + 1f) + before * (span * (t3 - 2f * t2 + t)) + b.Value * (-2f * t3 + 3f * t2) + after * (span * (t3 - t2));
             }
         }
 
+        /// <summary>How fast the curve is changing as it arrives at key <paramref name="index"/>, a second: as set, or worked out.</summary>
+        public Vector4 InSlopeAt(int index) => Keys[index].InSlope ?? Keys[index].OutSlope ?? AutoSlope(index);
+
+        /// <summary>How fast the curve is changing as it leaves key <paramref name="index"/>, a second: as set, or worked out.</summary>
+        public Vector4 OutSlopeAt(int index) => Keys[index].OutSlope ?? Keys[index].InSlope ?? AutoSlope(index);
+
         /// <summary>
-        /// How fast the value changes as it passes key <paramref name="index"/> (per second): flat at the first and last keys
-        /// and wherever the key is a peak or a dip, otherwise along the line from the key before to the key after, limited so
-        /// the curve never overshoots either.
+        /// How fast the value changes as it passes key <paramref name="index"/> (per second) when nothing's set: flat at the
+        /// first and last keys and wherever the key is a peak or a dip, otherwise along the line from the key before to the
+        /// key after, limited so the curve never overshoots either.
         /// </summary>
-        private Vector4 Tangent(int index)
+        public Vector4 AutoSlope(int index)
         {
             if (index <= 0 || index >= Keys.Count - 1) return Vector4.Zero;
             Keyframe previous = Keys[index - 1], key = Keys[index], next = Keys[index + 1];
@@ -330,6 +350,13 @@ namespace Vertex.Animation
                     json.WriteString("property", track.Property);
                     json.WriteNumber("size", track.Size);
                     json.WriteStartArray("keys");
+                    void Numbers(string name, Vector4 value)
+                    {
+                        json.WriteStartArray(name);
+                        for (int c = 0; c < Math.Clamp(track.Size, 1, 4); c++) json.WriteNumberValue(MathF.Round(value[c], 5));
+                        json.WriteEndArray();
+                    }
+
                     foreach (Keyframe key in track.Keys)
                     {
                         json.WriteStartObject();
@@ -338,6 +365,8 @@ namespace Vertex.Animation
                         for (int c = 0; c < Math.Clamp(track.Size, 1, 4); c++) json.WriteNumberValue(key.Value[c]);
                         json.WriteEndArray();
                         if (key.Interpolation != KeyInterpolation.Smooth) json.WriteString("i", key.Interpolation.ToString());
+                        if (key.InSlope is { } inSlope) Numbers("in", inSlope);
+                        if (key.OutSlope is { } outSlope) Numbers("out", outSlope);
                         json.WriteEndObject();
                     }
 
@@ -398,15 +427,12 @@ namespace Vertex.Animation
                     {
                         foreach (JsonElement key in keys.EnumerateArray())
                         {
-                            Vector4 value = default;
-                            int c = 0;
-                            foreach (JsonElement number in key.GetProperty("v").EnumerateArray())
-                            {
-                                if (c < 4) value[c++] = number.GetSingle();
-                            }
-
                             KeyInterpolation interpolation = key.TryGetProperty("i", out JsonElement i) && Enum.TryParse(i.GetString(), out KeyInterpolation parsed) ? parsed : KeyInterpolation.Smooth;
-                            track.Keys.Add(new Keyframe(key.GetProperty("t").GetSingle(), value, interpolation));
+                            track.Keys.Add(new Keyframe(key.GetProperty("t").GetSingle(), Numbers(key.GetProperty("v")), interpolation)
+                            {
+                                InSlope = key.TryGetProperty("in", out JsonElement inSlope) ? Numbers(inSlope) : null,
+                                OutSlope = key.TryGetProperty("out", out JsonElement outSlope) ? Numbers(outSlope) : null
+                            });
                         }
                     }
 
@@ -424,6 +450,18 @@ namespace Vertex.Animation
             }
 
             Changed();
+
+            static Vector4 Numbers(JsonElement array)
+            {
+                Vector4 value = default;
+                int c = 0;
+                foreach (JsonElement number in array.EnumerateArray())
+                {
+                    if (c < 4) value[c++] = number.GetSingle();
+                }
+
+                return value;
+            }
         }
 
         public override string ToString() => string.Create(CultureInfo.InvariantCulture, $"{Name} ({Length:0.##} s, {Tracks.Count} tracks)");

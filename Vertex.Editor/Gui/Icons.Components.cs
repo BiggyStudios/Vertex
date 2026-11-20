@@ -380,6 +380,46 @@ namespace Vertex.Editor.Gui
             }
         }
 
+        /// <summary>A limb bent at the middle, its end on a target: IK that reaches a hand or foot for something.</summary>
+        public static void Reach(Vector2 centre, float size, Color color)
+        {
+            Vector2 root = centre + new Vector2(-size * 0.34f, size * 0.3f);
+            Vector2 middle = centre + new Vector2(-size * 0.04f, -size * 0.28f);
+            Vector2 end = centre + new Vector2(size * 0.26f, size * 0.12f);
+            Ui.Line(root, middle, color, 1.5f);
+            Ui.Line(middle, end, color, 1.5f);
+            Ui.Circle(root, size * 0.07f, color);
+            Ui.Circle(middle, size * 0.07f, color);
+            Vertex.UI.Canvas.DrawCircleOutline(end, size * 0.15f, Ui.Fade(color.WithAlpha(0.8f)), 1.2f);
+            Ui.Circle(end, size * 0.05f, color);
+        }
+
+        /// <summary>An eye: IK that turns a head to look at something.</summary>
+        public static void Eye(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.42f, h = size * 0.24f;
+            Vector2 left = centre - new Vector2(w, 0f), right = centre + new Vector2(w, 0f);
+            Vector2 previous = left;
+            for (int i = 1; i <= 8; i++)
+            {
+                float t = i / 8f;
+                var top = new Vector2(left.X + (right.X - left.X) * t, centre.Y - MathF.Sin(t * MathF.PI) * h);
+                Ui.Line(previous, top, color, 1.3f);
+                previous = top;
+            }
+
+            previous = left;
+            for (int i = 1; i <= 8; i++)
+            {
+                float t = i / 8f;
+                var bottom = new Vector2(left.X + (right.X - left.X) * t, centre.Y + MathF.Sin(t * MathF.PI) * h);
+                Ui.Line(previous, bottom, color, 1.3f);
+                previous = bottom;
+            }
+
+            Ui.Circle(centre, size * 0.12f, color);
+        }
+
         /// <summary>A "T" standing on a slab: text placed in the world.</summary>
         public static void WorldText(Vector2 centre, float size, Color color)
         {

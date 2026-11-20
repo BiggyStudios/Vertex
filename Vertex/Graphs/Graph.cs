@@ -126,7 +126,7 @@ namespace Vertex.Graphs
         {
             if (fromNode == toNode || Library is not { } library) return false;
             if (Node(fromNode) is not { } from || Node(toNode) is not { } to) return false;
-            if (library.Find(from.Type)?.Output(fromPort) is not { } output || library.Find(to.Type)?.Input(toPort) is not { } input) return false;
+            if (library.Find(from.Type)?.Output(fromPort) is not { } output || library.Find(to.Type)?.Input(to, toPort) is not { } input) return false;
             return input.Linkable && library.CanLink(TypeOf(from, output), TypeOf(to, input));
         }
 

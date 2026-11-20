@@ -70,6 +70,12 @@ namespace Vertex.Graphs
         /// <summary>How many of <see cref="Repeated"/> there are with none linked.</summary>
         public int RepeatedAtLeast { get; init; } = 2;
 
+        /// <summary>
+        /// Inputs that come from what's set on each node, after the others: an animation graph's State Machine has one for
+        /// each of its states. Null for none.
+        /// </summary>
+        public Func<GraphNode, IReadOnlyList<Port>>? InputsFromNode { get; init; }
+
         public Port? Input(string name)
         {
             foreach (Port port in Inputs)
@@ -80,12 +86,26 @@ namespace Vertex.Graphs
             return RepeatIndex(name) is int index ? RepeatedPort(index) : null;
         }
 
+        /// <summary>One of <paramref name="node"/>'s inputs by name, including those it has of its own (<see cref="InputsFromNode"/>).</summary>
+        public Port? Input(GraphNode node, string name)
+        {
+            if (Input(name) is { } port) return port;
+            if (InputsFromNode == null) return null;
+            foreach (Port own in InputsFromNode(node))
+            {
+                if (own.Name == name) return own;
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// A node's inputs, as it shows them: <see cref="Inputs"/>, then <see cref="Repeated"/> as many times as it needs
-        /// (up to the highest one linked, and one more).
+        /// (up to the highest one linked, and one more), then its own (<see cref="InputsFromNode"/>).
         /// </summary>
         public IReadOnlyList<Port> InputsOf(Graph graph, GraphNode node)
         {
+            if (InputsFromNode != null) return [.. Inputs, .. InputsFromNode(node)];
             if (Repeated == null) return Inputs;
 
             int count = RepeatedCount(graph, node);
