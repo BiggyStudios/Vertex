@@ -193,16 +193,28 @@ namespace Vertex.Editor.Panels
             if (dropInto && DragDrop.Dropped && DragDrop.Payload is AssetEntry moved) Move(moved, entry.Path);
         }
 
-        /// <summary>An asset's picture: the image itself for textures, a ball of its colour for materials, otherwise an icon for its kind.</summary>
+        /// <summary>
+        /// An asset's picture: the image itself for textures, a ball of it for materials, the model itself for models (see
+        /// <see cref="Thumbnails"/>), otherwise an icon for its kind.
+        /// </summary>
         public static void DrawPicture(AssetEntry entry, Rect rect, bool small = false)
         {
-            if (entry.Kind == AssetKind.Texture && Thumbnails.Get(entry.Path) is { } thumbnail)
+            Texture? thumbnail = entry.Kind is AssetKind.Texture or AssetKind.Material or AssetKind.Model && entry.Path.Length > 0 ? Thumbnails.Get(entry.Path) : null;
+            if (entry.Kind == AssetKind.Texture && thumbnail != null)
             {
                 float aspect = thumbnail.Width / (float)thumbnail.Height;
                 Vector2 fit = aspect >= 1f ? new Vector2(rect.Width, rect.Width / aspect) : new Vector2(rect.Height * aspect, rect.Height);
                 Rect fitted = rect.CentreOf(fit);
                 Ui.Rect(fitted.Grow(1f), Theme.Field, 5f);
                 Vertex.UI.Canvas.DrawImage(thumbnail, fitted.Position, fitted.Size, Vector2.Zero, Vector2.One, Ui.Fade(Color.White), 4f);
+                return;
+            }
+
+            // Drawn by the renderer, on nothing: the ball's drawn a touch smaller than the space, as the flat one was.
+            if (thumbnail != null)
+            {
+                Rect shown = entry.Kind == AssetKind.Material ? rect.Shrink(rect.Width * (small ? 0.06f : 0.1f)) : rect.Shrink(rect.Width * (small ? 0f : 0.04f));
+                Vertex.UI.Canvas.DrawImage(thumbnail, shown.Position, shown.Size, Vector2.Zero, Vector2.One, Ui.Fade(Color.White));
                 return;
             }
 
@@ -236,18 +248,14 @@ namespace Vertex.Editor.Panels
             }
         }
 
-        /// <summary>A material as a ball: its texture (or colour), shaded darker towards the bottom right as if lit from above.</summary>
+        /// <summary>
+        /// A material as a flat ball while its thumbnail's being made: its texture (or colour), shaded darker towards the
+        /// bottom right as if lit from above. Only a material already loaded is shown as itself, so a folder of them
+        /// doesn't load every one (and its textures) at once.
+        /// </summary>
         private static void DrawMaterialBall(string path, Rect rect)
         {
-            Material? material = null;
-            try
-            {
-                if (path.Length > 0) material = Assets.LoadMaterial(path);
-            }
-            catch (Exception)
-            {
-                // A file that can't be read shows as a grey ball.
-            }
+            Material? material = path.Length > 0 ? Assets.LoadedMaterial(path) : null;
 
             float radius = rect.Width * 0.5f;
             Color color = material?.Color ?? Theme.TextFaint;

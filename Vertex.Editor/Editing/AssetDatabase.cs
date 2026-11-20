@@ -80,7 +80,9 @@ namespace Vertex.Editor.Editing
                 _watcher.Renamed += (_, _) => _changed = true;
                 _watcher.Changed += (_, e) =>
                 {
-                    if (KindOf(e.FullPath) == AssetKind.Shader) _writtenShaders.Enqueue(e.FullPath);
+                    AssetKind kind = KindOf(e.FullPath);
+                    if (kind == AssetKind.Shader) _writtenShaders.Enqueue(e.FullPath);
+                    if (kind is AssetKind.Texture or AssetKind.Material or AssetKind.Model) _writtenPictured.Enqueue(e.FullPath);
                 };
             }
             catch (Exception)
@@ -89,11 +91,19 @@ namespace Vertex.Editor.Editing
             }
         }
 
+        // Images, materials and models written since last asked (see TakeWrittenPictured): their thumbnails are made again.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _writtenPictured = new();
+
         /// <summary>The shader files written since this was last asked, each once.</summary>
-        public List<string> TakeWrittenShaders()
+        public List<string> TakeWrittenShaders() => Take(_writtenShaders);
+
+        /// <summary>The images, materials and models written since this was last asked, each once: their thumbnails are out of date.</summary>
+        public List<string> TakeWrittenPictured() => Take(_writtenPictured);
+
+        private static List<string> Take(System.Collections.Concurrent.ConcurrentQueue<string> queue)
         {
             var written = new List<string>();
-            while (_writtenShaders.TryDequeue(out string? path))
+            while (queue.TryDequeue(out string? path))
             {
                 if (!written.Contains(path, StringComparer.OrdinalIgnoreCase)) written.Add(path);
             }

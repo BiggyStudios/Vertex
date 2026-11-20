@@ -148,8 +148,21 @@ namespace Vertex.Editor
             };
         }
 
-        /// <summary>The pictures of the scene to draw this frame, before the window's 2D layer.</summary>
-        public RenderView[] Views => _sceneView.Views;
+        /// <summary>The pictures of the scene to draw this frame, before the window's 2D layer, and a thumbnail if one's waiting.</summary>
+        public RenderView[] Views
+        {
+            get
+            {
+                RenderView[] views = _sceneView.Views;
+                if (_renderer == null) return views;
+
+                _thumbnails ??= new ThumbnailStage();
+                return _thumbnails.Next() is { } thumbnail ? [.. views, thumbnail] : views;
+            }
+        }
+
+        // Where materials' and models' thumbnails are drawn, once there's a renderer to draw them.
+        private ThumbnailStage? _thumbnails;
 
         /// <summary>Draws the editor for this frame and does whatever was clicked or pressed. Canvas and input must be ready for the frame.</summary>
         public void Update(float deltaTime)

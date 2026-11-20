@@ -1073,6 +1073,8 @@ namespace Vertex.Editor
             {
                 Vertex.Assets.Reload(path);
             }
+
+            foreach (string path in Assets.TakeWrittenPictured()) Thumbnails.Forget(path);
         }
 
         private void CodeWasChanged() => Interlocked.Exchange(ref _codeChangedAt, Environment.TickCount64);
