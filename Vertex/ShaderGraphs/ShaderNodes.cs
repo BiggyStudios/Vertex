@@ -134,6 +134,57 @@ namespace Vertex.ShaderGraphs
         /// <summary>Every kind of node a shader graph can have.</summary>
         public static NodeLibrary Library { get; } = Build();
 
+        /// <summary>
+        /// What a new surface shader graph starts as, to show how one's made: the material's colour times a Tint
+        /// property, and a rim of light where it's seen edge-on (a Fresnel times a Rim property).
+        /// </summary>
+        public static Graph Starter()
+        {
+            var graph = new Graph(Kind);
+            graph.Variables.Add(new GraphVariable("Tint", PortType.Color, Color.White));
+            graph.Variables.Add(new GraphVariable("Rim", PortType.Color, new Color(0.25f, 0.55f, 1f)));
+
+            GraphNode material = graph.AddNode("Input/Material", new System.Numerics.Vector2(0f, 0f));
+            GraphNode tint = graph.AddNode("Properties/Get Property", new System.Numerics.Vector2(0f, 180f));
+            tint.Values["Variable"] = "Tint";
+            GraphNode color = graph.AddNode("Math/Multiply", new System.Numerics.Vector2(260f, 60f));
+            GraphNode fresnel = graph.AddNode("Color/Fresnel", new System.Numerics.Vector2(0f, 270f));
+            GraphNode rim = graph.AddNode("Properties/Get Property", new System.Numerics.Vector2(0f, 380f));
+            rim.Values["Variable"] = "Rim";
+            GraphNode glow = graph.AddNode("Math/Multiply", new System.Numerics.Vector2(260f, 300f));
+            GraphNode surface = graph.AddNode("Output/Surface", new System.Numerics.Vector2(520f, 80f));
+
+            graph.Link(material.Id, "Color", color.Id, "A");
+            graph.Link(tint.Id, "Value", color.Id, "B");
+            graph.Link(color.Id, "Result", surface.Id, "Color");
+            graph.Link(fresnel.Id, "Fresnel", glow.Id, "A");
+            graph.Link(rim.Id, "Value", glow.Id, "B");
+            graph.Link(glow.Id, "Result", surface.Id, "Emission");
+            return graph;
+        }
+
+        /// <summary>What a new post effect graph starts as: the picture, with its brightness and saturation as properties.</summary>
+        public static Graph PostEffectStarter()
+        {
+            var graph = new Graph(Kind);
+            graph.Variables.Add(new GraphVariable("Brightness", PortType.Number, 1f));
+            graph.Variables.Add(new GraphVariable("Saturation", PortType.Number, 1f));
+
+            GraphNode picture = graph.AddNode("Input/Picture", new System.Numerics.Vector2(0f, 0f));
+            GraphNode brightness = graph.AddNode("Properties/Get Property", new System.Numerics.Vector2(0f, 100f));
+            brightness.Values["Variable"] = "Brightness";
+            GraphNode saturation = graph.AddNode("Properties/Get Property", new System.Numerics.Vector2(0f, 180f));
+            saturation.Values["Variable"] = "Saturation";
+            GraphNode adjust = graph.AddNode("Color/Adjust Color", new System.Numerics.Vector2(300f, 20f));
+            GraphNode output = graph.AddNode("Output/Post Effect", new System.Numerics.Vector2(620f, 40f));
+
+            graph.Link(picture.Id, "Color", adjust.Id, "Color");
+            graph.Link(saturation.Id, "Value", adjust.Id, "Saturation");
+            graph.Link(brightness.Id, "Value", adjust.Id, "Brightness");
+            graph.Link(adjust.Id, "Color", output.Id, "Color");
+            return graph;
+        }
+
         // ---------------------------------------------------------------- Making them
 
         private static Port In(string name, PortType type, object? value = null, string? tooltip = null) => new(name, type, value, Tooltip: tooltip);

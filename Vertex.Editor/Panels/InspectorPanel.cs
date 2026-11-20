@@ -183,7 +183,7 @@ namespace Vertex.Editor.Panels
                     break;
                 }
 
-                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph:
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
@@ -266,8 +266,6 @@ namespace Vertex.Editor.Panels
         /// <summary>A shader: what it's for, what's wrong with it if anything, and its settings.</summary>
         private float DrawShaderNotes(AssetEntry asset, float x, float y, float width)
         {
-            y = Note("Saved changes show at once. Put it on a camera with a Post Effect component to see it.", x, y, width) + 4f;
-
             Shader shader;
             try
             {
@@ -278,6 +276,18 @@ namespace Vertex.Editor.Panels
                 return Note($"Can't be read: {exception.Message}", x, y, width) + 6f;
             }
 
+            y = Note("Saved changes show at once. " + WhereToUse(shader), x, y, width) + 4f;
+            return ShaderSummary(shader, x, y, width);
+        }
+
+        /// <summary>Where a shader goes to be seen: on a camera's Post Effect, or as a material's Shader.</summary>
+        private static string WhereToUse(Shader shader) => shader.IsSurface
+            ? "Choose it as a material's Shader to see it on what uses the material."
+            : "Put it on a camera with a Post Effect component to see it.";
+
+        /// <summary>What's wrong with a shader, if anything, and its settings.</summary>
+        private static float ShaderSummary(Shader shader, float x, float y, float width)
+        {
             if (shader.Problem is { } problem)
             {
                 foreach (string line in problem.Split('\n').Where(l => l.Trim().Length > 0).Take(8).SelectMany(l => Ui.Wrap(l.Trim(), width, Theme.SmallTextSize)))
@@ -289,7 +299,7 @@ namespace Vertex.Editor.Panels
                 y += 6f;
             }
 
-            foreach (ShaderProperty property in shader.Properties)
+            foreach (ShaderProperty property in shader.Properties.Where(p => !p.Hidden))
             {
                 var row = new Rect(x, y, width, 18f);
                 Ui.Text(row, ComponentCatalog.SplitWords(property.Name), Theme.Text, size: Theme.SmallTextSize);
@@ -890,6 +900,23 @@ namespace Vertex.Editor.Panels
             {
                 Ui.Text(new Rect(x, y, width, 20f), $"Can't be read: {exception.Message}", Theme.Danger, size: Theme.SmallTextSize);
                 y += 26f;
+            }
+
+            if (asset.Kind == AssetKind.ShaderGraph)
+            {
+                Shader? shader = null;
+                try
+                {
+                    shader = Assets.LoadShader(asset.Path);
+                }
+                catch (Exception)
+                {
+                    // Said above, as the graph couldn't be read.
+                }
+
+                if (shader == null) return y;
+                y = Note(WhereToUse(shader) + " Double-click to edit.", x, y, width) + 4f;
+                return ShaderSummary(shader, x, y, width);
             }
 
             return Note(asset.Kind switch

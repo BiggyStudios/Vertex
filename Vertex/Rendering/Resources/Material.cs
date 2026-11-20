@@ -86,6 +86,7 @@ namespace Vertex.Rendering
         /// lava, a force field, a scrolling screen. It's given the settings above to start from, and changes what it
         /// likes. Null for the standard look, from the settings alone.
         /// </summary>
+        [ShaderFor(ShaderPurpose.Surface)]
         public Shader? Shader { get; set; }
 
         /// <summary>

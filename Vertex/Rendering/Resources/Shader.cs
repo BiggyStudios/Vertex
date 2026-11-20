@@ -444,6 +444,16 @@ namespace Vertex.Rendering
         }
     }
 
+    /// <summary>
+    /// What a <see cref="Shader"/> property takes: surface shaders (a material's) or post effects (a camera's), so an
+    /// editor offers only those.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+    public sealed class ShaderForAttribute(ShaderPurpose purpose) : Attribute
+    {
+        public ShaderPurpose Purpose { get; } = purpose;
+    }
+
     /// <summary>What kind of value a <see cref="ShaderProperty"/> holds.</summary>
     public enum ShaderPropertyType
     {

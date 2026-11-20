@@ -11,6 +11,7 @@ namespace Vertex.Rendering
     public class PostEffect : Component
     {
         /// <summary>The effect: a .glsl file defining <c>vec4 effect(vec2 uv)</c>, or a post effect shader graph. See <see cref="Rendering.Shader"/>.</summary>
+        [ShaderFor(ShaderPurpose.PostEffect)]
         public Shader? Shader { get; set; }
 
         /// <summary>

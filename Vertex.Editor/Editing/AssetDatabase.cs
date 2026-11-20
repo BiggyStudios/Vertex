@@ -23,6 +23,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>A .glsl file: a shader written in GLSL, such as a post effect.</summary>
         Shader,
+
+        /// <summary>A .shadergraph file: a shader made of nodes, for a material's surface or a post effect.</summary>
+        ShaderGraph,
         Other
     }
 
@@ -176,6 +179,7 @@ namespace Vertex.Editor.Editing
             ".vfx" => AssetKind.VisualEffect,
             ".audiograph" => AssetKind.AudioGraph,
             ".glsl" => AssetKind.Shader,
+            ".shadergraph" => AssetKind.ShaderGraph,
             _ => AssetKind.Other
         };
 

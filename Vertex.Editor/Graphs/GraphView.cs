@@ -78,6 +78,10 @@ namespace Vertex.Editor.Graphs
 
         private bool _showVariables = true;
 
+        // A shader graph's preview, and whether it's shown.
+        private readonly ShaderPreview _preview = new();
+        private bool _showPreview = true;
+
         // For picking a prefab or sound for a node.
         private readonly Inspection.PropertyGrid _files;
 
@@ -127,7 +131,9 @@ namespace Vertex.Editor.Graphs
                 doc.Framed = true;
                 // The variables panel starts out of the way of a graph that has none yet.
                 _showVariables = graph.Variables.Count > 0;
-                Frame(doc, rect, selectedOnly: false);
+                // A shader graph's nodes go left of its preview.
+                bool preview = _showPreview && graph.Kind == Vertex.ShaderGraphs.ShaderNodes.Kind && rect.Width > 700f;
+                Frame(doc, preview ? rect with { Width = rect.Width - 250f } : rect, selectedOnly: false);
             }
 
             PanAndZoom(rect, doc, over, background, id);
@@ -158,6 +164,7 @@ namespace Vertex.Editor.Graphs
             HandleSoundDrop(rect, doc, library);
             DrawToolbar(rect, doc, library);
             if (_showVariables) DrawVariables(rect, doc);
+            if (graph.Kind == Vertex.ShaderGraphs.ShaderNodes.Kind) DrawShaderPanels(rect, doc);
             if (graph.Nodes.Count == 0)
             {
                 Ui.Text(new Rect(rect.X, rect.Centre.Y - 10f, rect.Width, 20f), "Right-click or press Space to add a node", Theme.TextFaint, align: 0.5f);
@@ -237,6 +244,10 @@ namespace Vertex.Editor.Graphs
         private static float EditorWidth(Port port, PortType type)
         {
             if (port.IsVariableName) return 110f;
+            if (port.WhenUnlinked is { } unlinked) return Ui.TextWidth(unlinked, Theme.SmallTextSize) + 4f;
+            if (type == Vertex.ShaderGraphs.ShaderNodes.Vector2) return 104f;
+            if (type == PortType.Texture) return 130f;
+            if (type == Vertex.ShaderGraphs.ShaderNodes.Value) return 56f;
             if (type == PortType.Vector) return 150f;
             if (type == PortType.Number) return 56f;
             if (type == PortType.Boolean) return 18f;
@@ -546,6 +557,13 @@ namespace Vertex.Editor.Graphs
             object? raw = node.Values.TryGetValue(port.Name, out object? set) ? set : port.DefaultValue;
             void Set(object? value) => doc.Edit(_context.History, $"Change {port.Name}", () => node.Values[port.Name] = value, ("graphValue", doc, node.Id, port.Name));
 
+            if (port.WhenUnlinked is { } unlinked)
+            {
+                // Unlinked, it's something of its own (a Surface's colour stays the material's), not a value to type.
+                Ui.Text(field, unlinked, Theme.TextFaint, size: Theme.SmallTextSize);
+                return;
+            }
+
             if (port.IsVariableName)
             {
                 List<string> names = doc.Graph.Variables.Select(v => v.Name).ToList();
@@ -565,7 +583,7 @@ namespace Vertex.Editor.Graphs
                     });
                 }
             }
-            else if (type == PortType.Number)
+            else if (type == PortType.Number || type == Vertex.ShaderGraphs.ShaderNodes.Value)
             {
                 float number = (float)PortType.Number.Convert(raw)!;
                 if (NumberField.Float(id, field, ref number)) Set(number);
@@ -579,6 +597,11 @@ namespace Vertex.Editor.Graphs
             {
                 var vector = (Vector3)PortType.Vector.Convert(raw)!;
                 if (NumberField.Vector3(id, field, ref vector)) Set(vector);
+            }
+            else if (type == Vertex.ShaderGraphs.ShaderNodes.Vector2)
+            {
+                Vector2 vector = raw is Vector2 two ? two : Vector2.Zero;
+                if (NumberField.Vector2(id, field, ref vector)) Set(vector);
             }
             else if (type == PortType.Color)
             {
@@ -604,10 +627,10 @@ namespace Vertex.Editor.Graphs
                 string[] names = values.Cast<object>().Select(v => Inspection.ComponentCatalog.SplitWords(v.ToString()!)).ToArray();
                 if (Widgets.Dropdown(id, field, names, Array.IndexOf(values, current)) is int picked) Set(values.GetValue(picked));
             }
-            else if (type == PortType.Prefab || type == PortType.Sound)
+            else if (type == PortType.Prefab || type == PortType.Sound || type == PortType.Texture)
             {
                 // Kept as where the file is in the project, so it's found wherever the game's installed.
-                AssetKind kind = type == PortType.Prefab ? AssetKind.Prefab : AssetKind.Sound;
+                AssetKind kind = type == PortType.Prefab ? AssetKind.Prefab : type == PortType.Sound ? AssetKind.Sound : AssetKind.Texture;
                 _files.AssetField(id, field, kind, type.Convert(raw), canWrite: true, path => Set(path != null ? Vertex.Assets.RelativePath(path) : null));
             }
             else if (type == PortType.Object)
@@ -836,9 +859,9 @@ namespace Vertex.Editor.Graphs
         }
 
         /// <summary>Whether a node of <paramref name="type"/> has a port the link being let go of could join.</summary>
-        private static Port? JoinablePort(NodeType type, PortType linkType, bool fromOutput) => fromOutput
-            ? type.Inputs.Concat(type.Repeated is { } repeated ? [repeated] : []).FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(p.Type))
-            : type.Outputs.FirstOrDefault(p => p.Type.CanLinkTo(linkType));
+        private static Port? JoinablePort(NodeLibrary library, NodeType type, PortType linkType, bool fromOutput) => fromOutput
+            ? type.Inputs.Concat(type.Repeated is { } repeated ? [repeated] : []).FirstOrDefault(p => p.Linkable && library.CanLink(linkType, p.Type))
+            : type.Outputs.FirstOrDefault(p => library.CanLink(p.Type, linkType));
 
         private void AddList(int popupId, Rect rect, GraphDocument doc, NodeLibrary library)
         {
@@ -868,7 +891,7 @@ namespace Vertex.Editor.Graphs
 
             List<NodeType> matches = library.All
                 .Where(t => Rank(t, search) < 3)
-                .Where(t => linkType == null || JoinablePort(t, linkType, _addLinked!.Value.FromOutput) != null)
+                .Where(t => linkType == null || JoinablePort(library, t, linkType, _addLinked!.Value.FromOutput) != null)
                 .OrderBy(t => Rank(t, search))
                 .ToList();
 
@@ -947,7 +970,7 @@ namespace Vertex.Editor.Graphs
                 // A variable node starts on a variable: one of the link's type if it was asked for by a link, else the first.
                 if (type.Inputs.FirstOrDefault(p => p.IsVariableName) is { } setting && graph.Variables.Count > 0)
                 {
-                    GraphVariable? fits = linkType == null ? null : graph.Variables.FirstOrDefault(v => linked!.Value.FromOutput ? linkType.CanLinkTo(v.Type) : v.Type.CanLinkTo(linkType));
+                    GraphVariable? fits = linkType == null ? null : graph.Variables.FirstOrDefault(v => linked!.Value.FromOutput ? graph.Library!.CanLink(linkType, v.Type) : graph.Library!.CanLink(v.Type, linkType));
                     node.Values[setting.Name] = (fits ?? graph.Variables[0]).Name;
                 }
 
@@ -955,8 +978,8 @@ namespace Vertex.Editor.Graphs
 
                 // The first of its ports the link fits, as it is now (with its variable chosen).
                 Port? port = link.FromOutput
-                    ? type.InputsOf(graph, node).FirstOrDefault(p => p.Linkable && linkType.CanLinkTo(graph.TypeOf(node, p)))
-                    : type.Outputs.FirstOrDefault(p => graph.TypeOf(node, p).CanLinkTo(linkType));
+                    ? type.InputsOf(graph, node).FirstOrDefault(p => p.Linkable && graph.Library!.CanLink(linkType, graph.TypeOf(node, p)))
+                    : type.Outputs.FirstOrDefault(p => graph.Library!.CanLink(graph.TypeOf(node, p), linkType));
                 if (port == null) return;
 
                 if (link.FromOutput) graph.Link(link.Node, link.Port, node.Id, port.Name);
@@ -1109,6 +1132,14 @@ namespace Vertex.Editor.Graphs
 
             var variables = new Rect(bar.Right - 98f - 34f, bar.Y + 4f, 94f, 28f);
 
+            // A shader graph shows what it makes as it's made.
+            if (doc.Graph.Kind == Vertex.ShaderGraphs.ShaderNodes.Kind)
+            {
+                var preview = new Rect(variables.X - 32f, bar.Y + 4f, 28f, 28f);
+                if (Widgets.IconButton(Ui.Id("graph.preview"), preview, Icons.Image, _showPreview ? "Hide the preview" : "Show the preview")) _showPreview = !_showPreview;
+                if (_showPreview) Ui.Outline(preview, Theme.Accent, Theme.ControlRadius, 1.5f);
+            }
+
             // An audio graph can be listened to as it's made: each press plays it again, choosing again.
             if (doc.Graph.Kind == Vertex.Audio.AudioNodes.Kind)
             {
@@ -1193,6 +1224,78 @@ namespace Vertex.Editor.Graphs
             });
         }
 
+        // ---------------------------------------------------------------- Shader graphs
+
+        /// <summary>The shader a shader graph's file makes (the same one materials and cameras using it have), or null.</summary>
+        private static Vertex.Rendering.Shader? ShaderOf(GraphDocument doc)
+        {
+            try
+            {
+                return Vertex.Assets.LoadShader(doc.Path);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The pictures for the renderer to draw this frame while <paramref name="doc"/> shows: a shader graph's preview.</summary>
+        public Vertex.Rendering.RenderView[] Views(GraphDocument doc)
+        {
+            if (!_showPreview || doc.Graph.Kind != Vertex.ShaderGraphs.ShaderNodes.Kind || ShaderOf(doc) is not { } shader) return [];
+            return [_preview.View(shader)];
+        }
+
+        /// <summary>
+        /// Over a shader graph: what's wrong with it (bottom left), and a preview of what it makes (bottom right), on a
+        /// ball, a block or a square for a material's, or a little scene for a post effect.
+        /// </summary>
+        private void DrawShaderPanels(Rect rect, GraphDocument doc)
+        {
+            if (ShaderOf(doc) is not { } shader) return;
+            float bottom = rect.Bottom - 30f;
+
+            if (_showPreview && rect.Width > 420f && rect.Height > 360f)
+            {
+                const float size = 220f;
+                var panel = new Rect(rect.Right - size - 22f, bottom - size - 38f, size + 12f, size + 38f);
+                Ui.Block(Ui.Id("graph.previewPanel"), panel);
+                Ui.Shadow(panel, 8f, 14f, 0.5f);
+                Ui.Rect(panel, Theme.Panel.WithAlpha(0.96f), 8f);
+                Ui.Outline(panel, Theme.Border, 8f);
+                Ui.Text(new Rect(panel.X + 10f, panel.Y + 2f, 120f, 28f), "Preview", Theme.Text, bold: true);
+
+                bool surface = !shader.IsPostEffect;
+                if (surface)
+                {
+                    string[] shapes = ["Sphere", "Cube", "Plane"];
+                    var choose = new Rect(panel.Right - 96f, panel.Y + 4f, 88f, 24f);
+                    if (Widgets.Dropdown(Ui.Id("graph.previewShape"), choose, shapes, (int)_preview.Shape) is int picked) _preview.Shape = (PreviewShape)picked;
+                }
+
+                _preview.Draw(Ui.Id("graph.preview.picture"), new Rect(panel.X + 6f, panel.Y + 32f, size, size), surface);
+                bottom = panel.Y - 8f;
+            }
+
+            if (shader.Problem is not { } problem) return;
+
+            // What's wrong, in a box: the nodes it's about are outlined red too.
+            List<string> lines = problem.Split('\n').Where(l => l.Trim().Length > 0).Take(4).ToList();
+            float width = MathF.Min(rect.Width - 24f, 560f);
+            List<string> wrapped = lines.SelectMany(l => Ui.Wrap(l.Trim(), width - 40f, Theme.SmallTextSize)).Take(6).ToList();
+            var box = new Rect(rect.X + 12f, rect.Bottom - 34f - (wrapped.Count * 17f + 16f), width, wrapped.Count * 17f + 16f);
+            Ui.Block(Ui.Id("graph.problems"), box);
+            Ui.Rect(box, Theme.Panel.WithAlpha(0.96f), 8f);
+            Ui.Outline(box, Theme.Danger, 8f, 1.5f);
+            Icons.Close(new Vector2(box.X + 16f, box.Y + 16f), 12f, Theme.Danger);
+            float y = box.Y + 8f;
+            foreach (string line in wrapped)
+            {
+                Ui.Text(new Rect(box.X + 30f, y, box.Width - 40f, 17f), line, Theme.Text, size: Theme.SmallTextSize);
+                y += 17f;
+            }
+        }
+
         /// <summary>The graph's variables: a name, a type and a starting value each, with a way to add more.</summary>
         private void DrawVariables(Rect rect, GraphDocument doc)
         {
@@ -1211,7 +1314,8 @@ namespace Vertex.Editor.Graphs
             Ui.Text(new Rect(panel.X, panel.Y + 6f, panel.Width - 12f, 24f), note, Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
 
             float y = panel.Y + 36f;
-            string[] typeNames = PortType.VariableTypes.Select(t => t.Name).ToArray();
+            IReadOnlyList<PortType> types = graph.Library?.VariableTypes ?? PortType.VariableTypes;
+            string[] typeNames = types.Select(t => t.Name).ToArray();
             for (int i = 0; i < graph.Variables.Count; i++)
             {
                 GraphVariable variable = graph.Variables[i];
@@ -1237,14 +1341,15 @@ namespace Vertex.Editor.Graphs
                 }
 
                 Rect typeRect = row.CutLeft(104f).TakeLeft(76f);
-                int typeIndex = Array.IndexOf(PortType.VariableTypes.ToArray(), variable.Type);
+                int typeIndex = types.ToList().IndexOf(variable.Type);
                 if (Widgets.Dropdown(Ui.Id(id, "type"), typeRect, typeNames, typeIndex) is int picked && picked != typeIndex)
                 {
-                    PortType type = PortType.VariableTypes[picked];
+                    PortType type = types[picked];
                     doc.Edit(_context.History, "Change Variable Type", () =>
                     {
                         variable.Type = type;
-                        variable.Value = type.Convert(variable.Value);
+                        // A texture is kept as where its file is; anything else as its value.
+                        variable.Value = type == PortType.Texture ? null : type.Convert(variable.Value);
                         graph.Tidy();
                     });
                 }
@@ -1304,6 +1409,16 @@ namespace Vertex.Editor.Graphs
                     Set(color);
                     if (finished) _context.History.EndMerge();
                 });
+            }
+            else if (variable.Type == Vertex.ShaderGraphs.ShaderNodes.Vector2)
+            {
+                Vector2 vector = variable.Value is Vector2 two ? two : Vector2.Zero;
+                if (NumberField.Vector2(id, field, ref vector)) Set(vector);
+            }
+            else if (variable.Type == PortType.Texture)
+            {
+                _files.AssetField(id, field, AssetKind.Texture, PortType.Texture.Convert(variable.Value), canWrite: true,
+                    path => Set(path != null ? Vertex.Assets.RelativePath(path) : null), noneLabel: "White");
             }
             else
             {

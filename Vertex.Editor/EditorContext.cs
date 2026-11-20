@@ -1044,6 +1044,29 @@ namespace Vertex.Editor
             return path;
         }
 
+        /// <summary>
+        /// Makes a new shader graph for materials in <paramref name="folder"/>, to start from (the material's colour times a
+        /// tint, and a rim of light), and returns where.
+        /// </summary>
+        public string CreateShaderGraph(string folder, string name = "New Shader Graph")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.ShaderGraphs.ShaderNodes.Extension);
+            Vertex.ShaderGraphs.ShaderNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
+        /// <summary>Makes a new post effect graph in <paramref name="folder"/>, to start from (brightness and saturation), and returns where.</summary>
+        public string CreatePostEffectGraph(string folder, string name = "New Post Effect Graph")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.ShaderGraphs.ShaderNodes.Extension);
+            Vertex.ShaderGraphs.ShaderNodes.PostEffectStarter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
         private int _graphsCheckedAt = -1;
 
         /// <summary>

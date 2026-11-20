@@ -54,8 +54,12 @@ namespace Vertex.Editor.Editing
             _selectedIndices = _context.Selection.Objects.Select(o => all.IndexOf(o)).Where(i => i >= 0).ToList();
             _wasDirty = _context.Dirty;
 
-            // Graphs light up afresh as this run goes; what went wrong last time is forgotten.
-            foreach (Vertex.Graphs.Graph graph in Vertex.Assets.LoadedGraphs.ToList()) graph.ClearActivity();
+            // Graphs light up afresh as this run goes; what went wrong last time is forgotten. Not shader graphs, which
+            // don't run: what's wrong with one is what's wrong with how it's made, until it's put right.
+            foreach (Vertex.Graphs.Graph graph in Vertex.Assets.LoadedGraphs.ToList())
+            {
+                if (graph.Kind != Vertex.ShaderGraphs.ShaderNodes.Kind) graph.ClearActivity();
+            }
 
             Game game;
             Game? startingGame = null;

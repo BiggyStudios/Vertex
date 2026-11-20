@@ -71,17 +71,30 @@ namespace Vertex.Editor.Inspection
                 y = DrawMember(target, member, x, y, width, depth, others);
             }
 
-            if (target is PostEffect effect) y = ShaderSettings(effect, x, y, width);
+            if (target is PostEffect effect) y = ShaderSettings(effect, effect.Shader, effect.Values, x, y, width);
+            if (target is Material material) y = ShaderSettings(material, material.Shader, material.Values, x, y, width);
             return y;
         }
 
         /// <summary>
-        /// A post effect's shader's own settings (its <c>property</c> lines), a row each with the control for its type, and
-        /// what's wrong with the shader, if anything. Changed values are kept on the effect, by name.
+        /// A post effect's or material's shader's own settings (its <c>property</c> lines, or its graph's properties), a
+        /// row each with the control for its type, and what's wrong with the shader, if anything. Changed values are kept
+        /// on <paramref name="owner"/>, by name. A shader made in a graph has a button to open the graph.
         /// </summary>
-        private float ShaderSettings(PostEffect effect, float x, float y, float width)
+        private float ShaderSettings(object owner, Shader? shader, List<ShaderValue> values, float x, float y, float width)
         {
-            if (effect.Shader is not { } shader) return y;
+            if (shader is null) return y;
+
+            if (shader.Graph is { Source: { } graphFile } && _context != null)
+            {
+                Row(Ui.Id(RuntimeHelpers.GetHashCode(owner), "shaderGraph"), x, y, width, "", null, out Rect button);
+                if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(owner), "editShaderGraph"), button, "Edit Shader Graph", ButtonStyle.Subtle, "Open the graph in a tab", Icons.Graph))
+                {
+                    _context.OpenGraph(graphFile);
+                }
+
+                y += Theme.RowHeight + RowGap;
+            }
 
             if (shader.Problem is { } problem)
             {
@@ -97,13 +110,32 @@ namespace Vertex.Editor.Inspection
 
             foreach (ShaderProperty property in shader.Properties)
             {
-                int id = Ui.Id(RuntimeHelpers.GetHashCode(effect), "shader:" + property.Name);
+                if (property.Hidden) continue;
+                int id = Ui.Id(RuntimeHelpers.GetHashCode(owner), "shader:" + property.Name);
                 Row(id, x, y, width, ComponentCatalog.SplitWords(property.Name), property.Tooltip, out Rect field);
-                Vector4 value = effect.Get(property.Name);
+                Vector4 value = ShaderValue.Get(values, shader, property.Name);
                 Vector4? changed = null;
 
                 switch (property.Type)
                 {
+                    case ShaderPropertyType.Texture:
+                    {
+                        // A texture of the project's: as set, or what the shader starts it as.
+                        Texture? texture = ShaderValue.GetTexture(values, shader, property.Name);
+                        AssetField(id, field, AssetKind.Texture, texture, canWrite: true, path =>
+                        {
+                            try
+                            {
+                                SetShaderTexture(owner, values, property.Name, path != null ? Assets.LoadTexture(path) : null);
+                            }
+                            catch (Exception exception)
+                            {
+                                _notify($"Couldn't load {Path.GetFileName(path)}: {exception.Message}");
+                            }
+                        }, noneLabel: property.Fallback switch { TextureFallback.Black => "Black", TextureFallback.Normal => "Flat", _ => "White" });
+                        break;
+                    }
+
                     case ShaderPropertyType.Float:
                     {
                         float number = value.X;
@@ -157,29 +189,40 @@ namespace Vertex.Editor.Inspection
                     case ShaderPropertyType.Color:
                         ColorField.Draw(id, field, new Color(value.X, value.Y, value.Z, value.W), (color, finished) =>
                         {
-                            SetShaderValue(effect, property.Name, new Vector4(color.R, color.G, color.B, color.A));
+                            SetShaderValue(owner, values, property.Name, new Vector4(color.R, color.G, color.B, color.A));
                             if (finished) _history.EndMerge();
                         });
                         break;
                 }
 
-                if (changed is { } next) SetShaderValue(effect, property.Name, next);
+                if (changed is { } next) SetShaderValue(owner, values, property.Name, next);
                 y += Theme.RowHeight + RowGap;
             }
 
             return y;
         }
 
-        private static readonly PropertyInfo _effectValues = typeof(PostEffect).GetProperty(nameof(PostEffect.Values))!;
-
-        /// <summary>Changes one of a post effect's shader settings, as an undo of its own (a drag is one).</summary>
-        private void SetShaderValue(PostEffect effect, string name, Vector4 value)
+        /// <summary>
+        /// Changes one of a post effect's or material's shader settings, as an undo of its own (a drag is one). Both keep
+        /// them in a list called Values, which is replaced by a new one, so undo has the one from before to put back.
+        /// </summary>
+        private void SetShaderValue(object owner, List<ShaderValue> values, string name, Vector4 value)
         {
-            // A new list, so undo has the one from before to put back.
-            List<ShaderValue> values = effect.Values.Where(v => v.Name != name).Select(v => new ShaderValue { Name = v.Name, Value = v.Value }).ToList();
-            values.Add(new ShaderValue { Name = name, Value = value });
-            SetValue.Apply(_history, $"Change {ComponentCatalog.SplitWords(name)}", effect, _effectValues, values);
+            List<ShaderValue> changed = CopyValues(values, name);
+            changed.Add(new ShaderValue { Name = name, Value = value });
+            SetValue.Apply(_history, $"Change {ComponentCatalog.SplitWords(name)}", owner, owner.GetType().GetProperty(nameof(Material.Values))!, changed);
         }
+
+        /// <summary>Changes one of a post effect's or material's shader textures (null puts it back to the shader's own).</summary>
+        private void SetShaderTexture(object owner, List<ShaderValue> values, string name, Texture? texture)
+        {
+            List<ShaderValue> changed = CopyValues(values, name);
+            if (texture != null) changed.Add(new ShaderValue { Name = name, Texture = texture });
+            SetValue.Apply(_history, $"Change {ComponentCatalog.SplitWords(name)}", owner, owner.GetType().GetProperty(nameof(Material.Values))!, changed);
+        }
+
+        private static List<ShaderValue> CopyValues(List<ShaderValue> values, string without) =>
+            values.Where(v => v.Name != without).Select(v => new ShaderValue { Name = v.Name, Value = v.Value, Texture = v.Texture }).ToList();
 
         private float DrawMember(object target, InspectedMember member, float x, float y, float width, int depth, IReadOnlyList<object>? others)
         {
@@ -464,6 +507,9 @@ namespace Vertex.Editor.Inspection
                 else if (graphKind.Kind == Vertex.Audio.AudioNodes.Kind) kind = (AssetKind.AudioGraph, kind.Load);
             }
 
+            // A shader slot offers only shaders for what it's for: a material's, surface shaders; a camera's, post effects.
+            Func<AssetEntry, bool>? fits = member.Member.GetCustomAttribute<ShaderForAttribute>() is { } shaderFor ? entry => IsFor(entry.Path, shaderFor.Purpose) : null;
+
             AssetField(id, field, kind.Kind, value, member.CanWrite, path =>
             {
                 try
@@ -474,21 +520,42 @@ namespace Vertex.Editor.Inspection
                 {
                     _notify($"Couldn't load {Path.GetFileName(path)}: {exception.Message}");
                 }
-            }, mixed: mixed);
+            }, mixed: mixed, fits: fits);
         }
+
+        /// <summary>Whether the shader in a .glsl or .shadergraph file is for <paramref name="purpose"/>.</summary>
+        private static bool IsFor(string path, ShaderPurpose purpose)
+        {
+            try
+            {
+                return Assets.LoadShader(path).Purpose == purpose;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>The files of <paramref name="kind"/>: for shaders, those written in GLSL and those made in shader graphs.</summary>
+        private IEnumerable<AssetEntry> FilesOf(AssetKind kind) =>
+            kind == AssetKind.Shader ? _context!.Assets!.All(AssetKind.Shader).Concat(_context.Assets.All(AssetKind.ShaderGraph)) : _context!.Assets!.All(kind);
+
+        private static bool OfKind(AssetEntry entry, AssetKind kind) => entry.Kind == kind || kind == AssetKind.Shader && entry.Kind == AssetKind.ShaderGraph;
 
         /// <summary>
         /// A slot for one of the project's files: a small picture of it and its name. Click to pick one from a list, or
         /// drag one onto it from the assets. <paramref name="set"/> gets the chosen file's path, or null for none.
         /// </summary>
         /// <param name="mixed">Different files on the objects being edited together: shows a dash, and what's picked goes on them all.</param>
-        public void AssetField(int id, Rect field, AssetKind kind, object? value, bool canWrite, Action<string?> set, string? noneLabel = null, bool mixed = false)
+        /// <param name="fits">Which files of that kind it takes, if not all.</param>
+        public void AssetField(int id, Rect field, AssetKind kind, object? value, bool canWrite, Action<string?> set, string? noneLabel = null, bool mixed = false,
+            Func<AssetEntry, bool>? fits = null)
         {
             bool canPick = canWrite && _context?.Assets != null;
             Interaction interaction = Ui.Interact(id, field);
 
             // Something dragged from the assets lights the slot up, and lands in it when let go.
-            bool dropping = canPick && DragDrop.Dragging && DragDrop.Payload is AssetEntry entry && entry.Kind == kind && field.Contains(Ui.Mouse);
+            bool dropping = canPick && DragDrop.Dragging && DragDrop.Payload is AssetEntry entry && OfKind(entry, kind) && (fits == null || fits(entry)) && field.Contains(Ui.Mouse);
             if (dropping && DragDrop.Dropped && DragDrop.Payload is AssetEntry dropped) set(dropped.Path);
 
             Color background = Ui.Smooth(id, interaction.Hovered && canPick ? Theme.Control : Theme.Field, 24f);
@@ -508,7 +575,7 @@ namespace Vertex.Editor.Inspection
             }
             else if (value != null)
             {
-                Panels.AssetsPanel.DrawPicture(new AssetEntry(source ?? "", kind), swatch.Grow(2f), small: true);
+                Panels.AssetsPanel.DrawPicture(new AssetEntry(source ?? "", source != null ? AssetDatabase.KindOf(source) : kind), swatch.Grow(2f), small: true);
             }
             else
             {
@@ -530,7 +597,7 @@ namespace Vertex.Editor.Inspection
                 TextInput.Focus(Ui.Id(id, "search"), selectAll: true);
             }
 
-            Popup.Show(id, new Vector2(MathF.Max(field.Width, 300f), 330f), inner => AssetPicker(id, inner, kind, source, value == null, set, noneLabel));
+            Popup.Show(id, new Vector2(MathF.Max(field.Width, 300f), 330f), inner => AssetPicker(id, inner, kind, source, value == null, set, noneLabel, fits));
         }
 
         private string _pickerSearch = "";
@@ -644,7 +711,7 @@ namespace Vertex.Editor.Inspection
             scroll.End(choices.Count * rowHeight);
         }
 
-        private void AssetPicker(int id, Rect rect, AssetKind kind, string? current, bool currentIsNone, Action<string?> set, string? noneLabel)
+        private void AssetPicker(int id, Rect rect, AssetKind kind, string? current, bool currentIsNone, Action<string?> set, string? noneLabel, Func<AssetEntry, bool>? fits)
         {
             string what = kind switch
             {
@@ -656,13 +723,14 @@ namespace Vertex.Editor.Inspection
                 AssetKind.VisualScript => "visual scripts",
                 AssetKind.VisualEffect => "VFX graphs",
                 AssetKind.AudioGraph => "audio graphs",
+                AssetKind.Shader => "shaders",
                 _ => "files"
             };
             TextInput.Draw(Ui.Id(id, "search"), rect.TakeTop(28f), ref _pickerSearch, "Search " + what, live: true, icon: Icons.Search);
 
             string search = _pickerSearch.Trim();
             var choices = new List<AssetEntry?> { null };
-            choices.AddRange(_context!.Assets!.All(kind).Where(entry => search.Length == 0 || entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase)));
+            choices.AddRange(FilesOf(kind).Where(entry => (fits == null || fits(entry)) && (search.Length == 0 || entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase))));
 
             Rect list = rect.CutTop(34f);
             int scrollId = Ui.Id(id, "pickerScroll");

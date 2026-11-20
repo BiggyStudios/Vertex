@@ -15,9 +15,11 @@ namespace Vertex.Rendering
     /// With <paramref name="Grid"/>, a grid on the ground (y = 0) shows where things stand, as in an editor; with
     /// <paramref name="Grid2D"/> as well, it stands in the X-Y plane (z = 0) instead, behind a 2D game. With
     /// <paramref name="EffectsFrom"/>, it has that camera's post effects (see <see cref="PostEffect"/>), so an editor's view can
-    /// look as the game will.
+    /// look as the game will. With <paramref name="Scene"/>, it shows that scene instead of the one being rendered: a
+    /// preview of a material on a sphere, in a scene of its own.
     /// </summary>
-    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false, Camera? EffectsFrom = null);
+    public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false, Camera? EffectsFrom = null,
+        Scene? Scene = null);
 
     public sealed class Renderer : IDisposable
     {
@@ -150,7 +152,7 @@ namespace Vertex.Rendering
 
             foreach (RenderView view in views)
             {
-                Collect(scene, view.Camera, view.Target.Width, view.Target.Height, view.Target, view.EffectsFrom);
+                Collect(view.Scene ?? scene, view.Camera, view.Target.Width, view.Target.Height, view.Target, view.EffectsFrom);
                 _frame.Grid = view.Grid;
                 _frame.Grid2D = view.Grid2D;
                 Backend.Render(_frame);
