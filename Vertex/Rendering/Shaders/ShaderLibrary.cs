@@ -350,12 +350,14 @@ namespace Vertex.Rendering.Shaders
                 vec3 fromLight = position - lightPosition;
                 float distance = length(fromLight);
 
-                // Moved off the surface and towards the light by about a texel there, so it doesn't shadow itself: further
-                // where it faces away, so smooth-shaded meshes with few corners don't get a jagged edge where they turn away.
+                // Moved off the surface by about a texel there, so it doesn't shadow itself: further where it turns away
+                // from the light. Only the backs of things are in the shadow map, so lit surfaces need little; any more,
+                // and where something sits on the floor, the floor right beside it looks up from inside it, and is lit.
                 float texel = params.y * distance;
                 vec3 toLight = -fromLight / max(distance, 1e-4);
                 float facing = clamp(dot(normal, toLight), 0.0, 1.0);
-                vec3 p = position + normal * (texel * (1.5 + 3.0 * (1.0 - facing))) + toLight * texel;
+                float away = 1.0 - facing;
+                vec3 p = position + normal * (texel * (0.5 + 4.0 * away * away));
                 fromLight = p - lightPosition;
 
                 float layer = params.x;
@@ -974,11 +976,13 @@ namespace Vertex.Rendering.Shaders
 
             float cascadeShadow(int cascade, vec3 N, vec3 L)
             {
-                // Looked up from a little off the surface, more where it faces away from the sun, so it doesn't
-                // shadow itself; by a texel or so of this cascade, as they get bigger further out.
-                float facing = clamp(dot(N, L), 0.0, 1.0);
+                // Looked up from a little off the surface, so it doesn't shadow itself: by a texel or so of this cascade
+                // (they get bigger further out), more where it turns away from the sun. Only the backs of things are in
+                // the shadow map, so lit surfaces need little; any more, and where something sits on the ground, the
+                // ground right beside it looks up from inside it, and is lit.
+                float away = 1.0 - clamp(dot(N, L), 0.0, 1.0);
                 float texel = frame.cascadeTexels[cascade];
-                vec3 position = vWorldPosition + N * texel * (1.0 + 1.5 * (1.0 - facing)) + L * texel;
+                vec3 position = vWorldPosition + N * texel * (0.5 + 2.5 * away * away);
 
                 vec4 lightSpace = frame.shadowMatrices[cascade] * vec4(position, 1.0);
                 vec3 p = lightSpace.xyz / lightSpace.w;
