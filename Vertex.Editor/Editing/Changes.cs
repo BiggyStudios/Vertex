@@ -302,4 +302,39 @@ namespace Vertex.Editor.Editing
             return true;
         }
     }
+
+    /// <summary>
+    /// A change to an animation's keys, tracks or settings, kept as what the whole animation was before and after (it's
+    /// saved to its file as it changes, like a graph).
+    /// </summary>
+    public sealed class ClipChange(Vertex.Animation.AnimationClip clip, string name, string before, string after) : IUndoable, IMergeable
+    {
+        private string _after = after;
+
+        public string Name => name;
+        public Vertex.Animation.AnimationClip Clip => clip;
+
+        public void Undo() => clip.ReadJson(before);
+        public void Redo() => clip.ReadJson(_after);
+
+        public bool Merge(IUndoable next)
+        {
+            if (next is not ClipChange other || other.Clip != clip) return false;
+            _after = other._after;
+            return true;
+        }
+
+        /// <summary>
+        /// Makes a change to <paramref name="clip"/> with <paramref name="change"/>, and remembers it: what was before is
+        /// read first. Nothing's remembered if it made no difference.
+        /// </summary>
+        public static void Make(UndoHistory history, Vertex.Animation.AnimationClip clip, string name, Action change, object? mergeKey = null)
+        {
+            string before = clip.ToJson();
+            change();
+            clip.Changed();
+            string after = clip.ToJson();
+            if (after != before) history.Record(new ClipChange(clip, name, before, after), mergeKey);
+        }
+    }
 }

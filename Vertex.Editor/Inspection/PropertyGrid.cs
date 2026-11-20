@@ -479,6 +479,7 @@ namespace Vertex.Editor.Inspection
             if (type == typeof(Vertex.Audio.AudioClip)) return (AssetKind.Sound, Assets.LoadSound);
             if (type == typeof(Vertex.Graphs.Graph)) return (AssetKind.VisualScript, Assets.LoadGraph);
             if (type == typeof(Shader)) return (AssetKind.Shader, Assets.LoadShader);
+            if (type == typeof(Vertex.Animation.AnimationClip)) return (AssetKind.Animation, Assets.LoadAnimation);
             return null;
         }
 
@@ -492,6 +493,7 @@ namespace Vertex.Editor.Inspection
             Vertex.Audio.AudioClip clip => clip.Source,
             Vertex.Graphs.Graph graph => graph.Source,
             Shader shader => shader.Source,
+            Vertex.Animation.AnimationClip clip => clip.Source,
             _ => null
         };
 
@@ -505,6 +507,7 @@ namespace Vertex.Editor.Inspection
             {
                 if (graphKind.Kind == Vertex.Effects.VfxNodes.Kind) kind = (AssetKind.VisualEffect, kind.Load);
                 else if (graphKind.Kind == Vertex.Audio.AudioNodes.Kind) kind = (AssetKind.AudioGraph, kind.Load);
+                else if (graphKind.Kind == Vertex.Animation.AnimationNodes.Kind) kind = (AssetKind.AnimationGraph, kind.Load);
             }
 
             // A shader slot offers only shaders for what it's for: a material's, surface shaders; a camera's, post effects.
@@ -538,7 +541,9 @@ namespace Vertex.Editor.Inspection
 
         /// <summary>The files of <paramref name="kind"/>: for shaders, those written in GLSL and those made in shader graphs.</summary>
         private IEnumerable<AssetEntry> FilesOf(AssetKind kind) =>
-            kind == AssetKind.Shader ? _context!.Assets!.All(AssetKind.Shader).Concat(_context.Assets.All(AssetKind.ShaderGraph)) : _context!.Assets!.All(kind);
+            kind == AssetKind.Shader ? _context!.Assets!.All(AssetKind.Shader).Concat(_context.Assets.All(AssetKind.ShaderGraph))
+            : kind == AssetKind.Animation ? _context!.Assets!.Animations()
+            : _context!.Assets!.All(kind);
 
         private static bool OfKind(AssetEntry entry, AssetKind kind) => entry.Kind == kind || kind == AssetKind.Shader && entry.Kind == AssetKind.ShaderGraph;
 
@@ -583,6 +588,7 @@ namespace Vertex.Editor.Inspection
             }
 
             string name = mixed ? "—" : value == null ? noneLabel ?? "None"
+                : source != null && new AssetEntry(source, kind) is { IsPart: true } part ? $"{part.Name}  ({part.PartOf})"
                 : source != null ? Path.GetFileNameWithoutExtension(source)
                 : value is RenderTexture render ? $"Render texture  {render.Width} × {render.Height}"
                 : value is Texture made ? $"Made in code  {made.Width} × {made.Height}"
@@ -723,6 +729,8 @@ namespace Vertex.Editor.Inspection
                 AssetKind.VisualScript => "visual scripts",
                 AssetKind.VisualEffect => "VFX graphs",
                 AssetKind.AudioGraph => "audio graphs",
+                AssetKind.Animation => "animations",
+                AssetKind.AnimationGraph => "animation graphs",
                 AssetKind.Shader => "shaders",
                 _ => "files"
             };

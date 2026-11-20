@@ -344,6 +344,17 @@ namespace Vertex.Editor.Gui
             Ui.Rect(new Rect(centre.X + w * 0.6f, centre.Y - h, w * 1.6f, h * 2f), color, 1f);
         }
 
+        /// <summary>A round dot: recording.</summary>
+        public static void Record(Vector2 centre, float size, Color color) => Ui.Circle(centre, size * 0.26f, color);
+
+        /// <summary>A bar with a triangle pointing back to it: back to the start.</summary>
+        public static void ToStart(Vector2 centre, float size, Color color)
+        {
+            float h = size * 0.28f;
+            Ui.Rect(new Rect(centre.X - h * 1.1f, centre.Y - h, size * 0.09f, h * 2f), color, 1f);
+            Vertex.UI.Canvas.DrawTriangle(centre + new Vector2(h * 0.9f, -h), centre + new Vector2(h * 0.9f, h), centre + new Vector2(-h * 0.7f, 0f), Ui.Fade(color));
+        }
+
         public static void Stop(Vector2 centre, float size, Color color)
         {
             float h = size * 0.25f;

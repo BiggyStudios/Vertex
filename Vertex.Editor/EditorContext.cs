@@ -464,6 +464,7 @@ namespace Vertex.Editor
         {
             try
             {
+                SettleScene();
                 SceneFile.Save(MainScene, path, AssetFolders);
             }
             catch (Exception exception)
@@ -999,6 +1000,19 @@ namespace Vertex.Editor
 
         public void OpenGraph(string path) => GraphOpenRequested?.Invoke(Path.GetFullPath(path));
 
+        /// <summary>Asks for the Animation panel to show an animation (a .anim file, or a model's "Robot.glb#Walk").</summary>
+        public event Action<string>? AnimationOpenRequested;
+
+        public void OpenAnimation(string path) => AnimationOpenRequested?.Invoke(path);
+
+        /// <summary>
+        /// Raised before the scene is saved or play starts: whatever's showing the scene posed some other way than it's
+        /// saved (the Animation panel's preview) puts it back first.
+        /// </summary>
+        public event Action? SceneSettling;
+
+        internal void SettleScene() => SceneSettling?.Invoke();
+
         /// <summary>
         /// A file of the project's moved or renamed (or a folder with it in): the scene being edited keeps its new path,
         /// so saving it doesn't make the old file again.
@@ -1090,6 +1104,43 @@ namespace Vertex.Editor
                     Notify($"Couldn't save {Path.GetFileName(path)}: {exception.Message}");
                 }
             }
+
+            // Animations made in the Animation panel are files of their own too.
+            foreach (Vertex.Animation.AnimationClip clip in Vertex.Assets.LoadedAnimations.ToList())
+            {
+                if (clip.Source is not { } path || clip.IsImported || !File.Exists(path)) continue;
+                try
+                {
+                    clip.SaveIfChanged();
+                }
+                catch (Exception exception)
+                {
+                    Notify($"Couldn't save {Path.GetFileName(path)}: {exception.Message}");
+                }
+            }
+        }
+
+        /// <summary>Makes a new animation in <paramref name="folder"/>, a second long and empty, and returns where.</summary>
+        public string CreateAnimation(string folder, string name = "New Animation")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.Animation.AnimationClip.Extension);
+            new Vertex.Animation.AnimationClip().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
+        /// <summary>
+        /// Makes a new animation graph in <paramref name="folder"/>, to start from (idle, walk and run blended by a Speed
+        /// parameter), and returns where.
+        /// </summary>
+        public string CreateAnimationGraph(string folder, string name = "New Animation Graph")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.Animation.AnimationNodes.Extension);
+            Vertex.Animation.AnimationNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
         }
 
         /// <summary>Makes a new .material file with default settings, and returns where.</summary>

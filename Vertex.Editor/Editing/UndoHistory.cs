@@ -63,6 +63,25 @@ namespace Vertex.Editor.Editing
             if (_done.Count > Limit) _done.RemoveAt(0);
         }
 
+        /// <summary>
+        /// Remembers a change made because of the last one (a key the Animation panel recorded from a move), so the two are
+        /// undone and redone as one, under the last one's name.
+        /// </summary>
+        public void RecordWithLast(IUndoable change)
+        {
+            if (_done.Count == 0)
+            {
+                Record(change);
+                return;
+            }
+
+            Version++;
+            _undone.Clear();
+            IUndoable last = _done[^1].Change;
+            _done[^1] = (new ChangeGroup(last.Name, [last, change]), null);
+            _merging = false;
+        }
+
         /// <summary>Stops the next change joining the last one, even with the same merge key: call at the end of a drag.</summary>
         public void EndMerge() => _merging = false;
 

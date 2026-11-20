@@ -230,6 +230,8 @@ namespace Vertex.Editor.Panels
                 case AssetKind.AudioGraph: Icons.Sound(centre, size, Theme.Hex(0x57CCDB)); break;
                 case AssetKind.Shader: Icons.ScreenEffect(centre, size, Theme.Hex(0xE07BB5)); break;
                 case AssetKind.ShaderGraph: Icons.Graph(centre, size, Theme.Hex(0xE07BB5)); break;
+                case AssetKind.Animation: Icons.Keyframes(centre, size, Theme.Hex(0x5CD6A8)); break;
+                case AssetKind.AnimationGraph: Icons.Graph(centre, size, Theme.Hex(0x5CD6A8)); break;
                 default: Icons.File(centre, size, Theme.TextFaint); break;
             }
         }
@@ -281,8 +283,11 @@ namespace Vertex.Editor.Panels
                 case AssetKind.Sound:
                     SoundPreview.Toggle(entry.Path);
                     break;
-                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph:
                     _context.OpenGraph(entry.Path);
+                    break;
+                case AssetKind.Animation:
+                    _context.OpenAnimation(entry.Path);
                     break;
                 case AssetKind.Material:
                     _context.Selection.SelectAsset(entry);
@@ -357,7 +362,8 @@ namespace Vertex.Editor.Panels
             var items = new List<MenuItem>();
             string? open = entry.Kind switch
             {
-                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.Prefab => "Open",
+                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph or
+                    AssetKind.Animation or AssetKind.Prefab => "Open",
                 AssetKind.Model => "Add to Scene",
                 AssetKind.Sound => SoundPreview.IsPlaying(entry.Path) ? "Stop" : "Play",
                 AssetKind.Script or AssetKind.Shader => "Open in Code Editor",
@@ -400,7 +406,9 @@ namespace Vertex.Editor.Panels
                 new("New Audio Graph", () => Made(_context.CreateAudioGraph(folder))) { Icon = Icons.Sound },
                 new("New Shader Graph", () => Made(_context.CreateShaderGraph(folder))) { Icon = Icons.Graph },
                 new("New Post Effect", () => Made(_context.CreatePostEffect(folder))) { Icon = Icons.ScreenEffect },
-                new("New Post Effect Graph", () => Made(_context.CreatePostEffectGraph(folder))) { Icon = Icons.ScreenEffect }
+                new("New Post Effect Graph", () => Made(_context.CreatePostEffectGraph(folder))) { Icon = Icons.ScreenEffect },
+                new("New Animation", () => Made(_context.CreateAnimation(folder))) { Icon = Icons.Keyframes },
+                new("New Animation Graph", () => Made(_context.CreateAnimationGraph(folder))) { Icon = Icons.Graph }
             };
 
             if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });

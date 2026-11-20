@@ -368,6 +368,10 @@ namespace Vertex.Animation
         {
             using JsonDocument document = JsonDocument.Parse(json);
             JsonElement root = document.RootElement;
+
+            // Tracks still there stay the same objects, brought up to date: anything holding one (an editor) keeps it.
+            var existing = new Dictionary<(string, string), AnimationTrack>();
+            foreach (AnimationTrack track in Tracks) existing.TryAdd((track.Path, track.Property), track);
             Tracks.Clear();
             Events.Clear();
             Length = root.TryGetProperty("length", out JsonElement length) ? length.GetSingle() : 1f;
@@ -378,8 +382,18 @@ namespace Vertex.Animation
             {
                 foreach (JsonElement saved in tracks.EnumerateArray())
                 {
-                    var track = new AnimationTrack(saved.GetProperty("path").GetString() ?? "", saved.GetProperty("property").GetString() ?? "",
-                        saved.TryGetProperty("size", out JsonElement size) ? size.GetInt32() : 1);
+                    string path = saved.GetProperty("path").GetString() ?? "", property = saved.GetProperty("property").GetString() ?? "";
+                    int count = saved.TryGetProperty("size", out JsonElement size) ? size.GetInt32() : 1;
+                    if (existing.Remove((path, property), out AnimationTrack? track))
+                    {
+                        track.Keys.Clear();
+                        track.Size = count;
+                    }
+                    else
+                    {
+                        track = new AnimationTrack(path, property, count);
+                    }
+
                     if (saved.TryGetProperty("keys", out JsonElement keys))
                     {
                         foreach (JsonElement key in keys.EnumerateArray())

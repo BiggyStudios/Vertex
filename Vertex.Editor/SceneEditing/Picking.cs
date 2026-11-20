@@ -15,7 +15,8 @@ namespace Vertex.Editor.SceneEditing
 
             foreach (MeshRenderer renderer in scene.FindComponents<MeshRenderer>())
             {
-                if (renderer.Mesh is not { } mesh) continue;
+                // As drawn: a skinned mesh where its bones have bent it.
+                if (renderer.DrawnMesh is not { } mesh) continue;
 
                 Matrix4x4 world = renderer.Transform.WorldMatrix;
                 Culling.WorldBounds(mesh, world, out Vector3 centre, out Vector3 extents);

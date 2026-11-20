@@ -255,7 +255,7 @@ namespace Vertex.Editor.Graphs
             if (type == PortType.Text || type == PortType.Any) return 110f;
             if (type.ValueType is { IsEnum: true }) return 100f;
             if (type == PortType.Object) return 30f;
-            if (type == PortType.Prefab || type == PortType.Sound) return 130f;
+            if (type == PortType.Prefab || type == PortType.Sound || type == PortType.Animation) return 130f;
             return 0f;
         }
 
@@ -627,10 +627,10 @@ namespace Vertex.Editor.Graphs
                 string[] names = values.Cast<object>().Select(v => Inspection.ComponentCatalog.SplitWords(v.ToString()!)).ToArray();
                 if (Widgets.Dropdown(id, field, names, Array.IndexOf(values, current)) is int picked) Set(values.GetValue(picked));
             }
-            else if (type == PortType.Prefab || type == PortType.Sound || type == PortType.Texture)
+            else if (type == PortType.Prefab || type == PortType.Sound || type == PortType.Texture || type == PortType.Animation)
             {
                 // Kept as where the file is in the project, so it's found wherever the game's installed.
-                AssetKind kind = type == PortType.Prefab ? AssetKind.Prefab : type == PortType.Sound ? AssetKind.Sound : AssetKind.Texture;
+                AssetKind kind = type == PortType.Prefab ? AssetKind.Prefab : type == PortType.Sound ? AssetKind.Sound : type == PortType.Animation ? AssetKind.Animation : AssetKind.Texture;
                 _files.AssetField(id, field, kind, type.Convert(raw), canWrite: true, path => Set(path != null ? Vertex.Assets.RelativePath(path) : null));
             }
             else if (type == PortType.Object)
@@ -1169,12 +1169,18 @@ namespace Vertex.Editor.Graphs
         /// <summary>
         /// Sounds dragged in from the assets, into an audio graph: each makes a Sound node where it's let go. Let go on a
         /// node with a free sound input (a Random, a Sequence), it's linked into it too, and put to its left: so a Random's
-        /// sounds can be dropped onto it one after another.
+        /// sounds can be dropped onto it one after another. Animations dragged into an animation graph make Clip nodes the
+        /// same way (onto a Blend by Value or a Switch, one after another).
         /// </summary>
         private void HandleSoundDrop(Rect rect, GraphDocument doc, NodeLibrary library)
         {
-            if (library.Kind != Vertex.Audio.AudioNodes.Kind || !DragDrop.Dragging || DragDrop.Payload is not AssetEntry { Kind: AssetKind.Sound } sound) return;
-            if (!rect.Contains(Ui.Mouse)) return;
+            if (!DragDrop.Dragging || DragDrop.Payload is not AssetEntry sound || !rect.Contains(Ui.Mouse)) return;
+
+            (string NodeType, string Setting, PortType Carries, string Output, string Name) made;
+            if (library.Kind == Vertex.Audio.AudioNodes.Kind && sound.Kind == AssetKind.Sound) made = (Vertex.Audio.AudioNodes.SoundFile, "Sound", Vertex.Audio.AudioNodes.Audio, "Sound", "Add Sound");
+            else if (library.Kind == Vertex.Animation.AnimationNodes.Kind && sound.Kind == AssetKind.Animation)
+                made = (Vertex.Animation.AnimationNodes.Clip, "Animation", Vertex.Animation.AnimationNodes.Pose, "Pose", "Add Animation");
+            else return;
 
             Graph graph = doc.Graph;
             Vector2 at = doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom;
@@ -1185,7 +1191,7 @@ namespace Vertex.Editor.Graphs
                 for (int row = 0; row < layout.InputPorts.Count; row++)
                 {
                     Port port = layout.InputPorts[row];
-                    if (port.Linkable && port.Type == Vertex.Audio.AudioNodes.Audio && !graph.LinksTo(layout.Node.Id, port.Name).Any())
+                    if (port.Linkable && port.Type == made.Carries && !graph.LinksTo(layout.Node.Id, port.Name).Any())
                     {
                         into = (layout, port.Name, row);
                         break;
@@ -1203,7 +1209,7 @@ namespace Vertex.Editor.Graphs
             if (!DragDrop.Dropped) return;
 
             string file = Vertex.Assets.RelativePath(sound.Path);
-            doc.Edit(_context.History, "Add Sound", () =>
+            doc.Edit(_context.History, made.Name, () =>
             {
                 // Beside the node it's linked into: under the sounds already linked to it, or level with its input.
                 Vector2 position = at - new Vector2(80f, 20f);
@@ -1216,9 +1222,9 @@ namespace Vertex.Editor.Graphs
                         : new Vector2(node.Rect.X - 300f, RowCentre(node.Rect, row) - _header - _row);
                 }
 
-                GraphNode added = graph.AddNode(Vertex.Audio.AudioNodes.SoundFile, position);
-                added.Values["Sound"] = file;
-                if (into is ({ } linkTo, { } port, _)) graph.Link(added.Id, "Sound", linkTo.Node.Id, port);
+                GraphNode added = graph.AddNode(made.NodeType, position);
+                added.Values[made.Setting] = file;
+                if (into is ({ } linkTo, { } port, _)) graph.Link(added.Id, made.Output, linkTo.Node.Id, port);
                 doc.Selected.Clear();
                 doc.Selected.Add(added.Id);
             });
@@ -1419,6 +1425,10 @@ namespace Vertex.Editor.Graphs
             {
                 _files.AssetField(id, field, AssetKind.Texture, PortType.Texture.Convert(variable.Value), canWrite: true,
                     path => Set(path != null ? Vertex.Assets.RelativePath(path) : null), noneLabel: "White");
+            }
+            else if (variable.Type == Vertex.Animation.AnimationNodes.Trigger)
+            {
+                Ui.Text(field.Shrink(4f, 0f), "Set by the game", Theme.TextFaint, size: Theme.SmallTextSize);
             }
             else
             {

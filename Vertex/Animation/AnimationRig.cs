@@ -305,6 +305,34 @@ namespace Vertex.Animation
             return null;
         }
 
+        /// <summary>The value <paramref name="property"/> (as a track names it) has on <paramref name="gameObject"/> now; null if there's no such.</summary>
+        internal static Vector4? Read(GameObject gameObject, string property)
+        {
+            Transform transform = gameObject.Transform;
+            return property switch
+            {
+                "Position" => new Vector4(transform.Position, 0f),
+                "Scale" => new Vector4(transform.Scale, 0f),
+                "EulerAngles" => new Vector4(transform.EulerAngles, 0f),
+                "Rotation" => ToVector(transform.Rotation),
+                _ => Resolve(gameObject, property)?.Get()
+            };
+        }
+
+        /// <summary>Sets <paramref name="property"/> (as a track names it) on <paramref name="gameObject"/>, if it has it.</summary>
+        internal static void Write(GameObject gameObject, string property, Vector4 value)
+        {
+            Transform transform = gameObject.Transform;
+            switch (property)
+            {
+                case "Position": transform.Position = new Vector3(value.X, value.Y, value.Z); break;
+                case "Scale": transform.Scale = new Vector3(value.X, value.Y, value.Z); break;
+                case "EulerAngles": transform.EulerAngles = new Vector3(value.X, value.Y, value.Z); break;
+                case "Rotation": transform.Rotation = (Quaternion)FromVector(value, typeof(Quaternion)); break;
+                default: Resolve(gameObject, property)?.Set(value); break;
+            }
+        }
+
         /// <summary>How many numbers a value of <paramref name="type"/> takes in a track; null for a type that can't be animated.</summary>
         public static int? SizeOf(Type type)
         {

@@ -45,6 +45,9 @@ namespace Vertex.Editor.Editing
         {
             if (Playing || _context.Busy != null) return;
 
+            // The scene plays as it is saved: not posed by an animation preview.
+            _context.SettleScene();
+
             // The scene plays, not a prefab being edited.
             _context.ShowPrefab(null);
 

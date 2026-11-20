@@ -183,12 +183,16 @@ namespace Vertex.Editor.Panels
                     break;
                 }
 
-                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph:
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
                 case AssetKind.Script or AssetKind.Shader:
                     y = DrawScript(asset, x, y, width);
+                    break;
+
+                case AssetKind.Animation:
+                    y = DrawAnimationAsset(asset, x, y, width);
                     break;
 
                 case AssetKind.Model:
@@ -738,8 +742,59 @@ namespace Vertex.Editor.Panels
                 Vertex.Audio.AudioSource source => GraphValues(source, source.AudioGraph, nameof(Vertex.Audio.AudioSource.Properties), source.Properties, "Properties", "graph",
                     x, GraphButtons(component, source.AudioGraph, nameof(Vertex.Audio.AudioSource.AudioGraph), "Edit Audio Graph", "New Audio Graph", "Audio",
                         (folder, name) => _context.CreateAudioGraph(folder, name), "audio graphs", x, y, width), width),
+                Vertex.Animation.Animator animator => AnimatorBody(animator, x, y, width),
                 _ => y
             };
+        }
+
+        /// <summary>
+        /// Under an Animator: a button to edit its animations in the Animation panel, its graph's (open it, or make one),
+        /// and the graph's parameters, for this object's own starting values.
+        /// </summary>
+        private float AnimatorBody(Vertex.Animation.Animator animator, float x, float y, float width)
+        {
+            float labelWidth = PropertyGrid.LabelWidth(width);
+            var button = new Rect(x + labelWidth, y, width - labelWidth, 26f);
+            if (Widgets.Button(Ui.Id(RuntimeHelpers.GetHashCode(animator), "editAnimation"), button, "Edit Animation", tooltip: "Show its animations in the Animation panel, to change them and make new ones",
+                    icon: Icons.Keyframes))
+            {
+                _context.Selection.Select(animator.GameObject);
+                _context.OpenAnimation(animator.Clip?.Source ?? "");
+            }
+
+            y += 26f + PropertyGrid.RowGap;
+            y = GraphButtons(animator, animator.AnimationGraph, nameof(Vertex.Animation.Animator.AnimationGraph), "Edit Animation Graph", "New Animation Graph", "Animations",
+                (folder, name) => _context.CreateAnimationGraph(folder, name), "animation graphs", x, y, width);
+
+            // Triggers are only ever set by the game, for a moment: there's nothing to start them at.
+            return GraphValues(animator, animator.AnimationGraph, nameof(Vertex.Animation.Animator.Parameters), animator.Parameters, "Parameters", "graph", x, y, width,
+                skip: Vertex.Animation.AnimationNodes.Trigger);
+        }
+
+        /// <summary>A .anim file, or a model's own animation: how long it is, what it moves, and a button to open it in the Animation panel.</summary>
+        private float DrawAnimationAsset(AssetEntry asset, float x, float y, float width)
+        {
+            if (Widgets.Button(Ui.Id("asset.openAnimation"), new Rect(x, y, width, 30f), "Open in Animation Panel", ButtonStyle.Primary, icon: Icons.Keyframes))
+            {
+                _context.OpenAnimation(asset.Path);
+            }
+
+            y += 40f;
+            try
+            {
+                Vertex.Animation.AnimationClip clip = Assets.LoadAnimation(asset.Path);
+                string tracks = clip.Tracks.Count == 1 ? "1 track" : $"{clip.Tracks.Count} tracks";
+                string loop = clip.Loop ? "loops" : "plays once";
+                Ui.Text(new Rect(x, y, width, 20f), string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{clip.Length:0.##} seconds, {tracks}, {loop}"), Theme.TextDim);
+                y += 26f;
+                if (clip.IsImported) y = Note($"It's {asset.PartOf}'s own, from the model file, so it can't be changed here. Duplicate it in the Animation panel to make one of your own from it.", x, y, width);
+            }
+            catch (Exception exception)
+            {
+                y = Note($"Couldn't read it: {exception.Message}", x, y, width);
+            }
+
+            return Note("Choose it as an Animator's Clip to play it on an object, or on a Clip node of an animation graph.", x, y, width);
         }
 
         /// <summary>Under a component that plays a graph: open it in a tab, or make a new one for it (in Assets/<paramref name="folderName"/>).</summary>
@@ -786,9 +841,9 @@ namespace Vertex.Editor.Panels
         /// to put it back. They're kept in the component's list property <paramref name="listName"/>.
         /// </summary>
         private float GraphValues(Component component, Vertex.Graphs.Graph? graph, string listName, List<Vertex.Scripting.ScriptVariableValue> list,
-            string title, string graphWord, float x, float y, float width)
+            string title, string graphWord, float x, float y, float width, PortType? skip = null)
         {
-            if (graph is not { Variables.Count: > 0 }) return y;
+            if (graph is not { Variables.Count: > 0 } || graph.Variables.All(v => v.Type == skip)) return y;
 
             Ui.Text(new Rect(x, y + 4f, width, 20f), title, Theme.TextDim, size: Theme.SmallTextSize, bold: true);
             y += 26f;
@@ -796,7 +851,7 @@ namespace Vertex.Editor.Panels
             int id = Ui.Id(RuntimeHelpers.GetHashCode(component), "variables");
             float labelWidth = PropertyGrid.LabelWidth(width);
             System.Reflection.PropertyInfo property = component.GetType().GetProperty(listName)!;
-            foreach (Vertex.Graphs.GraphVariable variable in graph.Variables.ToList())
+            foreach (Vertex.Graphs.GraphVariable variable in graph.Variables.Where(v => v.Type != skip).ToList())
             {
                 int rowId = Ui.Id(id, variable.Name);
                 Vertex.Scripting.ScriptVariableValue? own = list.FirstOrDefault(v => v.Name == variable.Name);
@@ -923,6 +978,7 @@ namespace Vertex.Editor.Panels
             {
                 AssetKind.VisualEffect => "Add a Visual Effect component to an object and choose this file to play it there. Double-click to edit.",
                 AssetKind.AudioGraph => "Add an Audio Source component to an object and choose this file as its Audio Graph to play it there. Double-click to edit.",
+                AssetKind.AnimationGraph => "Add an Animator to a character and choose this file as its Animation Graph: the game sets its parameters (animator.Set(\"Speed\", 4)) and it blends the animations to match. Double-click to edit.",
                 _ => "Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit."
             }, x, y, width);
         }

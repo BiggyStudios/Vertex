@@ -26,14 +26,29 @@ namespace Vertex.Editor.Editing
 
         /// <summary>A .shadergraph file: a shader made of nodes, for a material's surface or a post effect.</summary>
         ShaderGraph,
+
+        /// <summary>
+        /// An animation: a .anim file (made in the Animation panel), or one of a model's own, which has no file of its own
+        /// and is kept as the model's path, a #, and its name ("Robot.glb#Walk").
+        /// </summary>
+        Animation,
+
+        /// <summary>A .animgraph file: animations blended by what the game sets, made of nodes.</summary>
+        AnimationGraph,
         Other
     }
 
-    /// <summary>A file or folder in the project's Assets folder.</summary>
+    /// <summary>A file or folder in the project's Assets folder, or one of a model's animations (see <see cref="AssetKind.Animation"/>).</summary>
     public sealed record AssetEntry(string Path, AssetKind Kind)
     {
-        public string Name => System.IO.Path.GetFileName(Path);
-        public string NameWithoutExtension => Kind == AssetKind.Folder ? Name : System.IO.Path.GetFileNameWithoutExtension(Path);
+        /// <summary>Whether it's part of a file (a model's animation), not a file of its own.</summary>
+        public bool IsPart => Path.Contains('#');
+
+        public string Name => IsPart ? Path[(Path.LastIndexOf('#') + 1)..] : System.IO.Path.GetFileName(Path);
+        public string NameWithoutExtension => Kind == AssetKind.Folder || IsPart ? Name : System.IO.Path.GetFileNameWithoutExtension(Path);
+
+        /// <summary>For part of a file, the file's name without its extension ("Robot"); null for a file.</summary>
+        public string? PartOf => IsPart ? System.IO.Path.GetFileNameWithoutExtension(Path[..Path.LastIndexOf('#')]) : null;
     }
 
     /// <summary>
@@ -92,6 +107,7 @@ namespace Vertex.Editor.Editing
             _all = null;
             _folders.Clear();
             _byKind.Clear();
+            _modelAnimationsRead = false;
             _changed = false;
         }
 
@@ -165,7 +181,44 @@ namespace Vertex.Editor.Editing
         /// <summary>A path inside the project as it reads from the Assets folder ("Textures/Brick.png").</summary>
         public string Relative(string path) => Path.GetRelativePath(Root, path).Replace('\\', '/');
 
-        public static AssetKind KindOf(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+        /// <summary>
+        /// Every animation in the project, for pickers: the .anim files, then each model's own (read from the model the
+        /// first time it's asked for; a model that can't be read has none).
+        /// </summary>
+        public IReadOnlyList<AssetEntry> Animations()
+        {
+            if (_changed) Refresh();
+            if (_byKind.TryGetValue(AssetKind.Animation, out List<AssetEntry>? cached) && _modelAnimationsRead) return cached;
+
+            var found = new List<AssetEntry>(All(AssetKind.Animation));
+            foreach (AssetEntry model in All(AssetKind.Model))
+            {
+                try
+                {
+                    foreach (Animation.AnimationClip clip in Rendering.Model.LoadAnimations(model.Path)) found.Add(new AssetEntry($"{model.Path}#{clip.Name}", AssetKind.Animation));
+                }
+                catch (Exception)
+                {
+                    // A model that can't be read has no animations to offer.
+                }
+            }
+
+            _byKind[AssetKind.Animation] = found;
+            _modelAnimationsRead = true;
+            return found;
+        }
+
+        private bool _modelAnimationsRead;
+
+        public static AssetKind KindOf(string path)
+        {
+            // A model's own animation: its path, a #, and the animation's name.
+            int hash = path.LastIndexOf('#');
+            if (hash > 0 && KindOf(path[..hash]) == AssetKind.Model) return AssetKind.Animation;
+            return KindOfFile(path);
+        }
+
+        private static AssetKind KindOfFile(string path) => Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".png" or ".jpg" or ".jpeg" or ".bmp" or ".tga" or ".gif" or ".hdr" => AssetKind.Texture,
             ".obj" or ".fbx" or ".gltf" or ".glb" or ".dae" or ".3ds" or ".blend" => AssetKind.Model,
@@ -180,6 +233,8 @@ namespace Vertex.Editor.Editing
             ".audiograph" => AssetKind.AudioGraph,
             ".glsl" => AssetKind.Shader,
             ".shadergraph" => AssetKind.ShaderGraph,
+            ".anim" => AssetKind.Animation,
+            ".animgraph" => AssetKind.AnimationGraph,
             _ => AssetKind.Other
         };
 
