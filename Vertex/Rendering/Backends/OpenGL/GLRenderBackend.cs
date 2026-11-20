@@ -689,6 +689,10 @@ namespace Vertex.Rendering.OpenGL
                 _meshes.Add(mesh, glMesh);
                 mesh.Disposed += OnMeshDisposed;
             }
+            else if (glMesh.Version != mesh.Version)
+            {
+                glMesh.UpdateVertices(mesh);
+            }
 
             return glMesh;
         }

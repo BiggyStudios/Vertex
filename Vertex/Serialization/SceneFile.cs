@@ -307,6 +307,15 @@ namespace Vertex.Serialization
                         WriteReference(json, "sound", clip.Source);
                         return true;
 
+                    // A model's own animation is kept as the model's path, a #, and its name.
+                    case Animation.AnimationClip animation:
+                        if (animation.Source is not { } animationFile) return false;
+                        int hash = animation.IsImported ? animationFile.LastIndexOf('#') : -1;
+                        json.WriteStartObject();
+                        json.WriteString("animation", "file:" + (hash > 0 ? AssetPath(animationFile[..hash]) + animationFile[hash..] : AssetPath(animationFile)));
+                        json.WriteEndObject();
+                        return true;
+
                     case GameObject gameObject:
                         if (!_ids.TryGetValue(gameObject, out int id)) return false;
                         json.WriteStartObject();
@@ -629,6 +638,7 @@ namespace Vertex.Serialization
                 else if (element.TryGetProperty("sound", out JsonElement sound)) value = LoadFile(sound.GetString()!, "Sound", Assets.LoadSound);
                 else if (element.TryGetProperty("graph", out JsonElement graph)) value = LoadFile(graph.GetString()!, "Graph", Assets.LoadGraph);
                 else if (element.TryGetProperty("shader", out JsonElement shader)) value = LoadFile(shader.GetString()!, "Shader", Assets.LoadShader);
+                else if (element.TryGetProperty("animation", out JsonElement animation)) value = LoadAnimation(animation.GetString()!);
                 else if (element.TryGetProperty("component", out JsonElement index))
                 {
                     if (!_objects.TryGetValue(element.GetProperty("object").GetInt32(), out GameObject? owner)) return false;
@@ -707,6 +717,29 @@ namespace Vertex.Serialization
                 catch (Exception exception)
                 {
                     Problems.Add($"{what} {file}: {exception.Message}");
+                    return null;
+                }
+            }
+
+            /// <summary>An animation a saved reference points at: a .anim file, or a model's ("file:Models/Robot.glb#Walk").</summary>
+            private Animation.AnimationClip? LoadAnimation(string reference)
+            {
+                string file = reference.StartsWith("file:", StringComparison.Ordinal) ? reference["file:".Length..] : reference;
+                int hash = file.LastIndexOf('#');
+                string? path = FindAsset(hash > 0 ? file[..hash] : file);
+                if (path == null)
+                {
+                    Problems.Add($"Animation not found: {file}");
+                    return null;
+                }
+
+                try
+                {
+                    return Assets.LoadAnimation(hash > 0 ? path + file[hash..] : path);
+                }
+                catch (Exception exception)
+                {
+                    Problems.Add($"Animation {file}: {exception.Message}");
                     return null;
                 }
             }
@@ -797,14 +830,14 @@ namespace Vertex.Serialization
             type == typeof(bool) || type == typeof(int) || type == typeof(float) || type == typeof(double) || type.IsEnum || type == typeof(string) || type == typeof(Vector2) || type == typeof(Vector3) ||
             type == typeof(Vector4) || type == typeof(Quaternion) || type == typeof(Color) || type == typeof(FloatRange) ||
             typeof(Mesh).IsAssignableFrom(type) || typeof(Texture).IsAssignableFrom(type) || type == typeof(Material) || type == typeof(Prefab) ||
-            type == typeof(Font) || type == typeof(Graphs.Graph) || type == typeof(Audio.AudioClip) || type == typeof(Shader) ||
+            type == typeof(Font) || type == typeof(Graphs.Graph) || type == typeof(Audio.AudioClip) || type == typeof(Shader) || type == typeof(Animation.AnimationClip) ||
             typeof(GameObject).IsAssignableFrom(type) || typeof(Component).IsAssignableFrom(type) || IsSettingsObject(type);
 
         /// <summary>A class of its own whose values can be saved inside whatever has it (a material).</summary>
         internal static bool IsSettingsObject(Type type) =>
             type.IsClass && !type.IsAbstract && type != typeof(string) && !typeof(Delegate).IsAssignableFrom(type) &&
             !typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type.Namespace?.StartsWith("System") != true &&
-            !typeof(Texture).IsAssignableFrom(type) && !typeof(Mesh).IsAssignableFrom(type) &&
+            !typeof(Texture).IsAssignableFrom(type) && !typeof(Mesh).IsAssignableFrom(type) && type != typeof(Animation.AnimationClip) &&
             !typeof(GameObject).IsAssignableFrom(type) && !typeof(Component).IsAssignableFrom(type) &&
             type.GetConstructor(Type.EmptyTypes) != null;
 

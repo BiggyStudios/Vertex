@@ -61,6 +61,12 @@ namespace Vertex.Graphs
         /// <summary>A texture of the project's. Kept in a graph as where its file is.</summary>
         public static readonly PortType Texture = new("Texture", typeof(Rendering.Texture), new Vertex.Color(0.95f, 0.6f, 0.35f));
 
+        /// <summary>
+        /// An animation of the project's: a .anim file, or one of a model's own. Kept in a graph as where it is
+        /// ("Models/Robot.glb#Walk" for a model's).
+        /// </summary>
+        public static readonly PortType Animation = new("Animation", typeof(Vertex.Animation.AnimationClip), new Vertex.Color(0.36f, 0.78f, 0.62f));
+
         private static readonly Dictionary<Type, PortType> _enums = new();
 
         /// <summary>A choice from an enum (a key on the keyboard): set on the node, not linked.</summary>
@@ -114,6 +120,7 @@ namespace Vertex.Graphs
                 if (this == Prefab) return value is string prefab && Assets.FindFile(prefab) is { } prefabFile ? Assets.LoadPrefab(prefabFile) : null;
                 if (this == Sound) return value is string sound && Assets.FindFile(sound) is { } soundFile ? Assets.LoadSound(soundFile) : null;
                 if (this == Texture) return value is string texture && Assets.FindFile(texture) is { } textureFile ? Assets.LoadTexture(textureFile) : null;
+                if (this == Animation) return value is string animation ? Assets.FindAnimation(animation) : null;
                 if (this == Color) return value switch { Vector4 v => new Vertex.Color(v.X, v.Y, v.Z, v.W), Vector3 v => new Vertex.Color(v.X, v.Y, v.Z), float f => new Vertex.Color(f, f, f), _ => Default };
                 if (ValueType is { IsEnum: true } enumType && value is string name && System.Enum.TryParse(enumType, name, out object? parsed)) return parsed;
             }
@@ -151,6 +158,7 @@ namespace Vertex.Graphs
             Vertex.Prefab prefab => prefab.Name,
             Audio.AudioClip => "Sound",
             Rendering.Texture => "Texture",
+            Vertex.Animation.AnimationClip clip => clip.Name,
             Component component => $"{component.GameObject.Name} ({component.GetType().Name})",
             _ => System.Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""
         };

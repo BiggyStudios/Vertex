@@ -61,6 +61,7 @@ namespace Vertex.Editor.Inspection
             "Vertex.Physics" when type.Name.EndsWith("2D", StringComparison.Ordinal) => "Physics 2D",
             "Vertex.Physics" => "Physics",
             "Vertex.Audio" => "Audio",
+            "Vertex.Animation" => "Animation",
             "Vertex.Networking" => "Networking",
             "Vertex.UI" => "UI",
             _ => "Scripts"

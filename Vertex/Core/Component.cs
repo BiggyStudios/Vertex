@@ -20,6 +20,12 @@ namespace Vertex
         protected internal virtual void Update() {}
 
         /// <summary>
+        /// Called every frame after every Update and after animation has posed the objects: to change what an animation
+        /// put somewhere (turn a character's head towards what it's looking at), or follow something that has moved.
+        /// </summary>
+        protected internal virtual void LateUpdate() {}
+
+        /// <summary>
         /// Called every <see cref="Time.FixedDeltaTime"/> seconds, right before each physics step.
         /// Apply forces and set velocities here; read input in <see cref="Update"/>.
         /// </summary>

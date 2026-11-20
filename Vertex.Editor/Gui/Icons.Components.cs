@@ -349,6 +349,37 @@ namespace Vertex.Editor.Gui
             }
         }
 
+        /// <summary>A key, the shape the timeline marks keys with: one at <paramref name="centre"/>, <paramref name="radius"/> from middle to point.</summary>
+        public static void Key(Vector2 centre, float radius, Color color)
+        {
+            color = Ui.Fade(color);
+            Vector2 top = centre - new Vector2(0f, radius), bottom = centre + new Vector2(0f, radius);
+            Vertex.UI.Canvas.DrawTriangle(top, centre + new Vector2(radius, 0f), bottom, color);
+            Vertex.UI.Canvas.DrawTriangle(top, bottom, centre - new Vector2(radius, 0f), color);
+        }
+
+        /// <summary>Keys along a track: something that animates objects (an Animator), or an animation.</summary>
+        public static void Keyframes(Vector2 centre, float size, Color color)
+        {
+            Ui.Line(centre + new Vector2(-size * 0.42f, 0f), centre + new Vector2(size * 0.42f, 0f), color.WithAlpha(0.5f), 1.2f);
+            Key(centre + new Vector2(-size * 0.26f, 0f), size * 0.12f, color.WithAlpha(0.55f));
+            Key(centre, size * 0.18f, color);
+            Key(centre + new Vector2(size * 0.26f, 0f), size * 0.12f, color.WithAlpha(0.55f));
+        }
+
+        /// <summary>A bone, knobbly at both ends: a mesh that bends with a skeleton.</summary>
+        public static void Bone(Vector2 centre, float size, Color color)
+        {
+            Vector2 a = centre + new Vector2(-size * 0.24f, size * 0.24f), b = centre + new Vector2(size * 0.24f, -size * 0.24f);
+            Ui.Line(a, b, color, MathF.Max(size * 0.12f, 1.4f));
+            Vector2 across = new Vector2(size * 0.07f, size * 0.07f);
+            foreach (Vector2 end in (ReadOnlySpan<Vector2>)[a, b])
+            {
+                Ui.Circle(end + across, size * 0.09f, color);
+                Ui.Circle(end - across, size * 0.09f, color);
+            }
+        }
+
         /// <summary>A "T" standing on a slab: text placed in the world.</summary>
         public static void WorldText(Vector2 centre, float size, Color color)
         {

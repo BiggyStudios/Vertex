@@ -22,6 +22,8 @@ namespace Vertex.Editor.Gui
             [typeof(Camera)] = Icons.Camera,
             [typeof(Light)] = Icons.Light,
             [typeof(MeshRenderer)] = Icons.Cube,
+            [typeof(SkinnedMeshRenderer)] = Icons.Bone,
+            [typeof(Vertex.Animation.Animator)] = Icons.Keyframes,
             [typeof(SpriteRenderer)] = Icons.Sprite,
             [typeof(SpriteAnimator)] = Icons.Animation,
             [typeof(WorldText)] = Icons.WorldText,
@@ -80,6 +82,7 @@ namespace Vertex.Editor.Gui
         private static readonly Color _audio = Theme.Hex(0xF0B848);
         private static readonly Color _ui = Theme.Hex(0xB792FF);
         private static readonly Color _network = Theme.Hex(0x48C6C0);
+        private static readonly Color _animation = Theme.Hex(0x5CD6A8);
         private static readonly Color _scripts = Theme.Hex(0xA9B0BC);
 
         /// <summary>The icon of a kind of component: its own, its nearest base class's, or the code icon for a script.</summary>
@@ -108,6 +111,7 @@ namespace Vertex.Editor.Gui
                 "Audio" => _audio,
                 "UI" => _ui,
                 "Networking" => _network,
+                "Animation" => _animation,
                 _ => _scripts
             };
         }

@@ -165,7 +165,7 @@ namespace Vertex
             return new Vector3(pitch, yaw, roll) * (180f / MathF.PI);
         }
 
-        private static Quaternion FromEuler(Vector3 degrees)
+        internal static Quaternion FromEuler(Vector3 degrees)
         {
             return Quaternion.CreateFromYawPitchRoll(
                 MathHelper.ToRadians(degrees.Y), MathHelper.ToRadians(degrees.X), MathHelper.ToRadians(degrees.Z));

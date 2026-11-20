@@ -205,6 +205,7 @@ namespace Vertex.Graphs
             if (kind == Effects.VfxNodes.Kind) _ = Effects.VfxNodes.Library;
             if (kind == Audio.AudioNodes.Kind) _ = Audio.AudioNodes.Library;
             if (kind == ShaderGraphs.ShaderNodes.Kind) _ = ShaderGraphs.ShaderNodes.Library;
+            if (kind == Animation.AnimationNodes.Kind) _ = Animation.AnimationNodes.Library;
             lock (_libraries) return _libraries.GetValueOrDefault(kind);
         }
     }

@@ -15,5 +15,8 @@ namespace Vertex.Rendering
         /// player's own body. Unlit materials never cast shadows.
         /// </summary>
         public bool CastShadows { get; set; } = true;
+
+        /// <summary>The mesh as it's drawn this frame: <see cref="Mesh"/>, or for a skinned mesh, it bent to its bones.</summary>
+        internal virtual Mesh? DrawnMesh => Mesh;
     }
 }

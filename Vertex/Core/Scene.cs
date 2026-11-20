@@ -289,6 +289,22 @@ namespace Vertex
                 gameObject.Update();
             }
 
+            // Animators pose their objects after everything's Update, so what the game set this frame is seen this frame.
+            Animation.Animator.AnimateAll(this, Time.DeltaTime);
+
+            for (int i = 0; i < count; i++)
+            {
+                GameObject gameObject = _objects[i];
+                if (gameObject.IsDestroyed || !gameObject.ActiveInHierarchy) continue;
+
+                List<Component> components = gameObject.ComponentList;
+                for (int c = 0; c < components.Count; c++)
+                {
+                    Component component = components[c];
+                    if (component.Enabled && component.Started) component.LateUpdate();
+                }
+            }
+
             DestroyPending();
         }
 

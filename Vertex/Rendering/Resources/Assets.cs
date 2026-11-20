@@ -19,6 +19,7 @@ namespace Vertex
         private static readonly Dictionary<string, AudioClip> _sounds = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Graphs.Graph> _graphs = new(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Shader> _shaders = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, Animation.AnimationClip> _animations = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The texture in <paramref name="path"/>, loaded the first time it's asked for.</summary>
         public static Texture LoadTexture(string path) => Load(_textures, path, Texture.Load);
@@ -56,6 +57,45 @@ namespace Vertex
         /// </summary>
         public static Shader LoadShader(string path) => Load(_shaders, path, full =>
             Path.GetExtension(full).Equals(ShaderGraphs.ShaderNodes.Extension, StringComparison.OrdinalIgnoreCase) ? Shader.FromGraph(LoadGraph(full)) : Shader.Load(full));
+
+        /// <summary>
+        /// The animation in a .anim file (made in the editor's Animation panel), or one of a model file's own, by the model's
+        /// path, a #, and its name: <c>"Models/Robot.glb#Walk"</c>. Loaded the first time it's asked for; everything playing
+        /// it shares it, so a change made in the editor shows straight away.
+        /// </summary>
+        /// <exception cref="FileNotFoundException">The model has no animation of that name.</exception>
+        public static Animation.AnimationClip LoadAnimation(string path)
+        {
+            int hash = path.LastIndexOf('#');
+            if (hash <= 0 || Path.GetExtension(path.AsSpan(0, hash)).Equals(Animation.AnimationClip.Extension, StringComparison.OrdinalIgnoreCase))
+            {
+                return Load(_animations, path, Animation.AnimationClip.Load);
+            }
+
+            string model = Path.GetFullPath(path[..hash]);
+            string name = path[(hash + 1)..];
+            return Load(_animations, model + "#" + name, _ =>
+                Model.LoadAnimations(model).FirstOrDefault(c => c.Name == name) ?? throw new FileNotFoundException($"{Path.GetFileName(model)} has no animation called {name}.", path));
+        }
+
+        /// <summary>
+        /// The animation kept by <see cref="RelativePath"/> ("Animations/Door.anim", "Models/Robot.glb#Walk"), loaded; null if
+        /// its file or the model's animation isn't there.
+        /// </summary>
+        public static Animation.AnimationClip? FindAnimation(string saved)
+        {
+            int hash = saved.LastIndexOf('#');
+            string file = hash > 0 ? saved[..hash] : saved;
+            if (FindFile(file) is not { } found) return null;
+            try
+            {
+                return LoadAnimation(hash > 0 ? found + saved[hash..] : found);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or System.Text.Json.JsonException)
+            {
+                return null;
+            }
+        }
 
         /// <summary>
         /// A project file's path as it's kept in graphs and sent over the network: from the first of
@@ -168,6 +208,22 @@ namespace Vertex
                     // Still being written: kept as it was.
                 }
             }
+            else if (_animations.TryGetValue(full, out Animation.AnimationClip? clip) && File.Exists(full))
+            {
+                try
+                {
+                    string json = File.ReadAllText(full);
+                    if (json != clip.SavedJson)
+                    {
+                        clip.ReadJson(json);
+                        clip.SavedJson = json;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Half-written, perhaps: kept as it was.
+                }
+            }
             else
             {
                 Forget(full);
@@ -184,9 +240,11 @@ namespace Vertex
         public static void Moved(string from, string to)
         {
             string before = Path.GetFullPath(from), after = Path.GetFullPath(to);
+            // A model's own animations are kept as its path, a #, and their name: they move with it.
             string? Remap(string key) =>
                 string.Equals(key, before, StringComparison.OrdinalIgnoreCase) ? after
-                : key.StartsWith(before + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? after + key[before.Length..]
+                : key.StartsWith(before + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || key.StartsWith(before + "#", StringComparison.OrdinalIgnoreCase)
+                    ? after + key[before.Length..]
                 : null;
 
             MoveIn(_textures, Remap, (texture, path) => texture.Source = path);
@@ -196,6 +254,8 @@ namespace Vertex
             MoveIn(_sounds, Remap, (clip, path) => clip.Source = path);
             MoveIn(_graphs, Remap, (graph, path) => graph.Source = path);
             MoveIn(_shaders, Remap, (shader, path) => shader.Source = path);
+            MoveIn(_animations, Remap, (clip, path) => clip.Source = path);
+            Model.Moved(Remap);
             _found.Clear();
         }
 
@@ -222,6 +282,14 @@ namespace Vertex
             _sounds.Remove(full);
             _graphs.Remove(full);
             _shaders.Remove(full);
+            _animations.Remove(full);
+            Model.Forget(full);
+
+            // A model's own animations go with it.
+            foreach (string key in _animations.Keys.Where(k => k.StartsWith(full + "#", StringComparison.OrdinalIgnoreCase)).ToList()) _animations.Remove(key);
         }
+
+        /// <summary>The animations loaded so far: for an editor, which saves them when they're changed.</summary>
+        internal static IEnumerable<Animation.AnimationClip> LoadedAnimations => _animations.Values;
     }
 }

@@ -31,12 +31,18 @@ namespace Vertex.Rendering.Vulkan
             public Matrix4x4 NormalMatrix;
         }
 
-        /// <summary>The GPU copy of a <see cref="Mesh"/>: vertices then indices, in one buffer.</summary>
+        /// <summary>
+        /// The GPU copy of a <see cref="Mesh"/>: vertices then indices, in one buffer. A mesh whose vertices change (one bent
+        /// by bones) has them written into the frame's upload space each frame instead, and drawn from there.
+        /// </summary>
         private sealed class VkMesh(VkBufferResource buffer, ulong indexOffset, uint indexCount)
         {
             public readonly VkBufferResource Buffer = buffer;
             public readonly ulong IndexOffset = indexOffset;
             public readonly uint IndexCount = indexCount;
+            public VkBuffer VertexBuffer = buffer.Buffer;
+            public ulong VertexOffset;
+            public long WrittenFrame = -1;
         }
 
         /// <summary>The GPU copy of a <see cref="Texture"/>, with mipmaps.</summary>
@@ -891,7 +897,11 @@ namespace Vertex.Rendering.Vulkan
 
         private VkMesh GetMesh(CommandBuffer commands, Mesh mesh)
         {
-            if (_meshes.TryGetValue(mesh, out VkMesh? existing)) return existing;
+            if (_meshes.TryGetValue(mesh, out VkMesh? existing))
+            {
+                WriteChangingVertices(mesh, existing);
+                return existing;
+            }
 
             ulong vertexBytes = (ulong)(mesh.Vertices.Length * sizeof(MeshVertex));
             ulong indexOffset = (vertexBytes + 3) / 4 * 4;
@@ -913,7 +923,21 @@ namespace Vertex.Rendering.Vulkan
             var created = new VkMesh(buffer, indexOffset, (uint)mesh.Indices.Length);
             _meshes.Add(mesh, created);
             mesh.Disposed += OnMeshDisposed;
+            WriteChangingVertices(mesh, created);
             return created;
+        }
+
+        /// <summary>
+        /// For a mesh whose vertices change: writes them into this frame's upload space (once a frame, whichever view's
+        /// first), to be drawn from there. The space is the CPU's to write and the GPU's to read, so nothing waits.
+        /// </summary>
+        private void WriteChangingVertices(Mesh mesh, VkMesh gpu)
+        {
+            if (mesh.Version == 0 || gpu.WrittenFrame == _frameNumber) return;
+            (VkBuffer vertexBuffer, ulong offset) = _frame.Uploads.Write<MeshVertex>(mesh.Vertices);
+            gpu.VertexBuffer = vertexBuffer;
+            gpu.VertexOffset = offset;
+            gpu.WrittenFrame = _frameNumber;
         }
 
         /// <summary>The image to sample for <paramref name="texture"/>, uploading it (again, if it changed) when there are <paramref name="commands"/> to do it with.</summary>
@@ -1088,10 +1112,10 @@ namespace Vertex.Rendering.Vulkan
 
         private void BindMesh(CommandBuffer commands, VkMesh mesh)
         {
-            VkBuffer buffer = mesh.Buffer.Buffer;
-            ulong offset = 0;
-            _context.Vk.CmdBindVertexBuffers(commands, 0, 1, &buffer, &offset);
-            _context.Vk.CmdBindIndexBuffer(commands, buffer, mesh.IndexOffset, IndexType.Uint32);
+            VkBuffer vertices = mesh.VertexBuffer;
+            ulong offset = mesh.VertexOffset;
+            _context.Vk.CmdBindVertexBuffers(commands, 0, 1, &vertices, &offset);
+            _context.Vk.CmdBindIndexBuffer(commands, mesh.Buffer.Buffer, mesh.IndexOffset, IndexType.Uint32);
         }
 
         private DescriptorSet WriteFrameData(in FrameUniforms data, VkImageResource fog)

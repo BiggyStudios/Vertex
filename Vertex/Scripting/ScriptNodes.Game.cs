@@ -295,6 +295,28 @@ namespace Vertex.Scripting
             Node("Vectors", "Length", [In("Vector", PortType.Vector)], [Out("Length", PortType.Number)], run => run.Out("Length", run.In<Vector3>("Vector").Length()),
                 "How long a vector is.", "magnitude size");
 
+            // ---------------------------------------------------------------- Animation
+
+            Animation.Animator AnimatorOf(ScriptRun run) =>
+                run.In<GameObject>("Target").GetComponent<Animation.Animator>() ?? throw new InvalidOperationException("The object has no Animator");
+
+            Action("Animation", "Play Animation", [Target, In("Animation", PortType.Animation), Number("Fade", 0.2f, "Seconds to blend into it from what was playing")], run =>
+                {
+                    var clip = run.In<Animation.AnimationClip>("Animation") ?? throw new InvalidOperationException("No animation chosen");
+                    AnimatorOf(run).Play(clip, run.In<float>("Fade"));
+                },
+                "Plays an animation on an object's Animator, blending into it. Over an animation graph, one that doesn't loop blends back into the graph when it ends.",
+                "animator clip start motion");
+            Action("Animation", "Stop Animation", [Target], run => AnimatorOf(run).Stop(),
+                "Stops the animations Play Animation started on an object's Animator (its animation graph carries on).", "animator clip halt");
+            Action("Animation", "Set Animation Parameter", [Target, Text("Parameter", ""), In("Value", PortType.Any)], run =>
+                    AnimatorOf(run).Set(run.In<string>("Parameter"), run.In("Value")),
+                "Sets one of the parameters of an Animator's animation graph: how fast the character's going, whether it's crouching.",
+                "animator graph variable speed blend");
+            Action("Animation", "Trigger Animation", [Target, Text("Parameter", "")], run => AnimatorOf(run).SetTrigger(run.In<string>("Parameter")),
+                "Sets a Trigger parameter of an Animator's animation graph for one frame: what starts its Play Once (a jump, an attack).",
+                "animator graph trigger action attack jump");
+
             // ---------------------------------------------------------------- Sound and effects
 
             Action("Sound", "Play Sound", [In("Sound", PortType.Sound), Number("Volume", 1f), Bool("In World", true, "From this object, quieter further away; off, it plays everywhere the same")], run =>

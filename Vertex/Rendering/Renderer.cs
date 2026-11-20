@@ -345,10 +345,10 @@ namespace Vertex.Rendering
             // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
             foreach (MeshRenderer meshRenderer in scene.FindComponents<MeshRenderer>())
             {
-                if (meshRenderer.Mesh == null) continue;
+                if (meshRenderer.DrawnMesh is not { } mesh) continue;
 
                 bool lit = meshRenderer.Material.Shading == ShadingModel.Lit;
-                var draw = new DrawCall(meshRenderer.Mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, meshRenderer.CastShadows && lit);
+                var draw = new DrawCall(mesh, meshRenderer.Material, meshRenderer.Transform.WorldMatrix, meshRenderer.CastShadows && lit);
                 Culling.WorldBounds(draw.Mesh, draw.WorldMatrix, out Vector3 centre, out Vector3 extents);
 
                 if (frustum.Intersects(centre, extents)) (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
