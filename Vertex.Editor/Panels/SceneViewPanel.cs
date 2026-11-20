@@ -452,6 +452,15 @@ namespace Vertex.Editor.Panels
                 if (chipPress.Clicked) ShowGame();
             }
 
+            // Every collider in the scene, faintly, while they're asked for; the selected objects' show anyway (below).
+            if (_context.Preferences.ShowColliders)
+            {
+                foreach (GameObject gameObject in _context.Scene.GameObjects)
+                {
+                    if (gameObject.ActiveInHierarchy) ColliderShapes.Draw(view, gameObject, 0.4f);
+                }
+            }
+
             // The others selected (not UI) are outlined too, and move with the main one's handles. What's under one of
             // them moves with it, so isn't moved again.
             List<Transform> others = [];
@@ -935,18 +944,21 @@ namespace Vertex.Editor.Panels
 
         private static void DrawSelectionOutline(ViewProjection view, GameObject selected)
         {
-            void Box(GameObject gameObject, Color color)
+            void Box(GameObject gameObject, Color color, bool top)
             {
                 if (gameObject.GetComponent<MeshRenderer>() is { Mesh: { } mesh })
                 {
                     Edges(view, gameObject.Transform.WorldMatrix, mesh.BoundsCentre, mesh.BoundsExtents, color);
                 }
 
-                foreach (Transform child in gameObject.Transform.Children) Box(child.GameObject, color.WithAlpha(0.4f));
+                // Where it's solid, in green: a character's body is often on a child, so theirs show too, fainter.
+                if (gameObject.ActiveInHierarchy) ColliderShapes.Draw(view, gameObject, top ? 1f : 0.55f);
+
+                foreach (Transform child in gameObject.Transform.Children) Box(child.GameObject, color.WithAlpha(0.4f), false);
             }
 
             float pulse = 0.75f + 0.25f * MathF.Sin(Ui.Time * 3f);
-            Box(selected, Theme.Accent.WithAlpha(pulse));
+            Box(selected, Theme.Accent.WithAlpha(pulse), true);
 
             // What has no mesh to outline: a fog volume's box, and how far a light reaches.
             if (selected.GetComponent<FogVolume>() != null)
@@ -1106,7 +1118,8 @@ namespace Vertex.Editor.Panels
         private void DrawToolbar(Rect viewport)
         {
             // Move, turn and scale, world or local axes, snapping and the grid, floating in the corner.
-            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 3f * 30f + 8f + 62f + 9f + 30f + 18f + 9f + 30f + 9f + 34f, 36f);
+            // Wide enough for: the three tools, World/Local, the magnet and its arrow, grid, effects and colliders, and 2D.
+            var bar = new Rect(viewport.X + 10f, viewport.Y + 10f, 4f + 3f * 30f + 8f + 58f + 9f + 28f + 18f + 9f + 3f * 30f - 2f + 9f + 32f + 4f, 36f);
             Ui.Shadow(bar, 8f, 14f, 0.5f);
             Ui.Rect(bar, Theme.Panel.WithAlpha(0.92f), 8f);
             Ui.Outline(bar, Theme.Border, 8f);
@@ -1177,9 +1190,18 @@ namespace Vertex.Editor.Panels
                 _context.Preferences.ShowEffects = !showEffects;
             }
 
+            // Every collider in the scene, not just the selected objects'.
+            var colliders = new Rect(effects.Right + 2f, bar.Y + 4f, 28f, 28f);
+            bool showColliders = _context.Preferences.ShowColliders;
+            if (Widgets.IconButton(Ui.Id("sceneView.colliders"), colliders, Icons.BoxCollider,
+                showColliders ? "Show only the selected objects' colliders" : "Show every collider, not just the selected objects'", selected: showColliders))
+            {
+                _context.Preferences.ShowColliders = !showColliders;
+            }
+
             // 2D: looking flat on at the X-Y plane, without perspective, as a 2D game's camera does.
-            Ui.Rect(new Rect(effects.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
-            var flat = new Rect(effects.Right + 9f, bar.Y + 4f, 32f, 28f);
+            Ui.Rect(new Rect(colliders.Right + 4f, bar.Y + 9f, 1f, 18f), Theme.Border);
+            var flat = new Rect(colliders.Right + 9f, bar.Y + 4f, 32f, 28f);
             bool is2D = Camera.Is2D;
             if (Widgets.IconButton(Ui.Id("sceneView.2d"), flat, (c, s, col) => Ui.Text(new Rect(c.X - 16f, c.Y - 10f, 32f, 20f), "2D", col, 0.5f, Theme.SmallTextSize, bold: true),
                 is2D ? "Back to 3D" : "2D: look flat on at the X-Y plane, for 2D games", selected: is2D))

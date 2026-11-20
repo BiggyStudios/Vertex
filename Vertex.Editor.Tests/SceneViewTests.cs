@@ -189,5 +189,101 @@ namespace Vertex.Editor.Tests
             Assert.Equal("Middle", Picking.Pick(Scene.Active, new Vector3(-0.6f, 0f, 10f), -Vector3.UnitZ)?.GameObject.Name);
             Assert.Null(Picking.Pick(Scene.Active, new Vector3(3f, 0f, 10f), -Vector3.UnitZ));
         }
+
+        // The box round every end of a collider's drawn lines.
+        private static (Vector3 Min, Vector3 Max, int Lines) Drawn(Physics.Collider collider)
+        {
+            var lines = new List<(Vector3 From, Vector3 To)>();
+            ColliderShapes.Outline(collider, lines, new Vector3(0f, 0f, 1000f));
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            foreach ((Vector3 from, Vector3 to) in lines)
+            {
+                min = Vector3.Min(min, Vector3.Min(from, to));
+                max = Vector3.Max(max, Vector3.Max(from, to));
+            }
+
+            return (min, max, lines.Count);
+        }
+
+        private static void Near(Vector3 expected, Vector3 actual)
+        {
+            Assert.True(Vector3.Distance(expected, actual) < 0.01f, $"expected {expected}, got {actual}");
+        }
+
+        [Fact]
+        public void A_box_collider_is_drawn_where_the_physics_world_puts_it_scaled_turned_and_offset()
+        {
+            var crate = new GameObject("Crate");
+            crate.Transform.Position = new Vector3(5f, 0f, 0f);
+            crate.Transform.Scale = new Vector3(1f, 2f, 3f);
+            crate.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f);
+            var box = crate.AddComponent<Physics.BoxCollider>();
+            box.Size = new Vector3(2f, 1f, 1f);
+            box.Center = new Vector3(0f, 1f, 0f);
+
+            // Half size (1, 1, 1.5) after scaling, raised 2 by the scaled centre; turned a quarter, its X runs along Z.
+            (Vector3 min, Vector3 max, int count) = Drawn(box);
+            Assert.Equal(12, count);
+            Near(new Vector3(3.5f, 1f, -1f), min);
+            Near(new Vector3(6.5f, 3f, 1f), max);
+        }
+
+        [Fact]
+        public void Spheres_capsules_and_characters_are_drawn_the_size_the_physics_world_makes_them()
+        {
+            // A sphere stays round, so it takes the largest axis of the scale.
+            var ball = new GameObject("Ball");
+            ball.Transform.Scale = new Vector3(1f, 3f, 1f);
+            (Vector3 min, Vector3 max, _) = Drawn(ball.AddComponent<Physics.SphereCollider>());
+            Near(new Vector3(-1.5f), min);
+            Near(new Vector3(1.5f), max);
+
+            // A capsule 2 tall and 0.5 round stands along Y.
+            var pill = new GameObject("Pill");
+            (min, max, _) = Drawn(pill.AddComponent<Physics.CapsuleCollider>());
+            Near(new Vector3(-0.5f, -1f, -0.5f), min);
+            Near(new Vector3(0.5f, 1f, 0.5f), max);
+
+            // A character stands on its feet, at the object's position.
+            var walker = new GameObject("Walker");
+            walker.Transform.Position = new Vector3(0f, 3f, 0f);
+            (min, max, _) = Drawn(walker.AddComponent<Physics.CharacterController>());
+            Near(new Vector3(-0.4f, 3f, -0.4f), min);
+            Near(new Vector3(0.4f, 4.8f, 0.4f), max);
+        }
+
+        [Fact]
+        public void Only_the_collider_the_physics_world_uses_is_drawn()
+        {
+            var crate = new GameObject("Crate");
+            var off = crate.AddComponent<Physics.BoxCollider>();
+            off.Enabled = false;
+            var used = crate.AddComponent<Physics.SphereCollider>();
+            crate.AddComponent<Physics.BoxCollider>();
+
+            Assert.Equal([used], ColliderShapes.Used(crate));
+        }
+
+        [Fact]
+        public void A_mesh_colliders_edges_are_drawn_once_each_however_its_corners_are_split()
+        {
+            // The cube's faces each have their own corners (for their normals): 12 sides and a diagonal across each face.
+            Assert.Equal(18 * 2, ColliderShapes.EdgesOf(Primitives.Cube).Length);
+        }
+
+        [Fact]
+        public void A_line_going_behind_the_camera_is_cut_short_there_not_left_out()
+        {
+            var camera = new EditorCamera(new Scene());
+            var view = new ViewProjection(camera, new Rect(0f, 0f, ScreenWidth, ScreenHeight));
+
+            // From in front of the camera to well behind it: the part in front still shows.
+            Vector3 eye = view.CameraPosition, ahead = view.CameraForward;
+            Vector3 side = Vector3.Normalize(Vector3.Cross(ahead, Vector3.UnitY));
+            var line = view.Clipped(eye + ahead * 3f + side, eye - ahead * 3f + side);
+            Assert.NotNull(line);
+            Assert.True(float.IsFinite(line!.Value.From.X) && float.IsFinite(line.Value.To.X));
+            Assert.Null(view.Clipped(eye - ahead * 2f, eye - ahead * 3f));
+        }
     }
 }

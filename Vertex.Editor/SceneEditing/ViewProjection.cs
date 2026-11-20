@@ -30,10 +30,7 @@ namespace Vertex.Editor.SceneEditing
         public Vector2? ToScreen(Vector3 world)
         {
             Vector4 clip = Vector4.Transform(new Vector4(world, 1f), _viewProjection);
-            if (clip.W <= 0.001f) return null;
-
-            var device = new Vector2(clip.X, clip.Y) / clip.W;
-            return new Vector2(Viewport.X + (device.X + 1f) * 0.5f * Viewport.Width, Viewport.Y + (1f - device.Y) * 0.5f * Viewport.Height);
+            return clip.W <= 0.001f ? null : OnScreen(clip);
         }
 
         /// <summary>The ray from the camera through <paramref name="screen"/> (in UI units).</summary>
@@ -53,10 +50,32 @@ namespace Vertex.Editor.SceneEditing
             return 2f * depth * MathF.Tan(Camera.Camera.FieldOfView * MathF.PI / 360f) / MathF.Max(Viewport.Height, 1f);
         }
 
-        /// <summary>A line between two points in the world, drawn over the view; left out if either end is behind the camera.</summary>
+        /// <summary>
+        /// A line between two points in the world, drawn over the view. One going behind the camera is cut short where it
+        /// passes it, so a big box round the camera (a floor's collider) still shows its edges.
+        /// </summary>
         public void Line(Vector3 from, Vector3 to, Color color, float thickness = 1.5f)
         {
-            if (ToScreen(from) is Vector2 a && ToScreen(to) is Vector2 b) Ui.Line(a, b, color, thickness);
+            if (Clipped(from, to) is (Vector2 a, Vector2 b)) Ui.Line(a, b, color, thickness);
+        }
+
+        /// <summary>Where the line between two points shows on screen, cut at the camera; null if it's all behind.</summary>
+        public (Vector2 From, Vector2 To)? Clipped(Vector3 from, Vector3 to)
+        {
+            const float near = 0.01f;
+            Vector4 a = Vector4.Transform(new Vector4(from, 1f), _viewProjection);
+            Vector4 b = Vector4.Transform(new Vector4(to, 1f), _viewProjection);
+            if (a.W < near && b.W < near) return null;
+
+            if (a.W < near) a = Vector4.Lerp(a, b, (near - a.W) / (b.W - a.W));
+            else if (b.W < near) b = Vector4.Lerp(b, a, (near - b.W) / (a.W - b.W));
+            return (OnScreen(a), OnScreen(b));
+        }
+
+        private Vector2 OnScreen(Vector4 clip)
+        {
+            var device = new Vector2(clip.X, clip.Y) / clip.W;
+            return new Vector2(Viewport.X + (device.X + 1f) * 0.5f * Viewport.Width, Viewport.Y + (1f - device.Y) * 0.5f * Viewport.Height);
         }
     }
 }

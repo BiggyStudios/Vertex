@@ -52,12 +52,12 @@
 
     <h2>Making things</h2>
     <p>The <strong>Create</strong> menu (or the <strong>+</strong> in the outliner) makes objects: an <strong>Empty</strong> object, a <strong>Cube</strong>, <strong>Sphere</strong> or <strong>Plane</strong>, a <strong>Sun</strong> or <strong>Point Light</strong>, a <strong>Camera</strong>, and <strong>UI</strong>: a <strong>Canvas</strong> with <strong>Panels</strong>, <strong>Text</strong>, <strong>Images</strong> and <strong>Buttons</strong>. New objects go where the view is looking (at the point it orbits round).</p>
-    <p>Shapes from the Create menu are only drawn. To make one solid, add a collider: <strong>Box Collider</strong>, <strong>Sphere Collider</strong>, <strong>Capsule Collider</strong> or <strong>Mesh Collider</strong>. Add a <strong>Rigidbody</strong> as well for physics to move it.</p>
+    <p>Shapes from the Create menu are only drawn. To make one solid, add a collider: <strong>Box Collider</strong>, <strong>Sphere Collider</strong>, <strong>Capsule Collider</strong> or <strong>Mesh Collider</strong>. Add a <strong>Rigidbody</strong> as well for physics to move it. A selected object's colliders are drawn in green in the scene view, the size and shape physics uses (paler for triggers); the box button in the toolbar shows every collider in the scene.</p>
     <p>Dragging a model (<code>.gltf</code>, <code>.glb</code>, <code>.fbx</code>, <code>.obj</code>) or a prefab from the Assets panel into the scene puts it there. Dragging a texture onto an object paints its material with it; a material, gives it that material.</p>
 
     <h2>The inspector</h2>
     <p>Components are what objects do. <strong>Add Component</strong> lists the engine's (rendering, physics, audio, UI, networking, effects…) and your game's own, with a search box. Typing a name that isn't there offers <strong>New Script</strong>, which writes a C# component of that name, builds it and adds it.</p>
-    <p>Each component's <strong>⋯</strong> menu moves it up or down or removes it. Settings are edited by dragging numbers sideways or typing in them, picking colours, choosing from lists, and filling <strong>slots</strong>:</p>
+    <p>Each component's <strong>⋯</strong> menu (or a right-click on its header) moves it up or down or removes it. Settings are edited by dragging numbers sideways or typing in them, picking colours, choosing from lists, and filling <strong>slots</strong>:</p>
     <ul>
         <li><strong>File slots</strong> (a texture, material, prefab, sound, font, visual script, VFX graph, audio graph): click to pick from the project's files, or drag one in from Assets.</li>
         <li><strong>Object slots</strong> (another object, or one of its components): click to pick from the scene's objects that fit, or drag one in from the outliner. While you drag a row out of the outliner, the inspector keeps showing what you had selected, so you can drop it there.</li>

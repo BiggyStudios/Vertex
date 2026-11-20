@@ -50,6 +50,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>Whether the scene view shows the game camera's post effects, so it looks as the game will.</summary>
         [HideInInspector] public bool ShowEffects { get; set; } = true;
+
+        /// <summary>Whether the scene view shows every collider, not just the selected objects'.</summary>
+        [HideInInspector] public bool ShowColliders { get; set; }
         [HideInInspector] public float OutlinerWidth { get; set; } = 270f;
         [HideInInspector] public float InspectorWidth { get; set; } = 340f;
         [HideInInspector] public float AssetsHeight { get; set; } = 230f;
