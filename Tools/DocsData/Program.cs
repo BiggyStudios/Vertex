@@ -13,6 +13,7 @@ using Vertex.Audio;
 using Vertex.Effects;
 using Vertex.Graphs;
 using Vertex.Scripting;
+using Vertex.ShaderGraphs;
 
 // Writes docs/data/*.js: the reference pages' data, taken from the engine so it's never out of date. Each file sets a
 // global (window.VertexNodes...) rather than being JSON, so the site works opened straight from disk too.
@@ -50,7 +51,7 @@ JsonNode Nodes()
 {
     var types = new JsonObject();
     var libraries = new JsonObject();
-    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library })
+    foreach (NodeLibrary library in new[] { ScriptNodes.Library, VfxNodes.Library, AudioNodes.Library, ShaderNodes.Library })
     {
         var categories = new JsonObject();
         var nodes = new JsonArray();
@@ -94,6 +95,8 @@ JsonNode PortJson(Port port)
     if (port.Tooltip != null) json["tooltip"] = port.Tooltip;
     if (port.Type.ValueType is { IsEnum: true } enumType) json["choices"] = new JsonArray(Enum.GetNames(enumType).Select(n => (JsonNode)n).ToArray());
     if (!port.Type.IsFlow && Describe(port.DefaultValue) is { } value) json["default"] = value;
+    // What an input that takes nothing typed is while unlinked ("Material's"), shown where a value would be.
+    if (port.WhenUnlinked != null) json["default"] = port.WhenUnlinked;
     return json;
 }
 
@@ -103,6 +106,7 @@ static string? Describe(object? value) => value switch
     float f => f.ToString("0.###", CultureInfo.InvariantCulture),
     bool b => b ? "true" : "false",
     string s => s,
+    Vector2 v => string.Create(CultureInfo.InvariantCulture, $"{v.X:0.##}, {v.Y:0.##}"),
     Vector3 v => string.Create(CultureInfo.InvariantCulture, $"{v.X:0.##}, {v.Y:0.##}, {v.Z:0.##}"),
     Vector4 v => string.Create(CultureInfo.InvariantCulture, $"{v.X:0.##}, {v.Y:0.##}, {v.Z:0.##}, {v.W:0.##}"),
     Color c => Hex(c),
@@ -130,6 +134,12 @@ JsonNode Graphs()
     graphs["Footsteps (Audio)"] = JsonNode.Parse(Footsteps().ToJson());
     graphs["Gunshot (Audio)"] = JsonNode.Parse(Gunshot().ToJson());
     graphs["Rain (Audio)"] = JsonNode.Parse(Rain().ToJson());
+
+    // Shader graphs: the two a new one starts as, and two more.
+    graphs["Rim Light (Shader)"] = JsonNode.Parse(ShaderNodes.Starter().ToJson());
+    graphs["Lava (Shader)"] = JsonNode.Parse(Lava().ToJson());
+    graphs["Colour Grade (Shader)"] = JsonNode.Parse(ShaderNodes.PostEffectStarter().ToJson());
+    graphs["Retro Pixels (Shader)"] = JsonNode.Parse(RetroPixels().ToJson());
     return graphs;
 }
 
@@ -149,6 +159,59 @@ static GraphNode Node(Graph graph, string type, float x, float y, params (string
 }
 
 // One of four footsteps, never the same twice running, a little higher or lower and louder or quieter each time.
+// Glowing cracks that crawl across a dark rock: noise, scrolled by time, cut into cracks, lit by a Glow property.
+static Graph Lava()
+{
+    var graph = new Graph(ShaderNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Glow", PortType.Color, new Color(1f, 0.35f, 0.08f)));
+    GraphNode time = graph.AddNode("Input/Time", new Vector2(0f, 0f));
+    GraphNode slow = graph.AddNode("Math/Multiply", new Vector2(200f, 0f));
+    slow.Values["B"] = 0.05f;
+    GraphNode scroll = graph.AddNode("UV/Tiling And Offset", new Vector2(420f, -10f));
+    scroll.Values["Tiling"] = new Vector2(2f, 2f);
+    GraphNode noise = graph.AddNode("Noise/Noise", new Vector2(680f, 0f));
+    noise.Values["Scale"] = 6f;
+    noise.Values["Octaves"] = 4f;
+    GraphNode cracks = graph.AddNode("Math/Smoothstep", new Vector2(920f, 0f));
+    cracks.Values["Edge 1"] = 0.55f;
+    cracks.Values["Edge 2"] = 0.7f;
+    GraphNode glow = graph.AddNode("Properties/Get Property", new Vector2(920f, 150f));
+    glow.Values["Variable"] = "Glow";
+    GraphNode bright = graph.AddNode("Math/Multiply", new Vector2(1160f, 60f));
+    GraphNode rock = graph.AddNode("Constant/Color", new Vector2(1160f, -110f));
+    rock.Values["Color"] = new Color(0.08f, 0.06f, 0.05f);
+    GraphNode surface = graph.AddNode("Output/Surface", new Vector2(1400f, -60f));
+
+    graph.Link(time.Id, "Time", slow.Id, "A");
+    graph.Link(slow.Id, "Result", scroll.Id, "Offset");
+    graph.Link(scroll.Id, "UV", noise.Id, "UV");
+    graph.Link(noise.Id, "Noise", cracks.Id, "Value");
+    graph.Link(cracks.Id, "Result", bright.Id, "A");
+    graph.Link(glow.Id, "Value", bright.Id, "B");
+    graph.Link(rock.Id, "Color", surface.Id, "Color");
+    graph.Link(bright.Id, "Result", surface.Id, "Emission");
+    return graph;
+}
+
+// The picture in big pixels and a few shades, for a post effect.
+static Graph RetroPixels()
+{
+    var graph = new Graph(ShaderNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Shades", PortType.Number, 6f));
+    GraphNode pixelate = graph.AddNode("UV/Pixelate", new Vector2(0f, 0f));
+    pixelate.Values["Pixels"] = new Vector2(320f, 180f);
+    GraphNode picture = graph.AddNode("Input/Picture", new Vector2(240f, 0f));
+    GraphNode shades = graph.AddNode("Properties/Get Property", new Vector2(240f, 110f));
+    shades.Values["Variable"] = "Shades";
+    GraphNode posterize = graph.AddNode("Math/Posterize", new Vector2(500f, 20f));
+    GraphNode output = graph.AddNode("Output/Post Effect", new Vector2(740f, 30f));
+    graph.Link(pixelate.Id, "UV", picture.Id, "UV");
+    graph.Link(picture.Id, "Color", posterize.Id, "Value");
+    graph.Link(shades.Id, "Value", posterize.Id, "Steps");
+    graph.Link(posterize.Id, "Result", output.Id, "Color");
+    return graph;
+}
+
 static Graph Footsteps()
 {
     var graph = new Graph(AudioNodes.Kind);

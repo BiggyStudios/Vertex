@@ -14,7 +14,7 @@
     <p class="lead">Every node there is, taken from the engine itself. Search by name or what it's for, pick a category, and open a node for what each port means.</p>
 
     <div class="ref-tools">
-        <span class="track-switch" id="kinds" data-own><button data-kind="script">Visual scripts</button><button data-kind="vfx">VFX graphs</button><button data-kind="audio">Audio graphs</button></span>
+        <span class="track-switch" id="kinds" data-own><button data-kind="script">Visual scripts</button><button data-kind="vfx">VFX graphs</button><button data-kind="audio">Audio graphs</button><button data-kind="shader">Shader graphs</button></span>
         <input class="ref-search" id="search" placeholder="Search nodes: raycast, jump, score, colour…" aria-label="Search nodes">
     </div>
     <div class="chips" id="categories"></div>
@@ -29,7 +29,7 @@
     (() => {
         const data = window.VertexNodes;
         const params = new URLSearchParams(location.search);
-        let kind = ["vfx", "audio"].includes(params.get("kind")) ? params.get("kind") : "script";
+        let kind = ["vfx", "audio", "shader"].includes(params.get("kind")) ? params.get("kind") : "script";
         let category = null;
         const grid = document.getElementById("grid"), search = document.getElementById("search");
 

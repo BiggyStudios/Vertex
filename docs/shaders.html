@@ -3,27 +3,82 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Post effects and shaders · Vertex docs</title>
+    <title>Shaders and post effects · Vertex docs</title>
     <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 <div class="layout">
 <main class="content">
     <span class="eyebrow">Guide</span>
-    <h1>Post effects and shaders</h1>
-    <p class="lead">A <strong>post effect</strong> changes the finished picture: a colour grade, film grain, big pixels, a dithered look. You write it as a short shader in GLSL, and a <strong>Post Effect</strong> component on a camera runs it, in Vulkan and OpenGL alike.</p>
+    <h1>Shaders and post effects</h1>
+    <p class="lead">A shader works out a colour for every pixel. There are two kinds. A <strong>surface shader</strong> goes on a material and works out how its surface looks at each point: flowing lava, a force field, a scrolling screen. A <strong>post effect</strong> goes on a camera and changes the finished picture: a colour grade, film grain, big pixels. Make either with nodes in a <strong>shader graph</strong>, or write it in GLSL. Both run in Vulkan and OpenGL alike.</p>
 
-    <h2>Making one</h2>
+    <h2>Examples</h2>
+    <p>A few shader graphs, as they look in the editor. Drag to pan, scroll to zoom, and hover a node to see what it does.</p>
+    <p class="chips" id="graph-picks"></p>
+    <div id="graph-demo"></div>
+
+    <h2>Shader graphs</h2>
     <ol>
-        <li>In the Assets panel, choose <strong>New Post Effect</strong>. It makes a <code>.glsl</code> file that starts as a simple colour grade.</li>
-        <li>Select the camera, <strong>Add Component › Post Effect</strong>, and pick the file as its <em>Shader</em>.</li>
-        <li>Its settings show below it in the inspector. Change them there, or open the file in your code editor: each time you save, the scene shows the change.</li>
+        <li>In the Assets panel, press <strong>+</strong> and choose <strong>New Shader Graph</strong> for a material, or <strong>New Post Effect Graph</strong> for a camera. It makes a <code>.shadergraph</code> file and opens it in a tab, already set up to show how one's made.</li>
+        <li>For a material, pick the file as the material's <strong>Shader</strong> in the inspector. For a camera, <strong>Add Component › Post Effect</strong> and pick it as its <em>Shader</em>. Each slot only offers shaders of its own kind.</li>
+        <li>Edit the graph. The <strong>Preview</strong> in the corner of the tab shows what it makes as you go: a material's on a ball (or a block or a square; drag to turn it), a post effect's on a little scene. Everything using the graph changes with it, and it's saved as you edit.</li>
     </ol>
-    <p>The scene view shows the game camera's post effects too, so you see the scene as the game will. The button beside the grid's in its toolbar (or <strong>View › Post Effects</strong>) turns that off and on.</p>
-    <p>A camera can have several Post Effects. They run in the order they're on it, each on what the one before made. Untick one to turn it off.</p>
+    <p>A graph ends in one output node. Everything linked into it is worked out for each pixel from where it is (its texture coordinates, its place in the world, the time), maths, noise, shapes, textures and colours. Right-click or press Space to add nodes; the <a href="nodes.html?kind=shader">node reference</a> has every one.</p>
 
-    <h2>Writing the shader</h2>
-    <p>A post effect is a function, <code>effect</code>, that's given a place on the screen and returns the colour to show there. It runs once for every pixel. This one makes the picture into big square pixels with fewer shades:</p>
+    <h3>The Surface node</h3>
+    <p>Where a material's graph ends. An input left unlinked keeps the material's own setting, so a graph can change just the glow and leave the colour, roughness and normal map to the material.</p>
+    <table>
+        <tr><th>Input</th><th>What it is</th></tr>
+        <tr><td>Color</td><td>The surface's colour.</td></tr>
+        <tr><td>Alpha, Alpha Clip</td><td>Where Alpha is below Alpha Clip, nothing's drawn: leaves, fences, holes. 0.5 is the usual clip.</td></tr>
+        <tr><td>Normal</td><td>Bumps, as a normal map has them. Link a <strong>Sample Normal Map</strong>.</td></tr>
+        <tr><td>Roughness, Metallic, Specular</td><td>As on a material: from polished to chalky, metal or not, how much a non-metal reflects.</td></tr>
+        <tr><td>Emission</td><td>Light it gives off itself. Above 1, it glows and blooms.</td></tr>
+    </table>
+    <p>The <strong>Material</strong> node gives the material's own settings (its colour times its texture, and so on) to build on. A <strong>Post Effect</strong> node ends a camera's graph instead: link into its Color the colour each pixel becomes. <strong>Picture</strong> reads the picture so far, anywhere on the screen.</p>
+
+    <h3>Properties</h3>
+    <p>The graph's <strong>Properties</strong> (the panel in its top-left corner) are its settings: numbers, vectors, colours, true/false and textures. Each material or effect using the graph shows them in the inspector and sets its own, so one lava graph can glow orange on one rock and green on another. A <strong>Get Property</strong> node reads one in the graph.</p>
+    <p>A node that's wrong (a Picture in a material's graph, say) is outlined red, and what's wrong shows in a box at the bottom of the tab and under the material or effect in the inspector. Until it's put right, a material is drawn its standard way and an effect is left out.</p>
+
+    <h2>Surface shaders in GLSL</h2>
+    <p>A surface shader can be written by hand, too: a <code>.glsl</code> file defining <code>surface</code>, which is given the material's look and changes what it likes. Pick the file as a material's Shader, as with a graph.</p>
+    <pre class="cs" data-file="Lava.glsl">// Glowing cracks that crawl.
+property color Glow = #FF6010;
+property float Speed = 1 [0, 4];   // How fast the cracks crawl
+property texture Cracks = "Textures/Cracks.png";
+
+void surface(inout Surface s)
+{
+    float crack = sampleData(Cracks, uv + vec2(time * Speed * 0.1, 0.0)).r;
+    s.emission = Glow.rgb * crack * 4.0;
+    s.roughness = mix(s.roughness, 0.2, crack);
+}</pre>
+    <p><code>s</code> starts as the material's own look. Colours in it are linear, as light is worked out in; a <code>color</code> setting arrives linear too.</p>
+    <table>
+        <tr><th><code>s.</code></th><th>What it is</th></tr>
+        <tr><td><code>color</code>, <code>alpha</code></td><td>The colour, and how solid it is.</td></tr>
+        <tr><td><code>alphaClip</code></td><td>Where <code>alpha</code> is below it, nothing's drawn. 0 to start with.</td></tr>
+        <tr><td><code>normal</code></td><td>Which way the surface faces, in the world.</td></tr>
+        <tr><td><code>roughness</code>, <code>metallic</code>, <code>specular</code></td><td>As on the material.</td></tr>
+        <tr><td><code>emission</code></td><td>Light it gives off.</td></tr>
+    </table>
+    <table>
+        <tr><th>It can read</th><th>What it is</th></tr>
+        <tr><td><code>uv</code></td><td>The mesh's texture coordinates here.</td></tr>
+        <tr><td><code>worldPosition</code>, <code>worldNormal</code></td><td>Where the point is, and which way the mesh faces there (before any bumps).</td></tr>
+        <tr><td><code>viewDirection</code></td><td>The way from the point to the camera.</td></tr>
+        <tr><td><code>objectPosition</code></td><td>Where the object's origin is.</td></tr>
+        <tr><td><code>screenPosition</code></td><td>Where on the screen, 0 to 1 from the top-left.</td></tr>
+        <tr><td><code>time</code></td><td>Seconds since the game started.</td></tr>
+        <tr><td><code>sampleColor(texture, uv)</code></td><td>A texture's colour, made linear.</td></tr>
+        <tr><td><code>sampleData(texture, uv)</code></td><td>A texture's values as stored: masks, heights, noise.</td></tr>
+        <tr><td><code>surfaceToWorld(sampleNormal(texture, uv, strength))</code></td><td>A normal map's bumps, as a normal for <code>s.normal</code>.</td></tr>
+    </table>
+
+    <h2>Post effects in GLSL</h2>
+    <p>In the Assets panel, <strong>New Post Effect</strong> makes a <code>.glsl</code> file that starts as a simple colour grade. A post effect is a function, <code>effect</code>, that's given a place on the screen and returns the colour to show there. This one makes the picture into big square pixels with fewer shades:</p>
     <pre class="cs" data-file="Pixels.glsl">// Big square pixels and fewer shades: a low-resolution look.
 property float Lines = 240 [60, 720];   // How many rows of pixels fill the screen
 property int Shades = 6 [2, 32];        // How many levels each colour has
@@ -38,22 +93,23 @@ vec4 effect(vec2 uv)
     float steps = float(Shades - 1);
     return vec4(floor(colour * steps + 0.5) / steps, 1.0);
 }</pre>
-    <p>What an effect can use:</p>
     <table>
-        <tr><th>Name</th><th>What it is</th></tr>
+        <tr><th>It can read</th><th>What it is</th></tr>
         <tr><td><code>uv</code></td><td>Where on the screen, from 0 to 1 across and down, starting at the top-left corner.</td></tr>
         <tr><td><code>picture(uv)</code></td><td>The picture so far at any place on the screen, in screen colours from 0 to 1. Lighting, fog, bloom, tone mapping and anti-aliasing have all been done.</td></tr>
         <tr><td><code>distanceAt(uv)</code></td><td>How far from the camera what's drawn there is, in metres along its view. Very large for the sky.</td></tr>
         <tr><td><code>screenSize</code></td><td>The size of the picture in pixels, as a <code>vec2</code>.</td></tr>
         <tr><td><code>time</code></td><td>Seconds since the game started, for things that move.</td></tr>
     </table>
-    <p>Everything else is ordinary GLSL: functions of your own, loops, <code>mix</code>, <code>smoothstep</code> and the rest.</p>
+    <p>The scene view shows the game camera's post effects too, so you see the scene as the game will. The button beside the grid's in its toolbar (or <strong>View › Post Effects</strong>) turns that off and on. A camera can have several Post Effects: they run in the order they're on it, each on what the one before made.</p>
+    <p>Everything else is ordinary GLSL, in both kinds of shader: functions of your own, loops, <code>mix</code>, <code>smoothstep</code> and the rest. Each time you save the file, what uses it changes.</p>
 
     <h2>Settings</h2>
-    <p>Each line starting with <code>property</code> is a setting. It shows in the inspector of the Post Effect using the shader, and the shader reads it by its name:</p>
+    <p>In GLSL, each line starting with <code>property</code> is a setting. It shows in the inspector of what uses the shader, and the shader reads it by its name:</p>
     <pre class="plain" data-file="GLSL">property float Strength = 0.5 [0, 1];   // How strong it is
 property color Tint = #FFB070;           // A warm orange
-property bool Flicker = false;</pre>
+property bool Flicker = false;
+property texture Bumps = normal;</pre>
     <p>After the type and name come its starting value, an optional range in square brackets (the inspector shows a slider for it), and a comment, which becomes its tooltip.</p>
     <table>
         <tr><th>Type</th><th>Written like</th><th>In the inspector</th></tr>
@@ -62,16 +118,20 @@ property bool Flicker = false;</pre>
         <tr><td><code>bool</code></td><td><code>true</code> or <code>false</code></td><td>A tick box</td></tr>
         <tr><td><code>vec2</code>, <code>vec3</code>, <code>vec4</code></td><td><code>(1, 0.5, 0)</code></td><td>A box for each part</td></tr>
         <tr><td><code>color</code></td><td><code>#FF8800</code>, or <code>(1, 0.5, 0, 1)</code> from 0 to 1</td><td>A colour picker</td></tr>
+        <tr><td><code>texture</code></td><td><code>white</code>, <code>black</code>, <code>normal</code> (a flat normal map) or <code>"Textures/Bricks.png"</code></td><td>A texture slot</td></tr>
     </table>
-    <p>A shader can have up to 16 settings. Settings changed on a Post Effect are saved with the scene; those left alone follow the shader's starting values, so changing one in the file changes every effect that hasn't set its own.</p>
+    <p>A shader can have up to 16 settings and 4 textures. Settings changed on a material or effect are saved with it; those left alone follow the shader's starting values, so changing one in the shader changes everything that hasn't set its own.</p>
 
     <h2>From code</h2>
-    <p>Settings can change while the game runs, to fade an effect in or make it react to what happens:</p>
+    <p>Settings can change while the game runs, to fade an effect in or make a material react to what happens:</p>
     <pre class="cs">var effect = Camera.Main!.GetComponent&lt;PostEffect&gt;()!;
 effect.Set("Strength", 0.8f);
-effect.Set("Tint", new Color(1f, 0.3f, 0.3f));
-effect.Enabled = false;   // off for now</pre>
-    <p>A Post Effect can be added in code as well: <code>camera.AddComponent&lt;PostEffect&gt;().Shader = Assets.LoadShader("Shaders/Pixels.glsl")</code>.</p>
+effect.Enabled = false;   // off for now
+
+Material lava = GetComponent&lt;MeshRenderer&gt;()!.Material;
+lava.Set("Glow", new Color(0.2f, 1f, 0.3f));
+lava.SetTexture("Cracks", Assets.LoadTexture("Textures/Ice.png"));</pre>
+    <p>Shaders load like any other file: <code>material.Shader = Assets.LoadShader("Shaders/Lava.shadergraph")</code>, or <code>camera.AddComponent&lt;PostEffect&gt;().Shader = Assets.LoadShader("Shaders/Pixels.glsl")</code>.</p>
 
     <h2>A retro look</h2>
     <p>Some of the look of early 3D consoles happens as things are drawn, so a post effect can't do it alone. The scene's <strong>Lighting &amp; Sky</strong> has a <strong>Retro</strong> section for that part:</p>
@@ -79,14 +139,32 @@ effect.Enabled = false;   // off for now</pre>
         <tr><th>Setting</th><th>What it does</th></tr>
         <tr><td><strong>Vertex Snapping</strong></td><td>Corners of meshes snap to a grid this many rows high on the screen, so things wobble and jitter as they or the camera move. 240 is the first PlayStation's; 0 turns it off.</td></tr>
         <tr><td><strong>Affine Textures</strong></td><td>Textures slide and bend across surfaces seen at an angle, as on consoles that couldn't correct for perspective. Big flat surfaces bend most, so build floors and walls from pieces a metre or so across.</td></tr>
-        <tr><td><strong>Pixelated Textures</strong></td><td>Textures are drawn in crisp square texels instead of being smoothed.</td></tr>
+        <tr><td><strong>Pixelated Textures</strong></td><td>Textures are drawn in crisp square texels instead of being smoothed. Surface shaders' textures too.</td></tr>
     </table>
     <p>Pair them with a post effect like the one above, set to the same number of rows, and small textures (64 pixels or so). Turning off <strong>Anti-Aliasing</strong> keeps edges as hard as they were.</p>
 
     <h2>When it doesn't compile</h2>
-    <p>The game keeps running without the effect, and the Console says what's wrong and on which line of the file, such as <code>Pixels.glsl:9: 'colur' : undeclared identifier</code>. The effect's inspector shows the same. Fix it and save, and it comes back.</p>
+    <p>The game keeps running: a material is drawn its standard way, and an effect is left out. The Console says what's wrong and on which line of the file, such as <code>Pixels.glsl:9: 'colur' : undeclared identifier</code>, and the inspector of what uses it shows the same. Fix it and save, and it comes back.</p>
+    <div class="note"><p>Cut-outs (Alpha Clip) don't cut holes in shadows yet: a cut-out surface still casts a solid shadow.</p></div>
 </main>
 </div>
 <script src="assets/site.js"></script>
+<script src="assets/graph.js"></script>
+<script>
+    (async () => {
+        await Site.load("data/nodes.js");
+        await Site.load("data/graphs.js");
+        const names = Object.keys(window.VertexGraphs).filter(n => n.includes("(Shader)"));
+        const picks = document.getElementById("graph-picks");
+        const demo = document.getElementById("graph-demo");
+        const pick = name => {
+            picks.querySelectorAll(".chip").forEach(c => c.classList.toggle("on", c.dataset.name === name));
+            GraphView.mount(demo, name);
+        };
+        picks.innerHTML = names.map(n => `<button class="chip" data-name="${n}">${n.replace(" (Shader)", "")}</button>`).join("");
+        picks.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => pick(c.dataset.name)));
+        pick(names[0]);
+    })();
+</script>
 </body>
 </html>
