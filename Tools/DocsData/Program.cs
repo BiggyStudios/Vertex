@@ -145,7 +145,53 @@ JsonNode Graphs()
     // Animation graphs: walking into running by speed, and a character that crouches, aims and attacks too.
     graphs["Locomotion (Animation)"] = JsonNode.Parse(Locomotion().ToJson());
     graphs["Character (Animation)"] = JsonNode.Parse(Character().ToJson());
+    graphs["States (Animation)"] = JsonNode.Parse(States().ToJson());
     return graphs;
+}
+
+// A state machine: idle, moving (walk and run blended by speed, linked in), and a jump from any state that falls once
+// it's played, until the character's on the ground again.
+static Graph States()
+{
+    var graph = new Graph(AnimationNodes.Kind);
+    graph.Variables.Add(new GraphVariable("Speed", PortType.Number, 0f));
+    graph.Variables.Add(new GraphVariable("Grounded", PortType.Boolean, true));
+    graph.Variables.Add(new GraphVariable("Jump", AnimationNodes.Trigger));
+
+    var machine = new AnimationStateMachine { Entry = "Idle" };
+    machine.States.Add(new AnimationState { Name = "Idle", Animation = "Animations/Idle.anim", Position = new Vector2(0f, 0f) });
+    machine.States.Add(new AnimationState { Name = "Move", Position = new Vector2(250f, 0f) });
+    machine.States.Add(new AnimationState { Name = "Jump", Animation = "Animations/Jump.anim", Position = new Vector2(70f, 150f) });
+    machine.States.Add(new AnimationState { Name = "Fall", Animation = "Animations/Fall.anim", Position = new Vector2(300f, 190f) });
+
+    StateTransition When(string from, string to, string parameter, Comparison comparison, float value)
+    {
+        var transition = new StateTransition { From = from, To = to };
+        transition.Conditions.Add(new TransitionCondition { Parameter = parameter, Is = comparison, Value = value });
+        return transition;
+    }
+
+    machine.Transitions.Add(When("Idle", "Move", "Speed", Comparison.Greater, 0.1f));
+    machine.Transitions.Add(When("Move", "Idle", "Speed", Comparison.LessOrEqual, 0.1f));
+    machine.Transitions.Add(When(AnimationStateMachine.AnyState, "Jump", "Jump", Comparison.Equal, 1f));
+    machine.Transitions.Add(new StateTransition { From = "Jump", To = "Fall", AtEnd = true });
+    machine.Transitions.Add(When("Fall", "Idle", "Grounded", Comparison.Equal, 1f));
+
+    GraphNode speed = Node(graph, "Parameters/Get Parameter", -20f, -40f, ("Variable", "Speed"));
+    GraphNode walk = ClipNode(graph, "Walk", -20f, 60f);
+    GraphNode run = ClipNode(graph, "Run", -20f, 200f);
+    GraphNode moving = Node(graph, "Blend/Blend by Value", 300f, 40f, ("At", "1.5, 4"));
+    graph.Link(speed.Id, "Value", moving.Id, "Value");
+    graph.Link(walk.Id, "Pose", moving.Id, "Pose 1");
+    graph.Link(run.Id, "Pose", moving.Id, "Pose 2");
+
+    GraphNode states = graph.AddNode("Blend/State Machine", new Vector2(600f, -20f));
+    machine.Store(graph, states);
+    graph.Link(moving.Id, "Pose", states.Id, "Move");
+
+    GraphNode output = Node(graph, "Output/Output", 900f, -20f);
+    graph.Link(states.Id, "Pose", output.Id, "Pose");
+    return graph;
 }
 
 // A Clip node playing Animations/<name>.anim.

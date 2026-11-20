@@ -47,6 +47,21 @@ window.GraphView = (() => {
         return Array.from({ length: count }, (_, i) => ({ ...type.repeated, name: prefix + (i + 1) }));
     }
 
+    /**
+     * An animation graph's State Machine has an input for each of its states (kept on the node as JSON), showing the
+     * state's own animation while nothing's linked into it.
+     */
+    function stateInputs(node) {
+        if (node.type !== "Blend/State Machine" || !node.values?.States) return [];
+        try {
+            const machine = JSON.parse(node.values.States);
+            const named = path => path.split("#").pop().split("/").pop().replace(/\.anim$/, "");
+            return (machine.states ?? []).map(s => ({ name: s.name, type: "Pose", default: s.animation ? named(s.animation) : "Rest pose" }));
+        } catch {
+            return [];
+        }
+    }
+
     /** Where each node and port goes: rows of inputs on the left, outputs on the right. */
     function layout(graph, kind) {
         const placed = new Map();
@@ -58,7 +73,7 @@ window.GraphView = (() => {
             if (/^Variables\/(Get|Set) Property$/.test(node.type) && values.Property) title = (node.type.includes("Get") ? "Get " : "Set ") + values.Property;
             if (node.type === "Properties/Get Property" && values.Variable) title = "Get " + values.Variable;
 
-            const inputs = type.inputs.filter(p => !p.variable).concat(repeatedInputs(graph, node, type));
+            const inputs = type.inputs.filter(p => !p.variable).concat(repeatedInputs(graph, node, type), stateInputs(node));
             const rows = Math.max(inputs.length, type.outputs.length, 1);
             const longest = Math.max(title.length * 7.2 + 24, ...inputs.map(p => p.name.length * 6 + show(values[p.name] ?? p.default).length * 5.6 + 40));
             const w = Math.max(width, Math.min(longest, 280));

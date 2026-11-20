@@ -38,6 +38,16 @@
     </table>
     <p><strong>Length</strong> and <strong>Loop</strong> are in the panel's header. An animation that loops starts again at the end; one that doesn't holds its last pose.</p>
 
+    <h3>Curves</h3>
+    <p>The curve button at the top right shows each track's values as lines over time instead of rows of keys: x, y and z (or red, green, blue and alpha) each in their own colour. Click a track on the left to hide or show its curves.</p>
+    <div class="figure reveal"><img src="images/animation-curves.jpg" alt="The Animation panel showing curves: the shoulder's rotation rising to a peak and easing back down, a picked key at one second with a handle either side"><figcaption>The robot arm's curves. The key picked at one second has a handle either side, for how steeply the curve arrives and leaves.</figcaption></div>
+    <ul>
+        <li>Drag a key to move it in time (on whole frames) and change its value. <kbd>Shift</kbd>-click picks more.</li>
+        <li>A picked smooth key has a handle either side. Drag one to set how steeply the curve arrives at the key and leaves it; hold <kbd>Alt</kbd> to set one side alone, for a sharp change of direction.</li>
+        <li>Right-click a key for <strong>Flat</strong> (the curve levels off there), <strong>Worked-Out Slopes</strong> (back to easing through it without overshooting, as every key starts), or smooth, linear and step.</li>
+        <li>The wheel zooms the values, <kbd>Ctrl</kbd>+wheel the time; the middle button moves round; <kbd>F</kbd> fits everything in. Double-click a curve to add a key on it.</li>
+    </ul>
+
     <h3>What can be animated</h3>
     <p>Anything under the Animator: each object's position, rotation (in degrees, so it can spin round more than once) and scale, whether it's shown, and any setting of its components that's a number, true/false, vector or colour: a light's brightness and colour, a material's colour and glow, an audio source's volume. A track finds its object by where it is under the Animator (<code>Arm/Hand</code>), so renaming or moving an object loses its track: its name turns red in the panel.</p>
 
@@ -65,9 +75,41 @@
         <tr><td><strong>Switch</strong></td><td>One of any number of poses by number, fading to the new one: a character's states.</td></tr>
         <tr><td><strong>Layer</strong></td><td>Puts one pose over another from an object down: an upper body aiming while the legs walk.</td></tr>
         <tr><td><strong>Play Once</strong></td><td>Plays an action over a pose when a trigger's set, then blends back: attacks, jumps, flinches.</td></tr>
+        <tr><td><strong>State Machine</strong></td><td>States the character is in, each playing an animation or what's linked into it, and the ways between them, taken when the parameters say. See below.</td></tr>
         <tr><td><strong>Blend</strong>, <strong>Rest Pose</strong></td><td>A mix of two poses by a weight; everything as it was before any animation moved it.</td></tr>
     </table>
     <p>Get Parameter nodes read the parameters, and there's a little maths and logic to work things out from them. Each Animator using a graph shows its parameters in the inspector, to start at values of its own. The <a href="nodes.html?kind=animation">node reference</a> has every node. While the game plays, the nodes in use light up.</p>
+
+    <h3>State machines</h3>
+    <p>A character is usually in one state at a time: standing, moving, jumping, falling, attacking. A <strong>State Machine</strong> node keeps those states and the <strong>transitions</strong> between them, and fades from one to the next when a transition's taken. Double-click the node (or right-click it, <strong>Open State Machine</strong>) to see its states; <kbd>Esc</kbd> or the arrow at the top left goes back to the graph.</p>
+    <div class="figure reveal"><img src="images/state-machine.jpg" alt="A state machine: Entry leads to Idle; Idle and Move have arrows both ways; Any State leads to Jump, Jump to Fall, and Fall back to Idle. The transition from Idle to Move is picked, with its condition Speed is more than 0.1 on the right"><figcaption>Idle and Move by speed, a jump from any state, then a fall until the character's on the ground. The transition picked goes from Idle to Move when Speed is more than 0.1.</figcaption></div>
+    <ul>
+        <li><strong>States:</strong> drag animations in from the Assets panel to make states that play them (onto a state, it plays that one instead), or right-click for an empty one. Each state is also an input on the node, so a state can play a whole blend: link walk and run blended by speed into <em>Move</em>.</li>
+        <li><strong>Transitions:</strong> drag from a state's dot to another state. Pick the arrow to choose when it's taken, on the right: each condition tests a parameter (<em>Speed is more than 0.1</em>, <em>Grounded is true</em>, <em>Jump is set</em>), and all must hold. <strong>Fade</strong> is how long it blends; <strong>Only once the animation's done</strong> waits for the state's animation to play through (a jump into a fall, an attack back to idle), and with no conditions it goes as soon as it has.</li>
+        <li><strong>Entry</strong> points at the state it starts in: drag from its dot to change it. Transitions from <strong>Any State</strong> are taken whichever state it's in: a jump, getting hit.</li>
+        <li>Transitions are checked in the order they were made; the first that can go, goes. An arrow drawn yellow has nothing to wait for, so it's never taken.</li>
+        <li>While the game plays, the state it's in is outlined. <code>animator.State</code> says which it is.</li>
+    </ul>
+
+    <h2>Root motion</h2>
+    <p>Some animations move the character as they go: a walk steps forward, a roll covers a metre and a half, a turn on the spot turns. Played as they are, the character walks off from where it is and snaps back when the animation loops. Turn on <strong>Root Motion</strong> on the Animator and the animation's own movement moves the character through the world instead, turning with it, while the animation plays on the spot. Feet don't slide, as the character goes exactly as far as its steps do.</p>
+    <ul>
+        <li>The movement is taken from the highest object the animations move: the Animator's own object, or for a model, its hips or root bone. Name another in <strong>Root Motion From</strong>.</li>
+        <li>From a bone, only its movement along the ground is the character's: the bob up and down of a walk stays in the animation.</li>
+        <li>Blends move by the mix: halfway between a walk and a run moves at the speed between them. A Layer moves only the bones it's for, so it doesn't move the character.</li>
+        <li>With a <strong>Character Controller</strong> or a <strong>Rigidbody</strong> on the object, root motion sets its velocity along the ground instead (keeping its fall), so it still bumps into walls and goes down slopes. Call <code>controller.Move</code> in <code>FixedUpdate</code> as usual.</li>
+        <li><code>animator.RootMotionVelocity</code> and <code>RootMotionTurn</code> say how the animation moved the character last frame, to use however the game likes.</li>
+    </ul>
+
+    <h2>IK</h2>
+    <p>IK (inverse kinematics) bends bones so the end of a limb reaches a point: a hand onto a door handle, feet onto uneven ground, a head turned to look at someone. It runs after the animation, before <code>LateUpdate</code>, bending the pose the animation made; its <strong>Weight</strong> blends between the animation as it is (0) and reaching all the way (1), and can be changed as the game goes.</p>
+    <table>
+        <tr><th>Component</th><th>Put it on</th><th>What it does</th></tr>
+        <tr><td><strong>Two Bone IK</strong></td><td>A hand or a foot</td><td>Bends the elbow or knee and turns the shoulder or hip (the two bones above it) so it reaches its <strong>Target</strong>, or reaches straight towards it if it's too far. A <strong>Pole</strong> object says which way the elbow or knee points. <strong>Match Target Rotation</strong> turns the hand to the target's rotation too; otherwise it keeps the animation's.</td></tr>
+        <tr><td><strong>Two Bone IK</strong> with <strong>Ground</strong></td><td>A foot</td><td>Finds the ground under the foot and stands it there, lifted as much as the animation lifts it, so a character walks up steps and stands on slopes with its feet on them. <strong>Foot Height</strong> is how far the sole is below the bone; <strong>Align To Ground</strong> tilts the foot flat on a slope.</td></tr>
+        <tr><td><strong>Look At IK</strong></td><td>A head</td><td>Turns the head to face its <strong>Target</strong>, sharing the turn with the bones above it (<strong>Bones</strong>: 1 for the head alone, 3 for the head, neck and upper back), no further than <strong>Max Angle</strong> from the way the character faces.</td></tr>
+    </table>
+    <p>The targets are objects like any other: move them from scripts, or put one under a door's handle so the hand follows the door as it opens.</p>
 
     <h2>From code</h2>
     <pre class="cs" data-file="Player.cs">public class Player : Component
@@ -100,6 +142,7 @@
 }</pre>
     <ul>
         <li><code>animator.Play(clip, fade: 0.2f)</code> blends into an animation. Over a graph, one that doesn't loop blends back into the graph when it ends; <code>Stop()</code> stops it.</li>
+        <li><code>animator.State</code> is the state its graph's state machine is in (<code>"Idle"</code>, <code>"Jump"</code>): <code>if (animator.State == "Fall") ...</code></li>
         <li><code>animator.Sample(clip, seconds)</code> poses the objects at a moment of an animation without playing it, and <code>ResetPose()</code> puts them back.</li>
         <li>Animations load like any other file: <code>Assets.LoadAnimation("Animations/Wave.anim")</code>, or a model's own, <code>Assets.LoadAnimation("Models/Robot.glb#Walk")</code>.</li>
         <li>Animation happens after every component's <code>Update</code>, so what's set there shows the same frame. <code>LateUpdate</code> comes after it, to change what the animation did.</li>
