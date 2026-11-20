@@ -91,6 +91,7 @@ namespace Vertex.Rendering.OpenGL
             SetFloat("post.time", post.Time);
             SetVector2("post.direction", post.Direction);
             SetFloat("post.orthographic", post.Orthographic);
+            SetFloat("post.transparent", post.Transparent);
         }
 
         private int GetLocation(string name)

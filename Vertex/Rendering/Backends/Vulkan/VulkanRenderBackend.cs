@@ -801,6 +801,39 @@ namespace Vertex.Rendering.Vulkan
                 _context.Transition(commands, output, ImageLayout.ShaderReadOnlyOptimal, Stage.ColorOutput, Stage.FragmentRead);
         }
 
+        public void ReadBack(RenderTexture texture, Action<byte[]> done)
+        {
+            if (!_frameStarted || !_renderTargets.TryGetValue(texture, out VkRenderTarget? target)) return;
+
+            // Copied into memory the CPU can read, after the picture's drawn; read out once this frame's slot comes round
+            // again, when the GPU's certainly finished with it.
+            CommandBuffer commands = _frame.Commands;
+            VkImageResource color = target.Color;
+            int size = color.Width * color.Height * 4;
+            VkBufferResource buffer = _context.CreateBuffer((ulong)size, BufferUsageFlags.TransferDstBit,
+                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+
+            _context.Transition(commands, color, ImageLayout.TransferSrcOptimal, Stage.ColorOutput, Stage.TransferRead);
+            BufferImageCopy copy = new()
+            {
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                ImageExtent = new Extent3D((uint)color.Width, (uint)color.Height, 1)
+            };
+            _context.Vk.CmdCopyImageToBuffer(commands, color.Image, ImageLayout.TransferSrcOptimal, buffer.Buffer, 1, &copy);
+            _context.Transition(commands, color, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferRead, Stage.FragmentRead);
+            _context.MemoryBarrier(commands, Stage.TransferWrite, new Stage(PipelineStageFlags2.HostBit, AccessFlags2.HostReadBit));
+
+            _frame.DeleteLater(() => FinishReadBack(buffer, size, done));
+        }
+
+        private void FinishReadBack(VkBufferResource buffer, int size, Action<byte[]> done)
+        {
+            byte[] pixels = new byte[size];
+            new ReadOnlySpan<byte>(buffer.Mapped, size).CopyTo(pixels);
+            buffer.Destroy(_context);
+            done(pixels);
+        }
+
         private void BeginOutput(CommandBuffer commands, VkImageResource output, Stage after, ClearColorValue? clear)
         {
             _context.Transition(commands, output, ImageLayout.ColorAttachmentOptimal, after, Stage.ColorOutput, discard: true);
@@ -1032,7 +1065,7 @@ namespace Vertex.Rendering.Vulkan
         private VkImageResource CreateRenderTargetImage(CommandBuffer commands, RenderTexture texture)
         {
             VkImageResource color = _context.CreateImage(texture.Width, texture.Height, VkViewTargets.OutputFormat,
-                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit);
+                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.TransferSrcBit);
 
             _context.Transition(commands, color, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
             ClearColorValue black = new(0f, 0f, 0f, 1f);

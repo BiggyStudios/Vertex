@@ -156,5 +156,35 @@ namespace Vertex.Tests
             Assert.Equal((view, true, 320, 200, 1, 0), backend.Frames[1]);
             Assert.Equal((null, false), (backend.Frames[2].Target, backend.Frames[2].HasCamera));
         }
+
+        [Fact]
+        public void A_see_through_view_has_no_anti_aliasing_and_can_be_read_back()
+        {
+            var backend = new RendererTests.RecordingBackend();
+            var renderer = new Renderer(backend);
+            renderer.Resize(1280, 720);
+            Scene.Active.Lighting.AntiAliasing = true;
+
+            var stage = new Scene();
+            var camera = new GameObject("Camera", stage).AddComponent<Camera>();
+            camera.Transform.Position = new Vector3(0f, 0f, 5f);
+            new GameObject("Ball", stage).AddComponent<MeshRenderer>().Mesh = Primitives.Sphere;
+            stage.ApplyChanges();
+            var picture = new RenderTexture(64, 64);
+            byte[]? read = null;
+
+            renderer.Render(Scene.Active, Camera.Main, [new RenderView(camera, picture, Scene: stage, Transparent: true, ReadBack: pixels => read = pixels)]);
+
+            (EnvironmentData environment, bool transparent) = backend.Settings[0];
+            Assert.True(transparent);
+            Assert.False(environment.AntiAliasing);
+            Assert.Equal(1, backend.Frames[0].Draws);
+
+            // Asked for after the view's drawn, of the view's picture; the screen's isn't see-through.
+            Assert.Same(picture, Assert.Single(backend.ReadBacks).Texture);
+            Assert.False(backend.Settings[1].Transparent);
+            backend.ReadBacks[0].Done([1, 2, 3, 4]);
+            Assert.Equal([1, 2, 3, 4], read);
+        }
     }
 }

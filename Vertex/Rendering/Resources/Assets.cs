@@ -159,6 +159,9 @@ namespace Vertex
             return asset;
         }
 
+        /// <summary>The material loaded from <paramref name="path"/>, if it has been: for an editor, which needn't load it to ask.</summary>
+        internal static Material? LoadedMaterial(string path) => _materials.GetValueOrDefault(Path.GetFullPath(path));
+
         /// <summary>The materials loaded from files so far: for an editor, which saves them when they're changed.</summary>
         internal static IEnumerable<Material> LoadedMaterials => _materials.Values;
 

@@ -1692,7 +1692,7 @@ namespace Vertex.Rendering.Shaders
                 float time;
                 vec2 direction;        // blur: which way
                 float orthographic;    // 1 for an orthographic camera, whose depth is linear
-                float pad1;
+                float transparent;     // 1 to leave where nothing's drawn see-through
             #ifdef VERTEX_VULKAN
             } post;
             #else
@@ -1932,6 +1932,14 @@ namespace Vertex.Rendering.Shaders
 
                 vec2 fromCentre = (vUV - 0.5) * vec2(1.0, 0.85);
                 color *= mix(1.0, smoothstep(0.85, 0.2, length(fromCentre)), post.vignette);
+
+                // A picture to go over something else: alpha says what's drawn (nothing at the far plane), and there's
+                // no anti-aliasing after to want brightness there instead.
+                if (post.transparent > 0.5)
+                {
+                    FragColor = textureLod(depthImage, vUV, 0.0).r < 1.0 ? vec4(color, 1.0) : vec4(0.0);
+                    return;
+                }
 
                 FragColor = vec4(color, dot(color, vec3(0.299, 0.587, 0.114)));
             }

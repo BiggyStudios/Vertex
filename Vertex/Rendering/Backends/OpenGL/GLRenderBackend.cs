@@ -106,6 +106,46 @@ namespace Vertex.Rendering.OpenGL
         {
             _timer.Enabled = MeasureGpuTime;
             if (_timer.BeginFrame(_gpuTimes)) _gpuTimesNew = true;
+            FinishReadBacks();
+        }
+
+        // Pictures being read back (see ReadBack): each waits in a buffer of its own until the GPU's drawn it, so reading
+        // it never stalls for the GPU to catch up.
+        private readonly List<(uint Buffer, nint Fence, int Size, Action<byte[]> Done)> _readBacks = new();
+
+        public unsafe void ReadBack(RenderTexture texture, Action<byte[]> done)
+        {
+            if (!_renderTargets.TryGetValue(texture, out GLRenderTarget? target)) return;
+
+            int size = texture.Width * texture.Height * 4;
+            uint buffer = _gl.GenBuffer();
+            _gl.BindBuffer(BufferTargetARB.PixelPackBuffer, buffer);
+            _gl.BufferData(BufferTargetARB.PixelPackBuffer, (nuint)size, null, BufferUsageARB.StreamRead);
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, target.Framebuffer);
+            _gl.ReadPixels(0, 0, (uint)texture.Width, (uint)texture.Height, PixelFormat.Rgba, PixelType.UnsignedByte, null);
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+            _gl.BindBuffer(BufferTargetARB.PixelPackBuffer, 0);
+            _readBacks.Add((buffer, _gl.FenceSync(SyncCondition.SyncGpuCommandsComplete, SyncBehaviorFlags.None), size, done));
+        }
+
+        /// <summary>Hands over the pictures read back that the GPU has finished drawing.</summary>
+        private unsafe void FinishReadBacks()
+        {
+            for (int i = 0; i < _readBacks.Count; i++)
+            {
+                (uint buffer, nint fence, int size, Action<byte[]> done) = _readBacks[i];
+                GLEnum state = _gl.ClientWaitSync(fence, (SyncObjectMask)0, 0);
+                if (state is not (GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied)) continue;
+
+                byte[] pixels = new byte[size];
+                _gl.BindBuffer(BufferTargetARB.PixelPackBuffer, buffer);
+                fixed (byte* data = pixels) _gl.GetBufferSubData(BufferTargetARB.PixelPackBuffer, 0, (nuint)size, data);
+                _gl.BindBuffer(BufferTargetARB.PixelPackBuffer, 0);
+                _gl.DeleteBuffer(buffer);
+                _gl.DeleteSync(fence);
+                _readBacks.RemoveAt(i--);
+                done(pixels);
+            }
         }
 
         public void ReadGpuTimes(List<GpuPassTime> into)
@@ -827,6 +867,13 @@ namespace Vertex.Rendering.OpenGL
         {
             // Never initialised (the window didn't open): nothing was made.
             if (_gl == null) return;
+
+            foreach ((uint buffer, nint fence, int _, Action<byte[]> _) in _readBacks)
+            {
+                _gl.DeleteBuffer(buffer);
+                _gl.DeleteSync(fence);
+            }
+            _readBacks.Clear();
 
             foreach (KeyValuePair<Mesh, GLMesh> entry in _meshes) entry.Value.Dispose();
             foreach (KeyValuePair<Texture, GLTexture> entry in _textures) entry.Value.Dispose();

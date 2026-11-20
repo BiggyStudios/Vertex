@@ -48,6 +48,13 @@ namespace Vertex.Rendering
         /// <summary>Draws one view. Everything the backend needs is in <paramref name="frame"/>.</summary>
         void Render(RenderFrame frame);
 
+        /// <summary>
+        /// Reads back what the last <see cref="Render"/> drew into <paramref name="texture"/> and, once the GPU has drawn
+        /// it, hands its pixels (RGBA, top row first) to <paramref name="done"/>, on the thread that renders, at the start
+        /// of a later frame. A backend that can't never calls it.
+        /// </summary>
+        void ReadBack(RenderTexture texture, Action<byte[]> done) {}
+
         /// <summary>Finishes the frame: everything's been drawn, so show it.</summary>
         void EndFrame();
 

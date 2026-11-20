@@ -368,6 +368,9 @@ namespace Vertex.Rendering
         /// <summary>Whether the grid stands in the X-Y plane, for 2D, rather than lying on the ground.</summary>
         public bool Grid2D { get; internal set; }
 
+        /// <summary>Whether where nothing's drawn is left see-through: see <see cref="RenderView.Transparent"/>.</summary>
+        public bool Transparent { get; internal set; }
+
         public Color ClearColor { get; internal set; }
         public EnvironmentData Environment { get; internal set; }
 
@@ -445,6 +448,7 @@ namespace Vertex.Rendering
             ShadowMask = null;
             Grid = false;
             Grid2D = false;
+            Transparent = false;
         }
     }
 }

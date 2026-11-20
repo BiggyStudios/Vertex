@@ -296,7 +296,7 @@ namespace Vertex.Rendering.Shaders
         public float Time;
         public Vector2 Direction;
         public float Orthographic;   // 1 for an orthographic camera: depth is then linear
-        public float Pad1;
+        public float Transparent;    // 1 to leave where nothing's drawn see-through (see RenderView.Transparent)
 
         /// <summary>
         /// How bright (after exposure) something must be before it blooms: brighter than a white surface in full sun, so
@@ -317,6 +317,7 @@ namespace Vertex.Rendering.Shaders
             {
                 Projection = new Vector4(projection.M11, projection.M22, projection.M33, projection.M43),
                 Orthographic = projection.M44 > 0.5f ? 1f : 0f,
+                Transparent = frame.Transparent ? 1f : 0f,
                 Exposure = environment.Exposure,
                 Outlines = environment.Outlines,
                 Vignette = environment.Vignette,

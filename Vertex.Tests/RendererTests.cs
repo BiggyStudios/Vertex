@@ -48,10 +48,17 @@ namespace Vertex.Tests
             public void EndFrame() => Ends++;
             public void UpdateParticles(GpuParticleUpdate update) => ParticleUpdates.Add(update);
 
+            /// <summary>Each frame's settings as drawn, whether it was see-through, and the pictures asked to be read back.</summary>
+            public readonly List<(EnvironmentData Environment, bool Transparent)> Settings = new();
+            public readonly List<(RenderTexture Texture, Action<byte[]> Done)> ReadBacks = new();
+
+            public void ReadBack(RenderTexture texture, Action<byte[]> done) => ReadBacks.Add((texture, done));
+
             // The frame is reused, so copy out what's needed now.
             public void Render(RenderFrame frame)
             {
                 Frames.Add((frame.Target, frame.HasCamera, frame.Width, frame.Height, frame.DrawCalls.Count, frame.CanvasQuads.Count));
+                Settings.Add((frame.Environment, frame.Transparent));
                 LastParticles = frame.Particles.ToList();
                 LastWorldQuads = frame.WorldQuads.ToList();
                 LastDraws = frame.DrawCalls.ToList();

@@ -17,9 +17,15 @@ namespace Vertex.Rendering
     /// <paramref name="EffectsFrom"/>, it has that camera's post effects (see <see cref="PostEffect"/>), so an editor's view can
     /// look as the game will. With <paramref name="Scene"/>, it shows that scene instead of the one being rendered: a
     /// preview of a material on a sphere, in a scene of its own.
+    /// <para>
+    /// <paramref name="Transparent"/> leaves wherever nothing's drawn see-through (the sky, alpha 0), for a picture that goes
+    /// over something else, like an editor's thumbnail of a model. It isn't anti-aliased, so draw it bigger than it's shown.
+    /// <paramref name="ReadBack"/> is given the finished picture's pixels (RGBA, top row first, as <see cref="Texture.Pixels"/>)
+    /// once the GPU has drawn them, a frame or two later; a backend that can't read pictures back never calls it.
+    /// </para>
     /// </summary>
     public readonly record struct RenderView(Camera Camera, RenderTexture Target, bool Grid = false, bool Grid2D = false, Camera? EffectsFrom = null,
-        Scene? Scene = null);
+        Scene? Scene = null, bool Transparent = false, Action<byte[]>? ReadBack = null);
 
     public sealed class Renderer : IDisposable
     {
@@ -161,7 +167,17 @@ namespace Vertex.Rendering
                 Collect(view.Scene ?? scene, view.Camera, view.Target.Width, view.Target.Height, view.Target, view.EffectsFrom);
                 _frame.Grid = view.Grid;
                 _frame.Grid2D = view.Grid2D;
+                if (view.Transparent)
+                {
+                    // The anti-aliasing reads how bright each pixel is from alpha, which here says what's drawn instead.
+                    // The sky's still drawn, for shiny things to reflect, but it's at the far plane, so it's see-through.
+                    _frame.Transparent = true;
+                    _frame.Environment = _frame.Environment with { AntiAliasing = false, Vignette = 0f, VolumetricFog = false };
+                    _frame.PostEffectList.Clear();
+                }
+
                 Backend.Render(_frame);
+                if (view.ReadBack != null) Backend.ReadBack(view.Target, view.ReadBack);
             }
 
             Collect(scene, screenCamera, Width, Height, target: null);
