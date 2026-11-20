@@ -1,22 +1,52 @@
 using System.Text.Json;
 
+using Vertex.Editor.Inspection;
+
 namespace Vertex.Editor.Editing
 {
     /// <summary>A project's settings, kept in its .vertexproject file and changed in File > Project Settings.</summary>
     public sealed class ProjectSettings
     {
-        [Tooltip("The game's name.")]
+        [Header("Game")]
+        [Tooltip("The game's name: its window's title, and its program's name when it's built.")]
         public string Name { get; set; } = "New Game";
 
-        [Tooltip("This build's version.")]
+        [Tooltip("Who's making it: in the built game's details.")]
+        public string Company { get; set; } = "";
+
+        [Tooltip("This build's version (0.1, 1.2.3): in the built game's details, and Application.Version for a title screen.")]
         public string Version { get; set; } = "0.1";
 
-        [Tooltip("The scene opened first, inside the Assets folder (Scenes/Main.scene). A game whose code builds its world (a Game class with no StartScene) opens with what it builds instead.")]
+        [Tooltip("A square picture (a PNG, 256 × 256 or bigger) for the game's program, its window and the taskbar.")]
+        [AssetPath(AssetKind.Texture, "The engine's")]
+        public string Icon { get; set; } = "";
+
+        [Header("Starting")]
+        [Tooltip("The scene opened first. A game whose code builds its world (a Game class with no StartScene) opens with what it builds instead.")]
+        [AssetPath(AssetKind.Scene)]
         public string StartupScene { get; set; } = "";
 
         [Tooltip("The game's code: a .csproj file, next to this project's file. Its components show in Add Component, and Play runs it.")]
         public string GameProject { get; set; } = "";
 
+        [Header("Window")]
+        [Tooltip("How the built game's window opens: a window, filling the screen with its frame, or the whole screen")]
+        public WindowMode WindowMode { get; set; } = WindowMode.Windowed;
+
+        [Tooltip("The window's width and height when it's a window, in pixels.")]
+        [Range(320f, 3840f)]
+        public int Width { get; set; } = 1280;
+
+        [Range(240f, 2160f)]
+        public int Height { get; set; } = 720;
+
+        [Tooltip("Whether players can resize the window by dragging its edges.")]
+        public bool Resizable { get; set; } = true;
+
+        [Tooltip("Which graphics API it uses: Vulkan wherever it can (and OpenGL otherwise), or always OpenGL. Players can still choose, starting it with -vulkan or -opengl.")]
+        public RendererChoice Renderer { get; set; } = RendererChoice.Automatic;
+
+        [Header("Physics and graphics")]
         [Tooltip("Physics steps a second. FixedUpdate runs this often.")]
         [Range(10f, 240f)]
         public int PhysicsRate { get; set; } = 60;
@@ -24,6 +54,29 @@ namespace Vertex.Editor.Editing
         [Tooltip("How detailed the sun's shadows are, in texels across each shadow map.")]
         [Range(256f, 4096f)]
         public int ShadowResolution { get; set; } = 2048;
+
+        // Building (File › Build Game): where to, and for which systems. Set in the Build Game window.
+        [HideInInspector] public string BuildFolder { get; set; } = "Builds";
+        [HideInInspector] public bool BuildWindows { get; set; } = true;
+        [HideInInspector] public bool BuildLinux { get; set; }
+        [HideInInspector] public bool BuildMac { get; set; }
+
+        /// <summary>What the built game reads when it starts (its game.json).</summary>
+        public PlayerSettings ToPlayerSettings() => new()
+        {
+            Name = Name.Trim().Length > 0 ? Name.Trim() : "Game",
+            Company = Company.Trim(),
+            Version = Version.Trim(),
+            StartScene = StartupScene,
+            Icon = Icon,
+            WindowMode = WindowMode,
+            Width = Width,
+            Height = Height,
+            Resizable = Resizable,
+            Renderer = Renderer,
+            PhysicsRate = PhysicsRate,
+            ShadowResolution = ShadowResolution
+        };
     }
 
     /// <summary>
@@ -45,7 +98,7 @@ namespace Vertex.Editor.Editing
 
         public const string Extension = ".vertexproject";
 
-        private static readonly JsonSerializerOptions _options = new() { WriteIndented = true };
+        private static readonly JsonSerializerOptions _options = new() { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
         private Project(string filePath)
         {

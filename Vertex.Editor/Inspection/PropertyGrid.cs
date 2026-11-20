@@ -324,6 +324,16 @@ namespace Vertex.Editor.Inspection
                     break;
                 }
 
+                case MemberKind.Text when member.Member.GetCustomAttribute<AssetPathAttribute>() is { } path && _context?.Assets is { } assets:
+                {
+                    // One of the project's files, kept as where it is in the Assets folder ("Scenes/Main.scene").
+                    string relative = (string?)value ?? "";
+                    string? full = relative.Length > 0 ? Path.GetFullPath(Path.Combine(assets.Root, relative)) : null;
+                    AssetField(id, field, path.Kind, full != null && File.Exists(full) ? full : null, member.CanWrite,
+                        picked => Set(target, member, picked != null ? Path.GetRelativePath(assets.Root, picked).Replace('\\', '/') : "", others), path.NoneLabel);
+                    break;
+                }
+
                 case MemberKind.Text:
                 {
                     // Changes as it's typed, so the scene (a UI text in the game view) shows it at once; one undo for the lot.
@@ -494,6 +504,8 @@ namespace Vertex.Editor.Inspection
             Vertex.Graphs.Graph graph => graph.Source,
             Shader shader => shader.Source,
             Vertex.Animation.AnimationClip clip => clip.Source,
+            // A file's path: it's where it is.
+            string path => path,
             _ => null
         };
 

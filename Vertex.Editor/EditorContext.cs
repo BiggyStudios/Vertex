@@ -508,6 +508,9 @@ namespace Vertex.Editor
             Assets?.Dispose();
             Assets = new AssetDatabase(project.AssetsDirectory);
             Application.BaseDirectory = project.Directory;
+            Application.Name = project.Name;
+            Application.Company = project.Settings.Company;
+            Application.Version = project.Settings.Version;
             Application.AssetFolders = AssetFolders;
 
             WatchCode();
@@ -556,7 +559,7 @@ namespace Vertex.Editor
         /// <summary>Builds the project's game code again and reloads it: after changing the code.</summary>
         public void BuildGame()
         {
-            if (Project?.GameProjectFile is not { } gameProject || _build != null) return;
+            if (Project?.GameProjectFile is not { } gameProject || _build != null || _gameBuild != null) return;
             if (Play.Playing) Play.Stop();
 
             Interlocked.Exchange(ref _codeChangedAt, 0);
@@ -565,6 +568,104 @@ namespace Vertex.Editor
             Busy = $"Building {Path.GetFileNameWithoutExtension(gameProject)}…";
             _buildTimer.Restart();
             _build = Task.Run(() => GameCode.Build(gameProject));
+        }
+
+        // A build of the game to give to players (File › Build Game): one system after another, and what each made.
+        private Task<List<(BuildPlatform Platform, GameBuilder.Result Result)>>? _gameBuild;
+        private string _gameBuildStep = "";
+
+        /// <summary>Whether the game's being built for players.</summary>
+        public bool BuildingGame => _gameBuild != null;
+
+        /// <summary>What the last build for players made, by system (shown in the Build Game window).</summary>
+        public IReadOnlyList<(BuildPlatform Platform, GameBuilder.Result Result)> LastGameBuild { get; private set; } = [];
+
+        /// <summary>
+        /// Builds the game to give to players, for each of <paramref name="platforms"/>, into the project's build folder
+        /// (see <see cref="GameBuilder"/>). The open scene's saved first, as the build takes the files.
+        /// </summary>
+        public void BuildForPlayers(IReadOnlyList<BuildPlatform> platforms)
+        {
+            if (Project is not { } project || platforms.Count == 0 || _gameBuild != null || _build != null) return;
+            if (Play.Playing) Play.Stop();
+            if (GameBuilder.Problem(project) is { } problem)
+            {
+                Dialog.Message("The game can't be built yet", problem);
+                return;
+            }
+
+            if (Dirty && ScenePath != null) SaveScene();
+            SaveChangedMaterials();
+            SaveChangedGraphs();
+            project.Save();
+
+            LastGameBuild = [];
+            _gameBuildStep = "Building the game…";
+            Busy = _gameBuildStep;
+            _buildTimer.Restart();
+            List<BuildPlatform> chosen = platforms.ToList();
+            _gameBuild = Task.Run(() =>
+            {
+                var results = new List<(BuildPlatform, GameBuilder.Result)>();
+                foreach (BuildPlatform platform in chosen)
+                {
+                    GameBuilder.Result result;
+                    try
+                    {
+                        result = GameBuilder.Build(project, platform, step => Volatile.Write(ref _gameBuildStep, step));
+                    }
+                    catch (Exception exception)
+                    {
+                        result = new GameBuilder.Result(false, exception.ToString(), GameBuilder.FolderFor(project, platform), []);
+                    }
+
+                    results.Add((platform, result));
+                }
+
+                return results;
+            });
+        }
+
+        /// <summary>A build for players that's finished: what it made, or what went wrong, into the Console and a note.</summary>
+        private void FinishGameBuild()
+        {
+            if (_gameBuild == null) return;
+            if (!_gameBuild.IsCompleted)
+            {
+                Busy = Volatile.Read(ref _gameBuildStep);
+                return;
+            }
+
+            List<(BuildPlatform Platform, GameBuilder.Result Result)> results = _gameBuild.IsCompletedSuccessfully ? _gameBuild.Result : [];
+            _gameBuild = null;
+            Busy = null;
+            LastGameBuild = results;
+
+            foreach ((BuildPlatform platform, GameBuilder.Result result) in results)
+            {
+                string system = GameBuilder.FolderNameOf(platform);
+                if (result.Built)
+                {
+                    Log.Write(LogLevel.Info, $"Built the game for {system}", result.Folder);
+                    foreach (string note in result.Notes) Log.Warning(note);
+                    continue;
+                }
+
+                var errors = GameCode.ErrorsWithPlaces(result.Output);
+                if (errors.Count == 0) Log.Write(LogLevel.Error, $"The game didn't build for {system}", result.Output.Trim());
+                foreach ((string shown, string? file, int line) in errors) Log.Write(LogLevel.Error, shown, file != null ? $"{file}({line})" : null);
+            }
+
+            int built = results.Count(r => r.Result.Built);
+            if (built == results.Count && built > 0)
+            {
+                Notify($"Built {Project?.Name ?? "the game"} for {string.Join(", ", results.Select(r => GameBuilder.FolderNameOf(r.Platform)))} in {_buildTimer.Elapsed.TotalSeconds:0} s");
+            }
+            else
+            {
+                ShowConsole();
+                Notify(built == 0 ? "The game didn't build: what went wrong is in the Console" : "Some of the builds didn't work: what went wrong is in the Console");
+            }
         }
 
         private void UnloadGame()
@@ -583,6 +684,7 @@ namespace Vertex.Editor
             SaveChangedGraphs();
             if (!InputSystem.GetMouseButton(MouseButton.Left)) SaveOpenPrefab();
             RebuildIfCodeChanged();
+            FinishGameBuild();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;
@@ -869,7 +971,7 @@ namespace Vertex.Editor
         private void RebuildIfCodeChanged()
         {
             long changedAt = Interlocked.Read(ref _codeChangedAt);
-            if (changedAt == 0 || _build != null || !WindowFocused || Play.Playing || Ui.KeyboardTaken) return;
+            if (changedAt == 0 || _build != null || _gameBuild != null || !WindowFocused || Play.Playing || Ui.KeyboardTaken) return;
             if (Environment.TickCount64 - changedAt < 600) return;
             BuildGame();
         }

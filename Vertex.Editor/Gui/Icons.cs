@@ -347,6 +347,20 @@ namespace Vertex.Editor.Gui
         /// <summary>A round dot: recording.</summary>
         public static void Record(Vector2 centre, float size, Color color) => Ui.Circle(centre, size * 0.26f, color);
 
+        /// <summary>A closed box with a band round it: a game built to hand to players.</summary>
+        public static void Package(Vector2 centre, float size, Color color)
+        {
+            float w = size * 0.34f, h = size * 0.3f, lid = size * 0.12f;
+            Vector2 topLeft = centre + new Vector2(-w, -h), topRight = centre + new Vector2(w, -h);
+            Vector2 bottomLeft = centre + new Vector2(-w, h), bottomRight = centre + new Vector2(w, h);
+            Ui.Line(topLeft, topRight, color, 1.3f);
+            Ui.Line(topRight, bottomRight, color, 1.3f);
+            Ui.Line(bottomRight, bottomLeft, color, 1.3f);
+            Ui.Line(bottomLeft, topLeft, color, 1.3f);
+            Ui.Line(topLeft + new Vector2(0f, lid), topRight + new Vector2(0f, lid), color, 1.3f);
+            Ui.Rect(new Rect(centre.X - size * 0.06f, centre.Y - h, size * 0.12f, h + lid), color, 1f);
+        }
+
         /// <summary>An S-shaped curve between two points: an animation's values drawn as curves.</summary>
         public static void Curve(Vector2 centre, float size, Color color)
         {

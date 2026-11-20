@@ -385,6 +385,7 @@ namespace Vertex.Editor
 
                     items.Add(MenuItem.Separator);
                     items.Add(new MenuItem("Rebuild Game Code", Context.BuildGame) { Shortcut = "Ctrl+R", Enabled = Context.Project?.GameProjectFile != null && Context.Busy == null });
+                    items.Add(new MenuItem("Build Game…", ShowBuildGame) { Shortcut = "Ctrl+Shift+B", Enabled = Context.Project != null, Icon = Icons.Package });
                     items.Add(new MenuItem("Project Settings…", ShowProjectSettings) { Enabled = Context.Project != null });
                     items.Add(MenuItem.Separator);
                     items.Add(new MenuItem("Exit", RequestExit) { Shortcut = "Alt+F4" });
@@ -506,16 +507,146 @@ namespace Vertex.Editor
             if (Context.Project is not { } project) return;
 
             var history = new UndoHistory();
-            var grid = new PropertyGrid(history, Context.Notify);
-            Dialog.Show("Project Settings", new Vector2(560f, 380f), rect =>
+            var grid = new PropertyGrid(history, Context.Notify, Context);
+            Dialog.Show("Project Settings", new Vector2(600f, 620f), rect =>
             {
                 Ui.Text(rect.TakeTop(20f), project.FilePath, Theme.TextFaint, size: Theme.SmallTextSize);
-                grid.Draw(project.Settings, rect.X, rect.Y + 30f, rect.Width);
+                Rect body = rect.CutTop(28f);
+                var scroll = ScrollView.Begin(Ui.Id("projectSettings.scroll"), body);
+                float end = grid.Draw(project.Settings, body.X, scroll.Top, body.Width - 10f);
+                scroll.End(end - scroll.Top);
             }, closed: () =>
             {
                 project.Save();
+                Application.Name = project.Name;
+                Application.Company = project.Settings.Company;
+                Application.Version = project.Settings.Version;
                 Context.Notify("Project settings saved");
             });
+        }
+
+        /// <summary>
+        /// File › Build Game: what's built (the game's name, version and icon, and where it starts), for which systems,
+        /// into which folder; then a Build button, and what the last build made.
+        /// </summary>
+        private void ShowBuildGame()
+        {
+            if (Context.Project is not { } project) return;
+
+            Dialog.Show("Build Game", new Vector2(600f, 470f), rect =>
+            {
+                ProjectSettings settings = project.Settings;
+                float y = rect.Y;
+
+                // The game: its icon, name and version, with a way to change them.
+                var picture = new Rect(rect.X, y, 64f, 64f);
+                string iconPath = settings.Icon.Length > 0 ? Path.Combine(project.AssetsDirectory, settings.Icon) : "";
+                if (iconPath.Length > 0 && File.Exists(iconPath) && Thumbnails.Get(iconPath) is { } icon)
+                {
+                    Canvas.DrawImage(icon, picture.Position, picture.Size, Vector2.Zero, Vector2.One, Ui.Fade(Color.White), 10f);
+                }
+                else
+                {
+                    Ui.Rect(picture, Theme.Field, 10f);
+                    Icons.Package(picture.Centre, 34f, Theme.TextFaint);
+                }
+
+                Ui.Text(new Rect(picture.Right + 14f, y + 6f, rect.Width - 240f, 24f), project.Name, Theme.Text, bold: true);
+                string details = settings.Company.Trim().Length > 0 ? $"Version {settings.Version}  ·  {settings.Company}" : $"Version {settings.Version}";
+                Ui.Text(new Rect(picture.Right + 14f, y + 32f, rect.Width - 240f, 20f), details, Theme.TextDim, size: Theme.SmallTextSize);
+                if (Widgets.Button(Ui.Id("build.settings"), new Rect(rect.Right - 150f, y + 16f, 150f, 30f), "Project Settings…", ButtonStyle.Subtle,
+                        "The game's name, version, icon, window and start scene"))
+                {
+                    ShowProjectSettings();
+                    return;
+                }
+
+                y += 84f;
+
+                // Where it starts.
+                Ui.Text(new Rect(rect.X, y, 110f, 24f), "Starts in", Theme.TextDim);
+                string? problem = GameBuilder.Problem(project);
+                string starts = problem ?? (settings.StartupScene.Length > 0 ? Path.GetFileNameWithoutExtension(settings.StartupScene)
+                    : "What the game's code builds");
+                Ui.Text(new Rect(rect.X + 120f, y, rect.Width - 120f, 24f), problem != null ? "Nowhere yet: choose a Startup Scene in Project Settings" : starts,
+                    problem != null ? Theme.Warning : Theme.Text);
+                y += 36f;
+
+                // For which systems.
+                Ui.Text(new Rect(rect.X, y, 110f, 24f), "Build for", Theme.TextDim);
+                float x = rect.X + 120f;
+                void Platform(string label, bool value, Action<bool> set, string tooltip)
+                {
+                    bool on = value;
+                    if (Widgets.Checkbox(Ui.Id(Ui.Id("build.platform"), label), new Rect(x, y + 3f, 18f, 18f), ref on, tooltip)) set(on);
+                    x += 26f;
+                    x += Ui.Text(label, new Vector2(x, y + 3f), Theme.Text) + 24f;
+                }
+
+                Platform("Windows", settings.BuildWindows, on => settings.BuildWindows = on, "A folder with the game's .exe, for 64-bit Windows 10 and 11");
+                Platform("Linux", settings.BuildLinux, on => settings.BuildLinux = on, "A folder with the game's program, for 64-bit Linux");
+                Platform("macOS", settings.BuildMac, on => settings.BuildMac = on, "A .app for Macs with Apple Silicon. Built anywhere but a Mac, it has to be signed on one before it opens");
+                y += 36f;
+
+                // Into which folder.
+                Ui.Text(new Rect(rect.X, y, 110f, 26f), "Into", Theme.TextDim);
+                string folder = settings.BuildFolder;
+                if (TextInput.Draw(Ui.Id("build.folder"), new Rect(rect.X + 120f, y, rect.Width - 120f - 96f, 26f), ref folder, "Builds") && folder.Trim().Length > 0)
+                {
+                    settings.BuildFolder = folder.Trim();
+                }
+
+                Ui.Tooltip(Ui.Id("build.folder"), "Where builds go, from the project's folder: each system in a folder of its own inside it");
+                string root = Path.GetFullPath(Path.Combine(project.Directory, settings.BuildFolder));
+                if (Widgets.Button(Ui.Id("build.open"), new Rect(rect.Right - 88f, y, 88f, 26f), "Show", ButtonStyle.Subtle, "Show the build folder", Icons.Folder))
+                {
+                    Directory.CreateDirectory(root);
+                    NativeDialogs.ShowInFolder(root);
+                }
+
+                y += 40f;
+                Ui.Text(new Rect(rect.X, y, rect.Width, 18f), "The first build for each system downloads its .NET runtime, so it takes a minute or two.", Theme.TextFaint, size: Theme.SmallTextSize);
+                y += 30f;
+
+                // What the last build made.
+                foreach ((BuildPlatform platform, GameBuilder.Result result) in Context.LastGameBuild)
+                {
+                    string system = GameBuilder.FolderNameOf(platform);
+                    Ui.Text(new Rect(rect.X, y, rect.Width - 100f, 22f), result.Built ? $"Built for {system}" : $"Didn't build for {system}: what went wrong is in the Console",
+                        result.Built ? Theme.Hex(0x4FBF7A) : Theme.Danger);
+                    if (result.Built && Widgets.Button(Ui.Id(Ui.Id("build.show"), system), new Rect(rect.Right - 88f, y - 2f, 88f, 26f), "Show", ButtonStyle.Subtle, $"Show the {system} build", Icons.Folder))
+                    {
+                        NativeDialogs.ShowInFolder(result.Folder);
+                    }
+
+                    y += 28f;
+                    foreach (string note in result.Notes)
+                    {
+                        foreach (string line in Ui.Wrap(note, rect.Width - 12f, Theme.SmallTextSize))
+                        {
+                            Ui.Text(new Rect(rect.X + 12f, y, rect.Width - 12f, 16f), line, Theme.TextFaint, size: Theme.SmallTextSize);
+                            y += 16f;
+                        }
+                    }
+                }
+
+                // Build, or what it's doing.
+                Rect bottom = rect.TakeBottom(34f);
+                var chosen = new List<BuildPlatform>();
+                if (settings.BuildWindows) chosen.Add(BuildPlatform.Windows);
+                if (settings.BuildLinux) chosen.Add(BuildPlatform.Linux);
+                if (settings.BuildMac) chosen.Add(BuildPlatform.Mac);
+
+                if (Context.BuildingGame)
+                {
+                    Ui.Text(bottom, Context.Busy ?? "Building…", Theme.TextDim);
+                }
+                else if (Widgets.Button(Ui.Id("build.go"), bottom.TakeRight(150f), chosen.Count > 1 ? $"Build ({chosen.Count})" : "Build", ButtonStyle.Primary,
+                             chosen.Count == 0 ? "Choose a system to build for" : null, Icons.Package) && chosen.Count > 0 && problem == null)
+                {
+                    Context.BuildForPlayers(chosen);
+                }
+            }, closed: project.Save);
         }
 
         private void ShowPreferences()
@@ -600,6 +731,7 @@ namespace Vertex.Editor
                 if (InputSystem.GetKeyDown(Key.D) && selected != null) Context.DuplicateSelected();
                 if (InputSystem.GetKeyDown(Key.A)) SelectAll();
                 if (InputSystem.GetKeyDown(Key.R)) Context.BuildGame();
+                if (shift && InputSystem.GetKeyDown(Key.B) && Context.Project != null) ShowBuildGame();
                 if (InputSystem.GetKeyDown(Key.Equal) || InputSystem.GetKeyDown(Key.KeypadAdd)) ChangeSize(+0.1f);
                 if (InputSystem.GetKeyDown(Key.Minus) || InputSystem.GetKeyDown(Key.KeypadSubtract)) ChangeSize(-0.1f);
                 if (InputSystem.GetKeyDown(Key.Number0) || InputSystem.GetKeyDown(Key.Keypad0)) ChangeSize(0f);

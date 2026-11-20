@@ -105,7 +105,7 @@ namespace Vertex.Editor.Editing
         /// on (and what that needs to compile against), and returns where it is. Imported into the game's build after
         /// everything else, so the game's project file doesn't change.
         /// </summary>
-        private static string WriteEngineTargets()
+        internal static string WriteEngineTargets()
         {
             // Everything the engine uses, for a game whose engine project isn't there; just the engine itself when it is,
             // as the game's build already has the engine's packages through it then.
@@ -240,14 +240,15 @@ namespace Vertex.Editor.Editing
             return new GameCode(projectFile, Path.GetDirectoryName(assemblyPath)!, assembly, context);
         }
 
-        private static (int ExitCode, string Output) Run(string file, string arguments)
+        internal static (int ExitCode, string Output) Run(string file, string arguments, string? workingDirectory = null)
         {
             var start = new ProcessStartInfo(file, arguments)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                WorkingDirectory = workingDirectory ?? ""
             };
 
             using Process process = Process.Start(start)!;
