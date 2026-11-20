@@ -102,17 +102,30 @@
     </ul>
 
     <h2>Building the game</h2>
-    <p><strong>File › Build Game</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) makes the game into something to give to players, who don't need the editor or .NET to play it. Choose the systems to build for and press <strong>Build</strong>. Each goes in a folder of its own in the project's <code>Builds</code> folder:</p>
+    <p><strong>File › Build Game</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) makes the game into something to give to players, who don't need the editor or .NET to play it. Choose the systems to build for and press <strong>Build</strong>. Each goes in a folder of its own in the project's <code>Builds</code> folder, holding just the game's program (with .NET and the engine inside it), its <code>Assets</code>, and <code>game.json</code> with how it opens:</p>
+    <pre><code>Builds/
+  Windows/
+    My Game.exe
+    Assets/
+    game.json
+  Linux/
+    My Game
+    icon.png
+    Assets/
+    game.json
+  macOS/
+    My Game.app</code></pre>
     <table>
         <tr><th>System</th><th>What it makes</th></tr>
-        <tr><td><strong>Windows</strong></td><td>A folder with the game's <code>.exe</code>, named after the game, with its icon, name, version and company in its details. Zip the folder to share it.</td></tr>
-        <tr><td><strong>Linux</strong></td><td>A folder with the game's program, and its icon as <code>icon.png</code>.</td></tr>
+        <tr><td><strong>Windows</strong></td><td>The game's <code>.exe</code>, named after the game, with its icon, name, version and company in its details. Zip the folder to share it.</td></tr>
+        <tr><td><strong>Linux</strong></td><td>The game's program, and its icon as <code>icon.png</code>.</td></tr>
         <tr><td><strong>macOS</strong></td><td>A <code>.app</code> for Macs with Apple Silicon, with its icon. Built anywhere but a Mac, it has to be signed on a Mac before it opens: <code>codesign --force --deep -s - "My Game.app"</code>.</td></tr>
     </table>
     <ul>
         <li>The game starts in its Startup Scene, or for a game whose code has a <code>Game</code> class of its own, with that.</li>
         <li>Everything in the Assets folder goes with it, except the C# (that's built into the game). The open scene is saved first.</li>
-        <li>Building needs the .NET SDK, as building game code does. The first build for each system downloads that system's .NET runtime, so it takes a minute or two; after that a build takes seconds.</li>
+        <li>Building needs the .NET SDK, as building game code does. The first build for each system downloads that system's .NET runtime, so it takes a minute or two; after that a build takes seconds. A build is about 50 MB.</li>
+        <li>The first time the game starts on a computer, it unpacks the libraries for its window, sound and physics into a cache folder of .NET's, and uses them from there after that.</li>
         <li>Files built on Windows lose the mark that says they're programs: on Linux and macOS, mark the game's program as one (<code>chmod +x</code>) if it doesn't start.</li>
     </ul>
 
