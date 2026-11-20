@@ -80,10 +80,12 @@ namespace Vertex.Rendering
         public float FogStrength { get; set; } = 1f;
 
         /// <summary>
-        /// Whether objects block this light, casting shadows. Only directional lights cast shadows,
-        /// and only the first one that has this on. See <see cref="Lighting.ShadowDistance"/>.
+        /// Whether objects block this light, casting shadows. For the sun, the first directional light that has this
+        /// on (see <see cref="Lighting.ShadowDistance"/>). Point and spot lights' shadows are kept from frame to frame and
+        /// only drawn again when the light or something near it moves, so lamps in a still room cost little; the nearest
+        /// 16 in view that have this on get them. A baked light's shadows are baked, so it doesn't need this.
         /// </summary>
-        [ShowWhen(nameof(Type), LightType.Directional)]
+        [Tooltip("Objects block its light. Point and spot lights' shadows are only drawn again when something near them moves")]
         public bool CastShadows { get; set; } = true;
     }
 }

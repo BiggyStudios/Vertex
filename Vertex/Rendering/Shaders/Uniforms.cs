@@ -45,6 +45,9 @@ namespace Vertex.Rendering.Shaders
         public FogVectors FogBoxParams;
         public Vector4 Retro;
         public Vector4 Clusters;
+        public LocalShadowMatrices LocalShadowMatrix;
+        public LocalShadowVectors LocalShadowParams;
+        public LightShadowBytes LightShadows;
 
         /// <summary>
         /// The uniforms for <paramref name="frame"/>. <paramref name="cascades"/> are where the shadow maps were drawn, or
@@ -120,6 +123,21 @@ namespace Vertex.Rendering.Shaders
 
             data.PointCount = Math.Min(frame.PointLights.Count, ShaderLibrary.MaxPointLights);
             data.Clusters = frame.Clusters.Slicing;
+
+            // Point and spot lights' shadows: where each is in the shadow map (see LocalShadows).
+            for (int i = 0; i < frame.LocalShadows.Count && i < LocalShadows.MaxPerView; i++)
+            {
+                LocalShadowData shadow = frame.LocalShadows[i];
+                data.LocalShadowMatrix[i] = shadow.SpotMatrix;
+                data.LocalShadowParams[i] = new Vector4(shadow.FirstLayer, shadow.TexelSize, shadow.Near, shadow.Point ? -shadow.Far : shadow.Far);
+            }
+
+            // Which of them each light has, plus one: a byte each, four to a word.
+            for (int i = 0; i < data.PointCount; i++)
+            {
+                int shadow = frame.Clusters.ShadowOf(i);
+                if (shadow >= 0) data.LightShadows[i / 4] |= (uint)(shadow + 1) << (i % 4 * 8);
+            }
             for (int i = 0; i < data.PointCount; i++)
             {
                 PointLightData light = frame.PointLights[i];
@@ -199,6 +217,15 @@ namespace Vertex.Rendering.Shaders
 
     [InlineArray(ShaderLibrary.MaxPointLights)]
     internal struct LightVectors { private Vector4 _first; }
+
+    [InlineArray(ShaderLibrary.MaxPointLights / 4)]
+    internal struct LightShadowBytes { private uint _first; }
+
+    [InlineArray(LocalShadows.MaxPerView)]
+    internal struct LocalShadowMatrices { private Matrix4x4 _first; }
+
+    [InlineArray(LocalShadows.MaxPerView)]
+    internal struct LocalShadowVectors { private Vector4 _first; }
 
     [InlineArray(ShaderLibrary.MaxFogVolumes)]
     internal struct FogMatrices { private Matrix4x4 _first; }

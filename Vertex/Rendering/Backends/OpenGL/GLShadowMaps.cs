@@ -5,7 +5,8 @@ using Vertex.Rendering.Shaders;
 namespace Vertex.Rendering.OpenGL
 {
     /// <summary>
-    /// The sun's shadow maps: one depth texture array, a layer per cascade (see <see cref="ShadowCascades"/>), each
+    /// Shadow maps: one depth texture array, a layer per cascade of the sun's (see <see cref="ShadowCascades"/>) or for
+    /// point and spot lights (see <see cref="LocalShadows"/>), each
     /// with a framebuffer to draw it. The scene shaders read the whole array, comparing depths as they do, with linear
     /// filtering so each lookup already blends four texels' tests.
     /// </summary>
@@ -13,21 +14,22 @@ namespace Vertex.Rendering.OpenGL
     {
         private readonly GL _gl;
         private readonly uint _texture;
-        private readonly uint[] _framebuffers = new uint[ShadowCascades.Count];
+        private readonly uint[] _framebuffers;
 
         /// <summary>How many texels across each layer is.</summary>
         public int Size { get; }
 
-        public GLShadowMaps(GL gl, int size)
+        public GLShadowMaps(GL gl, int size, int layers = ShadowCascades.Count)
         {
             _gl = gl;
             Size = size;
+            _framebuffers = new uint[layers];
 
             // 16-bit depth: plenty for shadow maps, and half the memory to write and read.
             _texture = gl.GenTexture();
             gl.ActiveTexture(TextureUnit.Texture0);
             gl.BindTexture(TextureTarget.Texture2DArray, _texture);
-            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.DepthComponent16, (uint)size, (uint)size, ShadowCascades.Count, 0,
+            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.DepthComponent16, (uint)size, (uint)size, (uint)layers, 0,
                 PixelFormat.DepthComponent, PixelType.UnsignedShort, null);
 
             gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);

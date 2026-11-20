@@ -29,6 +29,7 @@ namespace Vertex.Tests
 
             /// <summary>The point and spot lights and fog volumes in the last frame, and the shaders' data made from it.</summary>
             public List<PointLightData> LastPointLights = new();
+            public List<LocalShadowData> LastLocalShadows = new();
             public List<FogVolumeData> LastFogVolumes = new();
             public List<PostEffectData> LastPostEffects = new();
 
@@ -54,6 +55,7 @@ namespace Vertex.Tests
                 LastWorldQuads = frame.WorldQuads.ToList();
                 LastDraws = frame.DrawCalls.ToList();
                 LastPointLights = frame.PointLights.ToList();
+                LastLocalShadows = frame.LocalShadows.ToList();
                 LastFogVolumes = frame.FogVolumes.ToList();
                 LastPostEffects = frame.PostEffects.ToList();
                 EffectCounts.Add(frame.PostEffects.Count);

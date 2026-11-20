@@ -138,6 +138,7 @@ namespace Vertex.Rendering.Vulkan
         private Sampler _pixelSampler;
 
         private VkShadowMaps _shadowMaps = null!;
+        private VkShadowMaps _localShadowMaps = null!;
         private VkViewTargets _screenViews = null!;
         private VkGpuParticles _gpuParticlePool = null!;
         private VkTexture _white = null!;
@@ -217,6 +218,7 @@ namespace Vertex.Rendering.Vulkan
             CreatePipelines();
 
             _shadowMaps = new VkShadowMaps(_context, ShadowCascades.DefaultResolution);
+            _localShadowMaps = new VkShadowMaps(_context, LocalShadows.Resolution, LocalShadows.Layers);
             _screenViews = new VkViewTargets(_context);
 
             // White, already premultiplied, for untextured canvas shapes and images a pass doesn't use; and the shadow
@@ -235,6 +237,12 @@ namespace Vertex.Rendering.Vulkan
                 ImageSubresourceRange range = new(ImageAspectFlags.DepthBit, 0, 1, 0, shadows.Layers);
                 _context.Vk.CmdClearDepthStencilImage(commands, shadows.Image, ImageLayout.TransferDstOptimal, &clear, 1, &range);
                 _context.Transition(commands, shadows, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
+
+                VkImageResource localShadows = _localShadowMaps.Array;
+                _context.Transition(commands, localShadows, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
+                ImageSubresourceRange localRange = new(ImageAspectFlags.DepthBit, 0, 1, 0, localShadows.Layers);
+                _context.Vk.CmdClearDepthStencilImage(commands, localShadows.Image, ImageLayout.TransferDstOptimal, &clear, 1, &localRange);
+                _context.Transition(commands, localShadows, ImageLayout.ShaderReadOnlyOptimal, Stage.TransferWrite, Stage.FragmentRead);
 
                 // No fog: nothing added, everything shows through.
                 _context.Transition(commands, _noFog, ImageLayout.TransferDstOptimal, Stage.None, Stage.TransferWrite, discard: true);
@@ -258,6 +266,7 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.StorageBuffer, vertexAndFragment),
+                (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
@@ -279,7 +288,7 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment), (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment), (DescriptorType.CombinedImageSampler, fragment));
 
-            _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), ShaderStageFlags.VertexBit);
+            _sceneLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _materialSetLayout], (uint)sizeof(DrawConstants), vertexAndFragment);
             _shadowLayout = VkDescriptors.CreatePipelineLayout(_context, [], (uint)sizeof(Matrix4x4), ShaderStageFlags.VertexBit);
             _canvasLayout = VkDescriptors.CreatePipelineLayout(_context, [_textureSetLayout], (uint)sizeof(Vector2), ShaderStageFlags.VertexBit);
             _spriteLayout = VkDescriptors.CreatePipelineLayout(_context, [_frameSetLayout, _textureSetLayout], 0, 0);
@@ -667,6 +676,12 @@ namespace Vertex.Rendering.Vulkan
                     DrawShadows(commands, frame);
                 }
 
+                if (frame.LocalShadowDraws.Count > 0)
+                {
+                    Mark(commands, "Light shadows");
+                    DrawLocalShadows(commands, frame);
+                }
+
                 FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
                 _clusters = _frame.Uploads.Write(frame.Clusters.Words);
@@ -881,6 +896,8 @@ namespace Vertex.Rendering.Vulkan
             {
                 foreach (Texture effectTexture in effect.Textures) GetTexture(commands, effectTexture);
             }
+
+            foreach (DrawCall caster in frame.LocalShadowCasters) GetMesh(commands, caster.Mesh);
 
             // Things out of view can still cast shadows into it.
             for (int cascade = 0; cascade < ShadowCascades.Count; cascade++)
@@ -1120,6 +1137,39 @@ namespace Vertex.Rendering.Vulkan
             _context.Transition(commands, _shadowMaps.Array, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
         }
 
+        /// <summary>The layers of the point and spot lights' shadow map that have changed (see <see cref="LocalShadows"/>); the rest are kept.</summary>
+        private void DrawLocalShadows(CommandBuffer commands, RenderFrame frame)
+        {
+            int size = LocalShadows.Resolution;
+            _context.Transition(commands, _localShadowMaps.Array, ImageLayout.DepthAttachmentOptimal, Stage.FragmentRead, Stage.DepthOutput);
+            foreach (LocalShadowDraw layer in frame.LocalShadowDraws)
+            {
+                VkPipelines.BeginRendering(_context, commands, size, size, [], _localShadowMaps.Layers[layer.Layer]);
+                VkPipelines.SetViewport(_context, commands, size, size, flipped: true);
+                _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
+
+                Mesh? currentMesh = null;
+                for (int i = layer.FirstCaster; i < layer.FirstCaster + layer.CasterCount; i++)
+                {
+                    DrawCall draw = frame.LocalShadowCasters[i];
+                    Matrix4x4 lightModel = draw.WorldMatrix * layer.ViewProjection;
+                    _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
+                    VkMesh mesh = _meshes.TryGetValue(draw.Mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
+                    if (draw.Mesh != currentMesh)
+                    {
+                        BindMesh(commands, mesh);
+                        currentMesh = draw.Mesh;
+                    }
+
+                    _context.Vk.CmdDrawIndexed(commands, mesh.IndexCount, 1, 0, 0, 0);
+                }
+
+                _context.Vk.CmdEndRendering(commands);
+            }
+
+            _context.Transition(commands, _localShadowMaps.Array, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
+        }
+
         private void BindMesh(CommandBuffer commands, VkMesh mesh)
         {
             VkBuffer vertices = mesh.VertexBuffer;
@@ -1143,6 +1193,7 @@ namespace Vertex.Rendering.Vulkan
             VkDescriptors.WriteImage(_context, set, 3, fog.View, _clampSampler);
             VkDescriptors.WriteBuffer(_context, set, 4, DescriptorType.StorageBuffer, _clusters.Buffer, _clusters.Offset, _clustersSize);
             VkDescriptors.WriteImage(_context, set, 5, _lightmap.View, _clampSampler);
+            VkDescriptors.WriteImage(_context, set, 6, _localShadowMaps.Array.View, _shadowSampler);
             return set;
         }
 
@@ -1257,7 +1308,7 @@ namespace Vertex.Rendering.Vulkan
                     ProbeGreen = baked.Probe.Green,
                     ProbeBlue = baked.Probe.Blue
                 };
-                _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(DrawConstants), &constants);
+                _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(DrawConstants), &constants);
                 _context.Vk.CmdDrawIndexed(commands, mesh!.IndexCount, 1, 0, 0, 0);
             }
 
@@ -1759,6 +1810,7 @@ namespace Vertex.Rendering.Vulkan
 
             _screenViews.Release(delete => delete());
             _shadowMaps.Destroy(_context);
+            _localShadowMaps.Destroy(_context);
             _white.Image.Destroy(_context);
             _noFog.Destroy(_context);
             _gpuParticlePool.Dispose();

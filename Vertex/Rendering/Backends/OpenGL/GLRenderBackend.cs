@@ -37,6 +37,9 @@ namespace Vertex.Rendering.OpenGL
         // Where the scene's shaders find its baked light.
         private const int _lightmapUnit = 12;
 
+        // Where they find the point and spot lights' shadows.
+        private const int _localShadowUnit = 13;
+
         // Where a game's shaders (surface shaders and post effects) find their textures: four, one after another.
         private const int _shaderTextureUnit = 8;
 
@@ -62,6 +65,7 @@ namespace Vertex.Rendering.OpenGL
         private readonly Dictionary<(Shader Shader, bool Lit), (int Version, GLShader? Program)> _surfaceShaders = new();
         private readonly List<(PostEffectData Effect, GLShader Program)> _effects = new();
         private GLShadowMaps _shadowMaps = null!;
+        private GLShadowMaps _localShadowMaps = null!;
         private GLViewTargets _screenViews = null!;
         private GLCanvas _canvas = null!;
         private GLParticles _particles = null!;
@@ -168,6 +172,7 @@ namespace Vertex.Rendering.OpenGL
             _gl.TexBuffer(TextureTarget.TextureBuffer, SizedInternalFormat.R32ui, _clusterBuffer);
 
             _shadowMaps = new GLShadowMaps(_gl, ShadowCascades.DefaultResolution);
+            _localShadowMaps = new GLShadowMaps(_gl, LocalShadows.Resolution, LocalShadows.Layers);
             _screenViews = new GLViewTargets(_gl);
             _canvas = new GLCanvas(_gl);
             _emptyVertexArray = _gl.GenVertexArray();
@@ -183,7 +188,7 @@ namespace Vertex.Rendering.OpenGL
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
             shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
-                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit), ("lightmap", _lightmapUnit));
+                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit), ("lightmap", _lightmapUnit), ("localShadowMap", _localShadowUnit));
             SetShaderTextureUnits(shader);
             return shader;
         }
@@ -192,7 +197,7 @@ namespace Vertex.Rendering.OpenGL
         {
             GLShader shader = GLShader.FromLibrary(_gl, ShaderLibrary.FullscreenVertex, fragment);
             shader.BindBlock("FrameData", _frameBinding);
-            shader.SetSamplers(("shadowMap", _shadowUnit), ("cloudNoise", _cloudUnit), ("fogHistory", _fogSourceUnit), ("fogLight", _fogSourceUnit), ("lightClusterWords", _clusterUnit));
+            shader.SetSamplers(("shadowMap", _shadowUnit), ("cloudNoise", _cloudUnit), ("fogHistory", _fogSourceUnit), ("fogLight", _fogSourceUnit), ("lightClusterWords", _clusterUnit), ("localShadowMap", _localShadowUnit));
             return shader;
         }
 
@@ -296,6 +301,12 @@ namespace Vertex.Rendering.OpenGL
                     DrawShadows(frame);
                 }
 
+                if (frame.LocalShadowDraws.Count > 0)
+                {
+                    Mark("Light shadows");
+                    DrawLocalShadows(frame);
+                }
+
                 FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
                 views.Ensure(frame.Width, frame.Height);
 
@@ -322,6 +333,7 @@ namespace Vertex.Rendering.OpenGL
                 _gl.ActiveTexture(TextureUnit.Texture0 + _clusterUnit);
                 _gl.BindTexture(TextureTarget.TextureBuffer, _clusterTexture);
                 (frame.Lightmap != null ? GetTexture(frame.Lightmap) : _white).Bind(_lightmapUnit);
+                _localShadowMaps.Bind(_localShadowUnit);
 
                 if (fog)
                 {
@@ -387,6 +399,31 @@ namespace Vertex.Rendering.OpenGL
                 foreach (DrawCall draw in frame.ShadowCasters(cascade))
                 {
                     _shadowShader.SetMatrix4("draw.lightModel", draw.WorldMatrix * lightSpace);
+                    GetMesh(draw.Mesh).Draw();
+                }
+            }
+
+            _gl.CullFace(TriangleFace.Back);
+        }
+
+        /// <summary>The layers of the point and spot lights' shadow map that have changed (see <see cref="LocalShadows"/>).</summary>
+        private void DrawLocalShadows(RenderFrame frame)
+        {
+            _gl.CullFace(TriangleFace.Front);
+            _gl.Enable(EnableCap.DepthTest);
+            _gl.DepthMask(true);
+            _shadowShader.Use();
+
+            int size = LocalShadows.Resolution;
+            foreach (LocalShadowDraw layer in frame.LocalShadowDraws)
+            {
+                _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _localShadowMaps.Framebuffer(layer.Layer));
+                _gl.Viewport(0, 0, (uint)size, (uint)size);
+                _gl.Clear(ClearBufferMask.DepthBufferBit);
+                for (int i = layer.FirstCaster; i < layer.FirstCaster + layer.CasterCount; i++)
+                {
+                    DrawCall draw = frame.LocalShadowCasters[i];
+                    _shadowShader.SetMatrix4("draw.lightModel", draw.WorldMatrix * layer.ViewProjection);
                     GetMesh(draw.Mesh).Draw();
                 }
             }
@@ -808,6 +845,7 @@ namespace Vertex.Rendering.OpenGL
             _gl.DeleteBuffer(_frameBuffer);
             _gl.DeleteBuffer(_materialBuffer);
             _gl.DeleteTexture(_clusterTexture);
+            _localShadowMaps.Dispose();
             _gl.DeleteBuffer(_clusterBuffer);
             _gl.DeleteVertexArray(_emptyVertexArray);
         }

@@ -24,6 +24,9 @@ namespace Vertex.Rendering
         /// <summary>Meshes drawn into shadow maps, counted once for each cascade they're drawn into.</summary>
         public int ShadowDrawCalls { get; internal set; }
 
+        /// <summary>Layers of the point and spot lights' shadow map drawn again (see <see cref="LocalShadows"/>): 0 while nothing near them changes.</summary>
+        public int LightShadowLayers { get; internal set; }
+
         /// <summary>Time the CPU spent on drawing: gathering the scene and handing it to the GPU.</summary>
         public double CpuMilliseconds { get; internal set; }
 

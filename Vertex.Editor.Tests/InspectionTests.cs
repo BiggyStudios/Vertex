@@ -84,14 +84,14 @@ namespace Vertex.Editor.Tests
             Assert.Equal(["Type", "Color", "Intensity", "Mode", "Fog Strength", "Cast Shadows"], Shown(light));
 
             light.Type = LightType.Point;
-            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Fog Strength"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Fog Strength", "Cast Shadows"], Shown(light));
 
             light.Type = LightType.Spot;
-            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Spot Angle", "Spot Softness", "Fog Strength"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Range", "Spot Angle", "Spot Softness", "Fog Strength", "Cast Shadows"], Shown(light));
 
             // A light that bakes has a size, for how soft its baked shadows are.
             light.Mode = LightMode.Baked;
-            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Size", "Range", "Spot Angle", "Spot Softness", "Fog Strength"], Shown(light));
+            Assert.Equal(["Type", "Color", "Intensity", "Mode", "Size", "Range", "Spot Angle", "Spot Softness", "Fog Strength", "Cast Shadows"], Shown(light));
         }
 
         [Fact]

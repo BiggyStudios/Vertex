@@ -20,11 +20,13 @@ namespace Vertex.Rendering
         public const int Slices = 24;
         public const int Count = TilesX * TilesY * Slices;
 
+
         /// <summary>Anything nearer the camera than this is in the first slice.</summary>
         public const float Near = 0.5f;
 
         private uint[] _words = new uint[Count + 64];
         private readonly int[] _counts = new int[Count];
+        private readonly int[] _shadows = Enumerable.Repeat(-1, Shaders.ShaderLibrary.MaxPointLights).ToArray();
         private int _entries;
         // For each light and slice, the tiles it reaches there (left, right, bottom, top; right before left for none).
         private (int X0, int X1, int Y0, int Y1)[] _rects = new (int, int, int, int)[64 * Slices];
@@ -53,6 +55,12 @@ namespace Vertex.Rendering
             }
         }
 
+        /// <summary>Gives light <paramref name="light"/> shadow <paramref name="shadow"/> of the view's (or none, for -1).</summary>
+        public void SetShadow(int light, int shadow) => _shadows[light] = shadow;
+
+        /// <summary>Which of the view's shadows light <paramref name="light"/> has, or -1.</summary>
+        public int ShadowOf(int light) => _shadows[light];
+
         private static int Index(int x, int y, int slice) => (slice * TilesY + y) * TilesX + x;
 
         /// <summary>Sorts <paramref name="lights"/> into the clusters of the view <paramref name="view"/> and <paramref name="projection"/> look through.</summary>
@@ -62,6 +70,7 @@ namespace Vertex.Rendering
             if (_rects.Length < count * Slices) _rects = new (int, int, int, int)[count * Slices];
             Array.Clear(_counts);
             _entries = 0;
+            Array.Fill(_shadows, -1);
 
             // How deep the slices go: as far as the furthest light reaches.
             Span<(Vector3 Centre, float Radius)> pieces = stackalloc (Vector3, float)[MaxPieces];

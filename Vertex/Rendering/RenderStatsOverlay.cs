@@ -23,7 +23,7 @@ namespace Vertex.Rendering
         private double _cpuTotal;
         private double _updateTotal;
         private int _gpuFrames;
-        private long _draws, _culled, _shadowDraws;
+        private long _draws, _culled, _shadowDraws, _lightShadows;
 
         public bool Visible { get; set; }
 
@@ -48,6 +48,7 @@ namespace Vertex.Rendering
             _draws += stats.DrawCalls;
             _culled += stats.CulledDrawCalls;
             _shadowDraws += stats.ShadowDrawCalls;
+            _lightShadows += stats.LightShadowLayers;
 
             if (stats.GpuPasses.Count > 0)
             {
@@ -84,7 +85,7 @@ namespace Vertex.Rendering
                 _lines.Add($"GPU ({_renderer.Backend.Name})   not measured");
             }
 
-            _lines.Add($"Draws {_draws / _frames}   culled {_culled / _frames}   shadow {_shadowDraws / _frames}");
+            _lines.Add($"Draws {_draws / _frames}   culled {_culled / _frames}   shadow {_shadowDraws / _frames}   light shadows redrawn {_lightShadows}");
 
             _text.Clear();
             foreach (string line in _lines) _text.AppendLine(line);
@@ -95,7 +96,7 @@ namespace Vertex.Rendering
             _gpuFrames = 0;
             _cpuTotal = 0;
             _updateTotal = 0;
-            _draws = _culled = _shadowDraws = 0;
+            _draws = _culled = _shadowDraws = _lightShadows = 0;
             _passTotals.Clear();
         }
 

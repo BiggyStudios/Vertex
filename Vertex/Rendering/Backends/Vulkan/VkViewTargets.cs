@@ -169,14 +169,14 @@ namespace Vertex.Rendering.Vulkan
         /// <summary>How many texels across each layer is.</summary>
         public int Size { get; }
 
-        public VkShadowMaps(VkContext context, int size)
+        public VkShadowMaps(VkContext context, int size, int layers = ShadowCascades.Count)
         {
             Size = size;
             Array = context.CreateImage(size, size, context.ShadowDepthFormat,
                 ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit | ImageUsageFlags.TransferDstBit,
-                layers: ShadowCascades.Count);
+                layers: (uint)layers);
 
-            Layers = new VkImageResource[ShadowCascades.Count];
+            Layers = new VkImageResource[layers];
             for (uint i = 0; i < Layers.Length; i++) Layers[i] = context.CreateLayerView(Array, i);
         }
 

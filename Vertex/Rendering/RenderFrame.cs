@@ -146,6 +146,12 @@ namespace Vertex.Rendering
         /// <summary>Baked (see <see cref="LightMode.Baked"/>): it doesn't light surfaces as the game runs, only volumetric fog.</summary>
         public bool Baked { get; init; }
 
+        /// <summary>Whether it casts shadows (see <see cref="Light.CastShadows"/>): the nearest that do get them.</summary>
+        public bool CastsShadows { get; init; }
+
+        /// <summary>What it's from (its <see cref="Light"/>), so its shadow can be kept from frame to frame.</summary>
+        internal object? Owner { get; init; }
+
         /// <summary>How brightly it shows in volumetric fog, 1 as bright as it lights surfaces.</summary>
         public float FogStrength { get; init; } = 1f;
 
@@ -299,6 +305,19 @@ namespace Vertex.Rendering
         /// <summary>Which of <see cref="PointLights"/> reach each part of the view.</summary>
         internal readonly LightClusters Clusters = new();
 
+        internal readonly List<LocalShadowData> LocalShadowList = new();
+        internal readonly List<LocalShadowDraw> LocalShadowDrawList = new();
+        internal readonly List<DrawCall> LocalShadowCasterList = new();
+
+        /// <summary>The point and spot lights' shadows this view, as the shaders read them (see <see cref="LocalShadows"/>).</summary>
+        public IReadOnlyList<LocalShadowData> LocalShadows => LocalShadowList;
+
+        /// <summary>The layers of the point and spot lights' shadow map to draw again before this view: only what's changed.</summary>
+        public IReadOnlyList<LocalShadowDraw> LocalShadowDraws => LocalShadowDrawList;
+
+        /// <summary>What to draw into each of <see cref="LocalShadowDraws"/>, from its <see cref="LocalShadowDraw.FirstCaster"/>.</summary>
+        public IReadOnlyList<DrawCall> LocalShadowCasters => LocalShadowCasterList;
+
         /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
         internal readonly Shaders.ShadowCascades Cascades = new();
 
@@ -400,6 +419,9 @@ namespace Vertex.Rendering
             FogVolumeList.Clear();
             PostEffectList.Clear();
             foreach (List<DrawCall> casters in ShadowCasterLists) casters.Clear();
+            LocalShadowList.Clear();
+            LocalShadowDrawList.Clear();
+            LocalShadowCasterList.Clear();
             HasShadows = false;
             Lightmap = null;
             Grid = false;

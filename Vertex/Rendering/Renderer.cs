@@ -28,6 +28,10 @@ namespace Vertex.Rendering
         // Unlit draws, gathered apart this frame to go after the lit ones; kept to reuse.
         private readonly List<DrawCall> _unlitDraws = new();
 
+        // Shadows for point and spot lights, kept from frame to frame; and everything that casts shadows, with its bounds.
+        private readonly LocalShadows _localShadows = new();
+        private readonly List<(DrawCall Draw, Vector3 Centre, Vector3 Extents)> _casters = new();
+
         // Cameras drawing into textures this frame; kept to reuse.
         private readonly List<Camera> _targetCameras = new();
 
@@ -113,6 +117,7 @@ namespace Vertex.Rendering
         public void Render(Scene scene, Camera? screenCamera, ReadOnlySpan<RenderView> views)
         {
             Backend.BeginFrame();
+            _localShadows.NextFrame();
 
             // Not counting the waits for the screen (in BeginFrame and EndFrame), which aren't work.
             _cpuTime.Restart();
@@ -120,6 +125,7 @@ namespace Vertex.Rendering
             Stats.DrawCalls = 0;
             Stats.CulledDrawCalls = 0;
             Stats.ShadowDrawCalls = 0;
+            Stats.LightShadowLayers = 0;
 
             // GPU particles move once a frame, whatever number of views draw them: on the GPU if the backend can,
             // otherwise here, and then they're handed over with the other particles.
@@ -197,7 +203,9 @@ namespace Vertex.Rendering
                     SpotOuter = MathF.Cos(half),
                     SpotInner = MathF.Max(MathF.Cos(inner), MathF.Cos(half) + 1e-4f),
                     FogStrength = MathF.Max(light.FogStrength, 0f),
-                    Baked = baked
+                    Baked = baked,
+                    CastsShadows = light.CastShadows,
+                    Owner = light
                 });
             }
             else
@@ -205,7 +213,9 @@ namespace Vertex.Rendering
                 _frame.PointLightList.Add(new PointLightData(light.Transform.WorldPosition, color, light.Range)
                 {
                     FogStrength = MathF.Max(light.FogStrength, 0f),
-                    Baked = baked
+                    Baked = baked,
+                    CastsShadows = light.CastShadows,
+                    Owner = light
                 });
             }
         }
@@ -384,7 +394,9 @@ namespace Vertex.Rendering
                 if (frustum.Intersects(centre, extents)) (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
                 else Stats.CulledDrawCalls++;
 
-                if (!draw.CastShadows || !_frame.HasShadows) continue;
+                if (!draw.CastShadows) continue;
+                _casters.Add((draw, centre, extents));
+                if (!_frame.HasShadows) continue;
                 for (int cascade = 0; cascade < casters.Length; cascade++)
                 {
                     if (Culling.InOrthographic(_frame.Cascades.Matrices[cascade], centre, extents)) casters[cascade].Add(draw);
@@ -404,6 +416,11 @@ namespace Vertex.Rendering
                 list.Sort(_byMesh);
                 Stats.ShadowDrawCalls += list.Count;
             }
+
+            // Point and spot lights' shadows: which get them, and what's changed in them to draw again.
+            _localShadows.Plan(_frame, _casters);
+            Stats.LightShadowLayers += _frame.LocalShadowDrawList.Count;
+            _casters.Clear();
 
             CollectFlat(scene, camera, frustum);
 

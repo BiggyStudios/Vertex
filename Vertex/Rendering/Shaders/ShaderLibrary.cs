@@ -155,6 +155,9 @@ namespace Vertex.Rendering.Shaders
                 vec4 fogBoxParams[8];   // x: its density, y: how soft its sides are
                 vec4 retro;             // x: rows of the screen grid corners snap to (0 for none), y: how much textures bend (affine), z: 1 for crisp texels
                 vec4 clusters;          // x, y: a point's light cluster slice is log(depth) * x + y (see lightCluster)
+                mat4 localShadowMatrix[16];   // into each spot light's shadow map (see LocalShadows)
+                vec4 localShadowParams[16];   // x: its first layer, y: a texel's size a unit from the light, z: near, w: far (negative for a point light)
+                uvec4 lightShadows[16];       // which of those each point and spot light has, plus one (0 for none): a byte each, four to a word
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
@@ -320,6 +323,70 @@ namespace Vertex.Rendering.Shaders
             {
                 uint word = CLUSTER_WORD(CLUSTER_COUNT + (entry >> 2));
                 return int((word >> uint((entry & 3) * 8)) & 255u);
+            }
+
+            // ---- Point and spot lights' shadows (see LocalShadows) ----------------------------------------------
+            // Each in layers of one map that's kept from frame to frame: a spot light's in one, a point light's in six,
+            // one for each way it shines (+x, -x, +y, -y, +z, -z), each looking a little more than a quarter turn wide so
+            // lookups near their edges stay on them.
+            TEXTURE(0, 6) sampler2DArrayShadow localShadowMap;
+            const float LOCAL_SHADOW_SIZE = 512.0;
+            const float LOCAL_FACE_SCALE = 0.99225;
+            const vec3 LOCAL_FACE_FORWARD[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
+            const vec3 LOCAL_FACE_UP[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+
+            // Which of the view's shadows light i has, or -1.
+            int lightShadow(int light)
+            {
+                uint word = frame.lightShadows[light >> 4][(light >> 2) & 3];
+                return int((word >> uint((light & 3) * 8)) & 255u) - 1;
+            }
+
+            // How much of a light reaches a point past what's in its way, from 1 (all) to 0 (in shadow): softened over a
+            // few lookups for surfaces, one for fog.
+            float localShadow(int slot, vec3 lightPosition, vec3 position, vec3 normal, bool soft)
+            {
+                vec4 params = frame.localShadowParams[slot];
+                vec3 fromLight = position - lightPosition;
+                float distance = length(fromLight);
+
+                // Moved off the surface and towards the light by about a texel there, so it doesn't shadow itself: further
+                // where it faces away, so smooth-shaded meshes with few corners don't get a jagged edge where they turn away.
+                float texel = params.y * distance;
+                vec3 toLight = -fromLight / max(distance, 1e-4);
+                float facing = clamp(dot(normal, toLight), 0.0, 1.0);
+                vec3 p = position + normal * (texel * (1.5 + 3.0 * (1.0 - facing))) + toLight * texel;
+                fromLight = p - lightPosition;
+
+                float layer = params.x;
+                vec3 ndc;
+                if (params.w < 0.0)
+                {
+                    float near = params.z, far = -params.w;
+                    vec3 a = abs(fromLight);
+                    int face = a.x >= a.y && a.x >= a.z ? (fromLight.x > 0.0 ? 0 : 1) : a.y >= a.z ? (fromLight.y > 0.0 ? 2 : 3) : (fromLight.z > 0.0 ? 4 : 5);
+                    vec3 forward = LOCAL_FACE_FORWARD[face];
+                    vec3 across = normalize(cross(LOCAL_FACE_UP[face], -forward));
+                    vec3 above = cross(-forward, across);
+                    float d = max(dot(fromLight, forward), 1e-4);
+                    ndc = vec3(vec2(dot(fromLight, across), dot(fromLight, above)) * (LOCAL_FACE_SCALE / d), far * (d - near) / ((far - near) * d));
+                    layer += float(face);
+                }
+                else
+                {
+                    vec4 clip = frame.localShadowMatrix[slot] * vec4(p, 1.0);
+                    if (clip.w <= 0.0) return 1.0;
+                    ndc = clip.xyz / clip.w;
+                }
+
+                if (ndc.z >= 1.0) return 1.0;
+                vec2 uv = NDC_TO_UV(ndc.xy);
+                float depth = STORED_DEPTH(ndc.z) - 0.00004;
+                if (!soft) return texture(localShadowMap, vec4(uv, layer, depth));
+
+                float o = 0.8 / LOCAL_SHADOW_SIZE;
+                return 0.25 * (texture(localShadowMap, vec4(uv + vec2(-o, -o), layer, depth)) + texture(localShadowMap, vec4(uv + vec2(o, -o), layer, depth)) +
+                               texture(localShadowMap, vec4(uv + vec2(-o, o), layer, depth)) + texture(localShadowMap, vec4(uv + vec2(o, o), layer, depth)));
             }
 
             // ---- Volumetric fog ---------------------------------------------------------------------------------
@@ -494,6 +561,8 @@ namespace Vertex.Rendering.Shaders
                     if (frame.pointColor[i].w <= 0.0) continue;
                     vec3 L;
                     vec3 color = pointLight(i, p, L);
+                    int shadow = lightShadow(i);
+                    if (shadow >= 0 && color.r + color.g + color.b > 0.0) color *= localShadow(shadow, frame.pointPositionRange[i].xyz, p, vec3(0.0), false);
                     light += color * (frame.pointColor[i].w * scattering(dot(L, view)));
                 }
 
@@ -646,10 +715,6 @@ namespace Vertex.Rendering.Shaders
             // Where the object's origin is, for surface shaders.
             VARYING(4) flat out vec3 vObjectPosition;
             VARYING(5) out vec2 vLightmapUV;
-            VARYING(6) flat out vec4 vBaked;
-            VARYING(7) flat out vec4 vProbeRed;
-            VARYING(8) flat out vec4 vProbeGreen;
-            VARYING(9) flat out vec4 vProbeBlue;
 
             void main()
             {
@@ -663,10 +728,6 @@ namespace Vertex.Rendering.Shaders
                 vNormal = cofactors * aNormal * sign(dot(m[0], cross(m[1], m[2])));
 
                 vLightmapUV = aLightmapUV;
-                vBaked = draw.lightmap;
-                vProbeRed = draw.probe[0];
-                vProbeGreen = draw.probe[1];
-                vProbeBlue = draw.probe[2];
                 vUV = aUV;
                 vAffineUV = aUV;
                 vObjectPosition = draw.model[3].xyz;
@@ -693,10 +754,11 @@ namespace Vertex.Rendering.Shaders
             VARYING(3) noperspective in vec2 vAffineUV;
             VARYING(4) flat in vec3 vObjectPosition;
             VARYING(5) in vec2 vLightmapUV;
-            VARYING(6) flat in vec4 vBaked;
-            VARYING(7) flat in vec4 vProbeRed;
-            VARYING(8) flat in vec4 vProbeGreen;
-            VARYING(9) flat in vec4 vProbeBlue;
+            // The draw's baked light, read straight from its constants (see DrawConstants).
+            #define vBaked draw.lightmap
+            #define vProbeRed draw.probe[0]
+            #define vProbeGreen draw.probe[1]
+            #define vProbeBlue draw.probe[2]
 
             // One colour of the probes' light for a surface facing n: its average, brighter towards where the light comes
             // from. Not straight average + dot(change, n), which goes below nothing away from a bright light, but a curve
@@ -866,7 +928,7 @@ namespace Vertex.Rendering.Shaders
         private static string SceneFragment(Rendering.Shader? surface, string shading, string main)
         {
             string custom = surface == null ? "" : SurfaceShaderHeader + "#line 1\n" + surface.Body + "\n";
-            return (surface == null ? "" : "#define CUSTOM_SURFACE 1\n") + Frame + Material + SceneFragmentInputs + SurfaceCommon + custom + shading + main;
+            return (surface == null ? "" : "#define CUSTOM_SURFACE 1\n") + Frame + DrawConstants + Material + SceneFragmentInputs + SurfaceCommon + custom + shading + main;
         }
 
         public static readonly string LitFragment = LitFragmentWith(null);
@@ -1043,6 +1105,8 @@ namespace Vertex.Rendering.Shaders
                     if (frame.pointPositionRange[i].w < 0.0) continue;
                     vec3 L;
                     vec3 color = pointLight(i, vWorldPosition, L);
+                    int shadow = lightShadow(i);
+                    if (shadow >= 0 && color.r + color.g + color.b > 0.0) color *= localShadow(shadow, frame.pointPositionRange[i].xyz, vWorldPosition, worldNormal, true);
                     if (color.r + color.g + color.b > 0.0) addLight(N, V, L, color, F0, roughness);
                 }
 
