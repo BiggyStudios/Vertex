@@ -132,7 +132,7 @@
     <h2>Lighting and sky</h2>
     <p>Click the scene's row at the top of the outliner to edit its lighting: the sky and clouds, fog, the colour of the ground light bounces off, ambient occlusion, bloom, and how far shadows reach. The sky follows the first sun: turn it lower for a sunset.</p>
     <p>A scene can have up to 256 point and spot lights in view at once. Each part of the screen only works out the lights that reach it, so many small lights cost little.</p>
-    <p>Point and spot lights with <strong>Cast Shadows</strong> on cast shadows too, also into volumetric fog. The 16 nearest the camera get them. A light's shadow is only redrawn when the light or something near it moves, so lamps in a still room cost little. Baked lights don't need it: their shadows are baked.</p>
+    <p>Point and spot lights with <strong>Cast Shadows</strong> on cast shadows too, also into volumetric fog. The 16 nearest the camera get them. A light's shadow is only redrawn when the light or something near it moves, so lamps in a still room cost little. Baked lights bake their shadows from things that don't move; with Cast Shadows on, things that move cast shadows from them too (see below).</p>
 
     <h2>Baked lighting</h2>
     <p>Baking works out a scene's light ahead of time, so it looks better and costs almost nothing while the game runs. Things that never move get soft shadows, light bounced off what's round them, and no sky light in rooms and under things. Things that move are lit by light probes, baked at the same time, which hold the light in the space between.</p>
@@ -145,13 +145,14 @@
         <tr><th>Mode</th><th>What it does</th></tr>
         <tr><td><strong>Realtime</strong></td><td>Worked out every frame, so it can move and change. Its light doesn't bounce.</td></tr>
         <tr><td><strong>Mixed</strong></td><td>Lights things every frame, and its bounced light is baked. Good for the sun.</td></tr>
-        <tr><td><strong>Baked</strong></td><td>All baked, so it costs nothing while the game runs, however many there are. It can't move or change, and it has no highlights. It still shows in volumetric fog. Good for lamps.</td></tr>
+        <tr><td><strong>Baked</strong></td><td>All baked, so it costs nothing while the game runs, however many there are. It can't move or change, and it has no highlights. It still shows in volumetric fog, and with <strong>Cast Shadows</strong> on, things that move still cast shadows from it. Good for lamps.</td></tr>
     </table>
     <ul>
         <li><strong>Detail</strong> is how many lightmap pixels there are to a unit of surface. More gives sharper shadows and a slower bake. If the lightmap won't fit in <strong>Max Lightmap Size</strong>, detail is lowered to fit.</li>
         <li><strong>Quality</strong>: Preview is quick but grainy; Good suits most scenes; High is the smoothest. <strong>Bounces</strong> is how many times light bounces.</li>
         <li>Moving a static object, or changing a baked light, leaves the old light where it was until you bake again. <strong>Clear</strong> removes the baked light.</li>
         <li>Until a scene has been baked, Baked lights light it as they're worked out, so you can see them while you build.</li>
+        <li>Things that move cast shadows from Baked lights that have <strong>Cast Shadows</strong> on, onto static things too: the bake keeps how much of each light reached each part of the lightmap, and where something that moves blocks one, its light is taken back out. Up to four of these lights can reach the same place; if more overlap, the dimmest only have their baked shadows, and the Lighting panel's <strong>Moving shadows</strong> says how many were left out. These shadows only cost anything while something that moves is near the light.</li>
     </ul>
 </main>
 </div>
