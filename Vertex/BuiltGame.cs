@@ -116,7 +116,7 @@ namespace Vertex
             string[] folders = list.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (folders.Length == 0 || PathResolver.Default is not DefaultPathResolver resolver) return;
 
-            resolver.Resolvers.Insert(0, name => folders.Select(folder => Path.Combine(folder, name)).Where(File.Exists));
+            resolver.Resolvers.Insert(0, name => Platform.NativeLibraries.Names(name).SelectMany(file => folders.Select(folder => Path.Combine(folder, file))).Where(File.Exists));
         }
 
         /// <summary>The game's own <see cref="Game"/> class, or one that opens the start scene.</summary>

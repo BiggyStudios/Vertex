@@ -54,12 +54,17 @@ namespace Vertex.Tests
             Directory.CreateDirectory(folder);
             string library = Path.Combine(folder, "glfw-unpacked-test.dll");
             File.WriteAllText(library, "");
+            string assimp = Path.Combine(folder, "libassimp.so.6");
+            File.WriteAllText(assimp, "");
             object? before = AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES");
             try
             {
                 AppContext.SetData("NATIVE_DLL_SEARCH_DIRECTORIES", folder + Path.PathSeparator);
                 BuiltGame.FindPackedLibraries();
                 Assert.Contains(library, Silk.NET.Core.Loader.PathResolver.Default.EnumeratePossibleLibraryLoadTargets("glfw-unpacked-test.dll"));
+
+                // Assimp 6 where Silk.NET asks for 5, as everywhere.
+                Assert.Equal(assimp, Silk.NET.Core.Loader.PathResolver.Default.EnumeratePossibleLibraryLoadTargets("libassimp.so.5").First());
             }
             finally
             {
