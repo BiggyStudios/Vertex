@@ -240,7 +240,7 @@ namespace Vertex.Editor.Graphs
         private static float RowCentre(Rect node, int row) => node.Y + _header + 4f + row * _row + _row * 0.5f;
 
         // Flow ports called In and Then go without saying.
-        private static string Label(Port port) => port.Type.IsFlow && port.Name is "In" or "Then" ? "" : port.Name;
+        private static string Label(Port port) => port.Type.IsFlow && port.Name is "In" or "Then" || port.Type == Vertex.AI.BehaviorNodes.Task && port.Name == "Parent" ? "" : port.Name;
 
         /// <summary>A node's title: a variable node's says which variable ("Set Health").</summary>
         private static string Title(GraphNode node, NodeType type) =>
@@ -323,7 +323,7 @@ namespace Vertex.Editor.Graphs
                 // Flow that's just gone along it shows, and in an audio graph, the sound that was just chosen.
                 // (Sounds' wires are teal already, so they flash white.)
                 bool sound = type == Vertex.Audio.AudioNodes.Audio;
-                double? last = type.IsFlow ? graph.LastRan(link.ToNode) : sound ? graph.LastRan(link.FromNode) : null;
+                double? last = type.IsFlow || type == Vertex.AI.BehaviorNodes.Task ? graph.LastRan(link.ToNode) : sound ? graph.LastRan(link.FromNode) : null;
                 float flash = last is double ran && now - ran < 0.5 ? (float)(1.0 - (now - ran) / 0.5) : 0f;
                 if (flash > 0f) color = Color.Lerp(color, sound ? Color.White : Theme.Hex(0x5FC9B5), flash);
 
@@ -416,6 +416,7 @@ namespace Vertex.Editor.Graphs
             Ui.Rect(header, category.WithAlpha(0.85f), 8f);
             Ui.Rect(new Rect(r.X, r.Y + _header - 8f, r.Width, 8f), category.WithAlpha(0.85f));
             Ui.Text(new Rect(r.X + 10f, r.Y, r.Width - 20f, _header), Title(node, type), Color.White, bold: true);
+            if (graph.Kind == Vertex.AI.BehaviorNodes.Kind) DrawOrder(graph, node, header);
 
             Ui.Outline(r, error != null ? Theme.Danger : selected ? Theme.AccentHover : new Color(0f, 0f, 0f, 0.5f), 8f, error != null || selected ? 2f : 1f);
 
@@ -472,6 +473,23 @@ namespace Vertex.Editor.Graphs
 
             for (int i = 0; i < layout.InputPorts.Count; i++) DrawInput(nodeId, doc, layout, layout.InputPorts[i], i);
             for (int i = 0; i < type.Outputs.Count; i++) DrawOutput(nodeId, doc, layout, type.Outputs[i], i);
+        }
+
+        /// <summary>
+        /// In a behaviour tree, which of its parent's tasks a node is, in a small circle at the right of its header: they
+        /// run from the top down, so moving one up or down changes when it runs.
+        /// </summary>
+        private static void DrawOrder(Graph graph, GraphNode node, Rect header)
+        {
+            GraphLink? up = graph.Links.FirstOrDefault(l => l.ToNode == node.Id && l.ToPort == "Parent");
+            if (up == null || graph.Node(up.FromNode) is not { } parent) return;
+            List<GraphNode> siblings = Vertex.AI.BehaviorNodes.ChildrenOf(graph, parent);
+            if (siblings.Count < 2) return;
+
+            string order = (siblings.IndexOf(node) + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var at = new Vector2(header.Right - 15f, header.Y + header.Height * 0.5f);
+            Ui.Circle(at, 9f, new Color(0f, 0f, 0f, 0.35f));
+            Ui.Text(new Rect(at.X - 9f, at.Y - 9f, 18f, 18f), order, Color.White, align: 0.5f, size: Theme.SmallTextSize, bold: true);
         }
 
         private void DrawInput(int nodeId, GraphDocument doc, Layout layout, Port port, int row)

@@ -62,6 +62,7 @@ namespace Vertex.Editor.Inspection
             "Vertex.Physics" => "Physics",
             "Vertex.Audio" => "Audio",
             "Vertex.Animation" => "Animation",
+            "Vertex.AI" => "AI",
             "Vertex.Networking" => "Networking",
             "Vertex.UI" => "UI",
             _ => "Scripts"

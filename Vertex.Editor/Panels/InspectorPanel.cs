@@ -188,7 +188,7 @@ namespace Vertex.Editor.Panels
                     break;
                 }
 
-                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph or AssetKind.BehaviorTree:
                     y = DrawVisualScriptAsset(asset, x, y, width);
                     break;
 
@@ -748,6 +748,9 @@ namespace Vertex.Editor.Panels
                     x, GraphButtons(component, source.AudioGraph, nameof(Vertex.Audio.AudioSource.AudioGraph), "Edit Audio Graph", "New Audio Graph", "Audio",
                         (folder, name) => _context.CreateAudioGraph(folder, name), "audio graphs", x, y, width), width),
                 Vertex.Animation.Animator animator => AnimatorBody(animator, x, y, width),
+                Vertex.AI.BehaviorTree tree => GraphValues(tree, tree.Tree, nameof(Vertex.AI.BehaviorTree.Variables), tree.Variables, "Variables", "tree",
+                    x, GraphButtons(component, tree.Tree, nameof(Vertex.AI.BehaviorTree.Tree), "Edit Behavior Tree", "New Behavior Tree", "AI",
+                        (folder, name) => _context.CreateBehaviorTree(folder, name), "behaviour trees", x, y, width), width),
                 _ => y
             };
         }
@@ -984,6 +987,7 @@ namespace Vertex.Editor.Panels
                 AssetKind.VisualEffect => "Add a Visual Effect component to an object and choose this file to play it there. Double-click to edit.",
                 AssetKind.AudioGraph => "Add an Audio Source component to an object and choose this file as its Audio Graph to play it there. Double-click to edit.",
                 AssetKind.AnimationGraph => "Add an Animator to a character and choose this file as its Animation Graph: the game sets its parameters (animator.Set(\"Speed\", 4)) and it blends the animations to match. Double-click to edit.",
+                AssetKind.BehaviorTree => "Add a Behavior Tree component to a character and choose this file as its Tree: it decides what the character does, each frame. A Nav Mesh Agent on it walks it where the tree says. Double-click to edit.",
                 _ => "Add a Visual Script component to an object and choose this file to run it on the object. Double-click to edit."
             }, x, y, width);
         }

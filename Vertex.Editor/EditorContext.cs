@@ -163,7 +163,7 @@ namespace Vertex.Editor
     /// What all the editor's panels share: the open project and the game's code, the scene being edited and where it
     /// came from, what's selected, the history of changes, play mode, and the commands in the menus.
     /// </summary>
-    public sealed class EditorContext
+    public sealed partial class EditorContext
     {
         /// <summary>The scene being edited: the one open, or the prefab whose tab is showing (see <see cref="Stage"/>).</summary>
         public Scene Scene => Vertex.Scene.Active;
@@ -798,6 +798,7 @@ namespace Vertex.Editor
             RebuildIfCodeChanged();
             FinishGameBuild();
             FinishBake();
+            FinishNavMeshBake();
             if (_build is not { IsCompleted: true } build) return;
 
             _build = null;
@@ -1356,6 +1357,19 @@ namespace Vertex.Editor
             Directory.CreateDirectory(folder);
             string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.Animation.AnimationNodes.Extension);
             Vertex.Animation.AnimationNodes.Starter().Save(path);
+            Assets?.Refresh();
+            return path;
+        }
+
+        /// <summary>
+        /// Makes a new behaviour tree in <paramref name="folder"/>, to start from (chase the Target when it's seen, otherwise
+        /// wander about), and returns where.
+        /// </summary>
+        public string CreateBehaviorTree(string folder, string name = "New Behavior Tree")
+        {
+            Directory.CreateDirectory(folder);
+            string path = Panels.AssetsPanel.Unique(Path.Combine(folder, name), Vertex.AI.BehaviorNodes.Extension);
+            Vertex.AI.BehaviorNodes.Starter().Save(path);
             Assets?.Refresh();
             return path;
         }

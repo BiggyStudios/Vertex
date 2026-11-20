@@ -520,6 +520,7 @@ namespace Vertex.Editor.Inspection
                 if (graphKind.Kind == Vertex.Effects.VfxNodes.Kind) kind = (AssetKind.VisualEffect, kind.Load);
                 else if (graphKind.Kind == Vertex.Audio.AudioNodes.Kind) kind = (AssetKind.AudioGraph, kind.Load);
                 else if (graphKind.Kind == Vertex.Animation.AnimationNodes.Kind) kind = (AssetKind.AnimationGraph, kind.Load);
+                else if (graphKind.Kind == Vertex.AI.BehaviorNodes.Kind) kind = (AssetKind.BehaviorTree, kind.Load);
             }
 
             // A shader slot offers only shaders for what it's for: a material's, surface shaders; a camera's, post effects.
@@ -743,6 +744,7 @@ namespace Vertex.Editor.Inspection
                 AssetKind.AudioGraph => "audio graphs",
                 AssetKind.Animation => "animations",
                 AssetKind.AnimationGraph => "animation graphs",
+                AssetKind.BehaviorTree => "behaviour trees",
                 AssetKind.Shader => "shaders",
                 _ => "files"
             };

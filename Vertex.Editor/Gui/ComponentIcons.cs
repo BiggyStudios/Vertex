@@ -76,6 +76,9 @@ namespace Vertex.Editor.Gui
             [typeof(UIMask)] = Icons.Mask,
 
             [typeof(VisualScript)] = Icons.Graph,
+
+            [typeof(Vertex.AI.NavMeshAgent)] = Icons.Route,
+            [typeof(Vertex.AI.BehaviorTree)] = Icons.BehaviorTree,
         };
 
         private static readonly Color _rendering = Theme.Hex(0x7AA7FF);
@@ -85,6 +88,7 @@ namespace Vertex.Editor.Gui
         private static readonly Color _ui = Theme.Hex(0xB792FF);
         private static readonly Color _network = Theme.Hex(0x48C6C0);
         private static readonly Color _animation = Theme.Hex(0x5CD6A8);
+        private static readonly Color _ai = Theme.Hex(0xF2B45A);
         private static readonly Color _scripts = Theme.Hex(0xA9B0BC);
 
         /// <summary>The icon of a kind of component: its own, its nearest base class's, or the code icon for a script.</summary>
@@ -114,6 +118,7 @@ namespace Vertex.Editor.Gui
                 "UI" => _ui,
                 "Networking" => _network,
                 "Animation" => _animation,
+                "AI" => _ai,
                 _ => _scripts
             };
         }

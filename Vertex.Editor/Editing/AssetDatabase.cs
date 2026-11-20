@@ -35,6 +35,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>A .animgraph file: animations blended by what the game sets, made of nodes.</summary>
         AnimationGraph,
+
+        /// <summary>A .btree file: how a character decides what to do, made of nodes.</summary>
+        BehaviorTree,
         Other
     }
 
@@ -245,6 +248,7 @@ namespace Vertex.Editor.Editing
             ".shadergraph" => AssetKind.ShaderGraph,
             ".anim" => AssetKind.Animation,
             ".animgraph" => AssetKind.AnimationGraph,
+            ".btree" => AssetKind.BehaviorTree,
             _ => AssetKind.Other
         };
 

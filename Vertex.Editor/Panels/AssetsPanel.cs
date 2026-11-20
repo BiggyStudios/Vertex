@@ -244,6 +244,7 @@ namespace Vertex.Editor.Panels
                 case AssetKind.ShaderGraph: Icons.Graph(centre, size, Theme.Hex(0xE07BB5)); break;
                 case AssetKind.Animation: Icons.Keyframes(centre, size, Theme.Hex(0x5CD6A8)); break;
                 case AssetKind.AnimationGraph: Icons.Graph(centre, size, Theme.Hex(0x5CD6A8)); break;
+                case AssetKind.BehaviorTree: Icons.BehaviorTree(centre, size, Theme.Hex(0xF2B45A)); break;
                 default: Icons.File(centre, size, Theme.TextFaint); break;
             }
         }
@@ -291,7 +292,7 @@ namespace Vertex.Editor.Panels
                 case AssetKind.Sound:
                     SoundPreview.Toggle(entry.Path);
                     break;
-                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph:
+                case AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph or AssetKind.BehaviorTree:
                     _context.OpenGraph(entry.Path);
                     break;
                 case AssetKind.Animation:
@@ -370,7 +371,7 @@ namespace Vertex.Editor.Panels
             var items = new List<MenuItem>();
             string? open = entry.Kind switch
             {
-                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph or
+                AssetKind.Folder or AssetKind.Scene or AssetKind.VisualScript or AssetKind.VisualEffect or AssetKind.AudioGraph or AssetKind.ShaderGraph or AssetKind.AnimationGraph or AssetKind.BehaviorTree or
                     AssetKind.Animation or AssetKind.Prefab => "Open",
                 AssetKind.Model => "Add to Scene",
                 AssetKind.Sound => SoundPreview.IsPlaying(entry.Path) ? "Stop" : "Play",
@@ -416,7 +417,8 @@ namespace Vertex.Editor.Panels
                 new("New Post Effect", () => Made(_context.CreatePostEffect(folder))) { Icon = Icons.ScreenEffect },
                 new("New Post Effect Graph", () => Made(_context.CreatePostEffectGraph(folder))) { Icon = Icons.ScreenEffect },
                 new("New Animation", () => Made(_context.CreateAnimation(folder))) { Icon = Icons.Keyframes },
-                new("New Animation Graph", () => Made(_context.CreateAnimationGraph(folder))) { Icon = Icons.Graph }
+                new("New Animation Graph", () => Made(_context.CreateAnimationGraph(folder))) { Icon = Icons.Graph },
+                new("New Behavior Tree", () => Made(_context.CreateBehaviorTree(folder))) { Icon = Icons.BehaviorTree }
             };
 
             if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });

@@ -62,6 +62,9 @@ namespace Vertex.Editor.Editing
 
         /// <summary>Whether the Lighting panel has been put beside the Inspector once already (it isn.t again, once closed).</summary>
         [HideInInspector] public bool LightingShown { get; set; }
+
+        /// <summary>Whether the navmesh is drawn over the scene view while the Navigation panel's open.</summary>
+        [HideInInspector] public bool ShowNavMesh { get; set; } = true;
         [HideInInspector] public List<string> BottomTabs { get; set; } = ["Assets", "Console"];
         [HideInInspector] public Dictionary<string, string> ActiveTabs { get; set; } = new();
 

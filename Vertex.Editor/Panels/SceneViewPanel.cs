@@ -65,7 +65,7 @@ namespace Vertex.Editor.Panels
                 if (_graph != null) return _graphView.Views(_graph);
                 if (_gameTab) return _gameTexture != null && Vertex.Rendering.Camera.Main is { } main ? [new RenderView(main, _gameTexture)] : [];
                 Vertex.Rendering.Camera? effects = _context.Preferences.ShowEffects ? Vertex.Rendering.Camera.Main : null;
-                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid, Camera.Is2D, effects)] : [];
+                return _texture != null ? [new RenderView(Camera.Camera, _texture, _context.Preferences.ShowGrid, Camera.Is2D, effects, Overlay: _context.NavigationOverlay)] : [];
             }
         }
 

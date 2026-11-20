@@ -477,6 +477,38 @@ namespace Vertex.Editor.Gui
             Ui.Circle(head, size * 0.07f, color);
         }
 
+        // ---------------------------------------------------------------- AI
+
+        /// <summary>A box with two under it, joined: a behaviour tree, deciding what to do.</summary>
+        public static void BehaviorTree(Vector2 centre, float size, Color color)
+        {
+            float box = size * 0.2f;
+            Vector2 top = centre + new Vector2(0f, -size * 0.24f);
+            Vector2 left = centre + new Vector2(-size * 0.25f, size * 0.24f), right = centre + new Vector2(size * 0.25f, size * 0.24f);
+            float join = centre.Y + size * 0.02f;
+            Ui.Line(top + new Vector2(0f, box * 0.5f), new Vector2(top.X, join), color, 1.3f);
+            Ui.Line(new Vector2(left.X, join), new Vector2(right.X, join), color, 1.3f);
+            Ui.Line(new Vector2(left.X, join), left - new Vector2(0f, box * 0.5f), color, 1.3f);
+            Ui.Line(new Vector2(right.X, join), right - new Vector2(0f, box * 0.5f), color, 1.3f);
+            foreach (Vector2 at in (ReadOnlySpan<Vector2>)[top, left, right]) Ui.Rect(new Rect(at.X - box * 0.5f, at.Y - box * 0.5f, box, box), color, box * 0.25f);
+        }
+
+        /// <summary>A dashed way from a dot to an arrow: something that finds its way round on a navmesh.</summary>
+        public static void Route(Vector2 centre, float size, Color color)
+        {
+            Span<Vector2> way = stackalloc Vector2[9];
+            for (int i = 0; i < way.Length; i++)
+            {
+                float t = i / (way.Length - 1f);
+                way[i] = centre + new Vector2((t - 0.5f) * size * 0.62f, MathF.Sin(t * MathF.PI * 1.6f + 0.3f) * size * 0.16f + (0.5f - t) * size * 0.3f);
+            }
+
+            Dashed(way, color, 1.4f, closed: false);
+            Ui.Circle(way[0], size * 0.08f, color);
+            Vector2 end = way[^1], along = Vector2.Normalize(way[^1] - way[^2]), across = new(-along.Y, along.X);
+            Canvas.DrawTriangle(end + along * size * 0.12f, end - along * size * 0.04f + across * size * 0.1f, end - along * size * 0.04f - across * size * 0.1f, Ui.Fade(color));
+        }
+
         // ---------------------------------------------------------------- Scripts
 
         /// <summary>"&lt;/&gt;": a script written in code.</summary>
