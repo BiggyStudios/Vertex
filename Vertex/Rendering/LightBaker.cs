@@ -11,7 +11,7 @@ namespace Vertex.Rendering
         public required BakedLighting Lighting { get; init; }
         public required IReadOnlyList<MeshRenderer> Renderers { get; init; }
 
-        /// <summary>The detail the lightmap was made at: <see cref="Lighting.BakeDetail"/>, or less if it wouldn't fit.</summary>
+        /// <summary>The detail the lightmap was made at: <see cref="BakeSettings.Detail"/>, or less if it wouldn't fit.</summary>
         public float Detail { get; init; }
 
         /// <summary>How many of the lightmap's pixels are on a surface.</summary>
@@ -93,11 +93,11 @@ namespace Vertex.Rendering
         {
             var baker = new LightBaker();
             Lighting lighting = scene.Lighting;
-            baker._detail = Math.Clamp(lighting.BakeDetail, 0.05f, 256f);
-            baker._bounces = Math.Clamp(lighting.BakeBounces, 0, 8);
-            baker._quality = lighting.BakeQuality;
-            baker._probeSpacing = MathF.Max(lighting.ProbeSpacing, 0.25f);
-            baker._maxSize = Math.Clamp(lighting.MaxLightmapSize, 64, 8192);
+            baker._detail = Math.Clamp(lighting.Baking.Detail, 0.05f, 256f);
+            baker._bounces = Math.Clamp(lighting.Baking.Bounces, 0, 8);
+            baker._quality = lighting.Baking.Quality;
+            baker._probeSpacing = MathF.Max(lighting.Baking.ProbeSpacing, 0.25f);
+            baker._maxSize = Math.Clamp(lighting.Baking.MaxLightmapSize, 64, 8192);
 
             foreach (MeshRenderer renderer in scene.FindComponents<MeshRenderer>())
             {
@@ -191,8 +191,8 @@ namespace Vertex.Rendering
         private float _usedDetail = 1f;
 
         /// <summary>
-        /// Bakes. Slow (seconds to minutes, by the scene's size, <see cref="Lighting.BakeDetail"/> and
-        /// <see cref="Lighting.BakeQuality"/>), so run it off the main thread: <paramref name="progress"/> hears what it's
+        /// Bakes. Slow (seconds to minutes, by the scene's size, <see cref="BakeSettings.Detail"/> and
+        /// <see cref="BakeSettings.Quality"/>), so run it off the main thread: <paramref name="progress"/> hears what it's
         /// doing and how far through it is (0 to 1), and <paramref name="cancel"/> stops it.
         /// </summary>
         public LightBakeResult Run(Action<string, float>? progress = null, CancellationToken cancel = default)
@@ -307,7 +307,7 @@ namespace Vertex.Rendering
 
         /// <summary>
         /// Places every piece of every static mesh in the lightmap, side by side in rows, tallest first, with a gap
-        /// round each so they don't bleed into each other. If they don't fit at <see cref="Lighting.BakeDetail"/>,
+        /// round each so they don't bleed into each other. If they don't fit at <see cref="BakeSettings.Detail"/>,
         /// with less. Returns the detail they're at.
         /// </summary>
         private float Pack()

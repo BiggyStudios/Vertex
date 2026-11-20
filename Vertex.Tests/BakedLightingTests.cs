@@ -52,9 +52,9 @@ namespace Vertex.Tests
         private (GameObject Floor, GameObject Box, LightBakeResult Result) BakeRoom()
         {
             Scene.Active.Lighting.AmbientIntensity = 0f;
-            Scene.Active.Lighting.BakeQuality = BakeQuality.Preview;
-            Scene.Active.Lighting.BakeDetail = 4f;
-            Scene.Active.Lighting.BakeBounces = 1;
+            Scene.Active.Lighting.Baking.Quality = BakeQuality.Preview;
+            Scene.Active.Lighting.Baking.Detail = 4f;
+            Scene.Active.Lighting.Baking.Bounces = 1;
             GameObject floor = StaticBox("Floor", new Vector3(0f, -0.5f, 0f), new Vector3(10f, 1f, 10f));
             GameObject box = StaticBox("Box", new Vector3(0f, 0.5f, 0f), Vector3.One);
             Lamp(new Vector3(0f, 4f, 0f), LightMode.Baked);
@@ -111,8 +111,8 @@ namespace Vertex.Tests
         public void The_box_casts_a_soft_shadow_from_a_lamp_off_to_one_side()
         {
             Scene.Active.Lighting.AmbientIntensity = 0f;
-            Scene.Active.Lighting.BakeQuality = BakeQuality.Preview;
-            Scene.Active.Lighting.BakeBounces = 0;
+            Scene.Active.Lighting.Baking.Quality = BakeQuality.Preview;
+            Scene.Active.Lighting.Baking.Bounces = 0;
             GameObject floor = StaticBox("Floor", new Vector3(0f, -0.5f, 0f), new Vector3(10f, 1f, 10f));
             StaticBox("Wall", new Vector3(0f, 1f, 0f), new Vector3(0.5f, 2f, 4f));
             Lamp(new Vector3(-2f, 1.5f, 0f), LightMode.Baked);

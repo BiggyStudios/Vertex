@@ -155,28 +155,9 @@ namespace Vertex.Rendering
         /// <summary>How far from the camera the fog is worked out. Nearer is sharper, as it's worked out in the same number of steps.</summary>
         public float VolumetricDistance { get; set; } = 80f;
 
-        /// <summary>
-        /// How much detail baked light has (see <see cref="MeshRenderer.Static"/> and <see cref="LightMode.Baked"/>): how
-        /// many of the lightmap's pixels there are along a unit of surface. More gives sharper shadows and takes longer to
-        /// bake; if the lightmap can't hold it all at <see cref="MaxLightmapSize"/>, it's made less.
-        /// </summary>
-        [Header("Baked Lighting")]
-        [Tooltip("Lightmap pixels to a unit of surface: more is sharper and slower to bake")]
-        public float BakeDetail { get; set; } = 4f;
-
-        /// <summary>How many times light bounces off things on its way round the scene, 0 for none. Each is a little dimmer.</summary>
-        [Range(0f, 4f)]
-        public int BakeBounces { get; set; } = 2;
-
-        /// <summary>How carefully baked light is worked out: see <see cref="Rendering.BakeQuality"/>.</summary>
-        public BakeQuality BakeQuality { get; set; } = BakeQuality.Good;
-
-        /// <summary>How far apart the light probes are, which light things that move from the baked light. Closer follows the light better.</summary>
-        public float ProbeSpacing { get; set; } = 2f;
-
-        /// <summary>The biggest the lightmap can be, in pixels across.</summary>
-        [Range(256f, 4096f)]
-        public int MaxLightmapSize { get; set; } = 2048;
+        /// <summary>How the scene's light is baked (see <see cref="BakeSettings"/>): in the editor, under Baked Lighting.</summary>
+        [HideInInspector]
+        public BakeSettings Baking { get; set; } = new();
 
         /// <summary>The scene's baked light (a .bake file, from the Assets folder), made by baking; empty if it hasn't been.</summary>
         [HideInInspector]
@@ -214,5 +195,34 @@ namespace Vertex.Rendering
 
         /// <summary>Textures are drawn in crisp square texels, not smoothed between them, however close they're seen.</summary>
         public bool PixelatedTextures { get; set; }
+    }
+
+    /// <summary>
+    /// How a scene's light is baked (see <see cref="Lighting.Baking"/>, <see cref="MeshRenderer.Static"/> and
+    /// <see cref="LightMode.Baked"/>).
+    /// </summary>
+    public class BakeSettings
+    {
+        /// <summary>
+        /// How much detail baked light has: how many of the lightmap's pixels there are along a unit of surface. More gives
+        /// sharper shadows and takes longer to bake; if the lightmap can't hold it all at <see cref="MaxLightmapSize"/>,
+        /// it's made less.
+        /// </summary>
+        [Tooltip("Lightmap pixels to a unit of surface: more is sharper and slower to bake")]
+        public float Detail { get; set; } = 4f;
+
+        /// <summary>How many times light bounces off things on its way round the scene, 0 for none. Each is a little dimmer.</summary>
+        [Range(0f, 4f)]
+        public int Bounces { get; set; } = 2;
+
+        /// <summary>How carefully baked light is worked out: see <see cref="BakeQuality"/>.</summary>
+        public BakeQuality Quality { get; set; } = BakeQuality.Good;
+
+        /// <summary>How far apart the light probes are, which light things that move from the baked light. Closer follows the light better.</summary>
+        public float ProbeSpacing { get; set; } = 2f;
+
+        /// <summary>The biggest the lightmap can be, in pixels across.</summary>
+        [Range(256f, 4096f)]
+        public int MaxLightmapSize { get; set; } = 2048;
     }
 }
