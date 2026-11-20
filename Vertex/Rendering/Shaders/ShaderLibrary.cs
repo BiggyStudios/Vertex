@@ -22,7 +22,7 @@ namespace Vertex.Rendering.Shaders
     internal static class ShaderLibrary
     {
         public const int MaxDirectionalLights = 4;
-        public const int MaxPointLights = 64;
+        public const int MaxPointLights = 256;
         public const int MaxCascades = 4;
         public const int MaxFogVolumes = 8;
 
@@ -142,9 +142,9 @@ namespace Vertex.Rendering.Shaders
                 ivec4 lightCounts;      // x: directional, y: point and spot, z: fog volumes
                 vec4 directionalDirection[4];
                 vec4 directionalColor[4];   // w: how brightly it shows in volumetric fog
-                vec4 pointPositionRange[64];
-                vec4 pointColor[64];    // w: how brightly it shows in volumetric fog
-                vec4 pointSpot[64];     // a spot light's cone: see pointLight
+                vec4 pointPositionRange[256];
+                vec4 pointColor[256];   // w: how brightly it shows in volumetric fog
+                vec4 pointSpot[256];    // a spot light's cone: see pointLight
                 mat4 previousViewProjection;   // last frame's, for the fog to find where it was
                 vec4 fogShape;          // x: density, y: the height it thins above, z: how quickly, w: how patchy
                 vec4 fogColor;          // linear; w: forward scattering
@@ -154,12 +154,28 @@ namespace Vertex.Rendering.Shaders
                 mat4 fogBoxes[8];       // into each fog volume's box
                 vec4 fogBoxParams[8];   // x: its density, y: how soft its sides are
                 vec4 retro;             // x: rows of the screen grid corners snap to (0 for none), y: how much textures bend (affine), z: 1 for crisp texels
+                vec4 clusters;          // x, y: a point's light cluster slice is log(depth) * x + y (see lightCluster)
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
 
             // The volumetric fog between the camera and each slice of the view (see FogTotalFragment).
             TEXTURE(0, 3) sampler2DArray fogVolume;
+
+            // Which point and spot lights reach each part of the view (see LightClusters): a word for each cluster, then
+            // the lists of lights, four to a word.
+            #ifdef VERTEX_VULKAN
+            layout (set = 0, binding = 4, std430) readonly buffer LightClusterData { uint lightClusterWords[]; };
+            #define CLUSTER_WORD(i) lightClusterWords[i]
+            #else
+            uniform usamplerBuffer lightClusterWords;
+            #define CLUSTER_WORD(i) texelFetch(lightClusterWords, i).r
+            #endif
+
+            const int CLUSTER_TILES_X = 16;
+            const int CLUSTER_TILES_Y = 9;
+            const int CLUSTER_SLICES = 24;
+            const int CLUSTER_COUNT = CLUSTER_TILES_X * CLUSTER_TILES_Y * CLUSTER_SLICES;
 
             const float PI = 3.14159265;
 
@@ -271,6 +287,28 @@ namespace Vertex.Rendering.Shaders
                 vec4 spot = frame.pointSpot[i];
                 float cone = clamp(dot(-L, spot.xyz) + spot.w, 0.0, 1.0);
                 return frame.pointColor[i].rgb * (falloff * falloff * cone * cone);
+            }
+
+            // The point and spot lights that can reach a point: where its cluster's list starts (x) and how many are in it
+            // (y). The cluster is the tile of the view it's seen in, and how far in front of the camera it is.
+            ivec2 lightCluster(vec3 position)
+            {
+                if (frame.lightCounts.y == 0) return ivec2(0);
+                vec4 clip = frame.projection * frame.view * vec4(position, 1.0);
+                vec2 ndc = clip.xy / clip.w;
+                float depth = dot(position - frame.cameraPosition.xyz, frame.cameraForward.xyz);
+                int x = clamp(int((ndc.x * 0.5 + 0.5) * float(CLUSTER_TILES_X)), 0, CLUSTER_TILES_X - 1);
+                int y = clamp(int((ndc.y * 0.5 + 0.5) * float(CLUSTER_TILES_Y)), 0, CLUSTER_TILES_Y - 1);
+                int z = depth <= 0.5 ? 0 : clamp(int(log(depth) * frame.clusters.x + frame.clusters.y), 0, CLUSTER_SLICES - 1);
+                uint word = CLUSTER_WORD((z * CLUSTER_TILES_Y + y) * CLUSTER_TILES_X + x);
+                return ivec2(int(word >> 9u), int(word & 511u));
+            }
+
+            // Which light is at place `entry` in the lists.
+            int clusterLight(int entry)
+            {
+                uint word = CLUSTER_WORD(CLUSTER_COUNT + (entry >> 2));
+                return int((word >> uint((entry & 3) * 8)) & 255u);
             }
 
             // ---- Volumetric fog ---------------------------------------------------------------------------------
@@ -438,8 +476,10 @@ namespace Vertex.Rendering.Shaders
                     light += color;
                 }
 
-                for (int i = 0; i < frame.lightCounts.y; i++)
+                ivec2 cluster = lightCluster(p);
+                for (int k = 0; k < cluster.y; k++)
                 {
+                    int i = clusterLight(cluster.x + k);
                     if (frame.pointColor[i].w <= 0.0) continue;
                     vec3 L;
                     vec3 color = pointLight(i, p, L);
@@ -936,8 +976,10 @@ namespace Vertex.Rendering.Shaders
                     addLight(N, V, L, color, F0, roughness);
                 }
 
-                for (int i = 0; i < frame.lightCounts.y; i++)
+                ivec2 cluster = lightCluster(vWorldPosition);
+                for (int k = 0; k < cluster.y; k++)
                 {
+                    int i = clusterLight(cluster.x + k);
                     vec3 L;
                     vec3 color = pointLight(i, vWorldPosition, L);
                     if (color.r + color.g + color.b > 0.0) addLight(N, V, L, color, F0, roughness);

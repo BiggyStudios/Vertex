@@ -338,6 +338,7 @@ namespace Vertex.Rendering
             var frustum = new Frustum(_frame.ViewMatrix * _frame.ProjectionMatrix);
             List<DrawCall>[] casters = _frame.ShadowCasterLists;
             KeepLightsInView(frustum);
+            _frame.Clusters.Build(_frame.PointLightList, _frame.ViewMatrix, _frame.ProjectionMatrix);
             CollectFogVolumes(scene, frustum);
             CollectPostEffects(effectsFrom ?? camera);
 

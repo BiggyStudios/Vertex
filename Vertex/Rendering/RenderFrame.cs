@@ -236,6 +236,9 @@ namespace Vertex.Rendering
         internal readonly List<FogVolumeData> FogVolumeList = new();
         internal readonly List<PostEffectData> PostEffectList = new();
 
+        /// <summary>Which of <see cref="PointLights"/> reach each part of the view.</summary>
+        internal readonly LightClusters Clusters = new();
+
         /// <summary>Where the sun's shadow cascades are this view, when <see cref="HasShadows"/>.</summary>
         internal readonly Shaders.ShadowCascades Cascades = new();
 

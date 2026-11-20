@@ -16,7 +16,7 @@ namespace Vertex.Rendering
     }
 
     /// <summary>
-    /// Lights the scene. Up to 4 directional lights are used at once, and up to 64 point and spot lights: those in view
+    /// Lights the scene. Up to 4 directional lights are used at once, and up to 256 point and spot lights: those in view
     /// and nearest the camera, if there are more.
     /// </summary>
     public class Light : Component

@@ -44,6 +44,7 @@ namespace Vertex.Rendering.Shaders
         public FogMatrices FogBoxes;
         public FogVectors FogBoxParams;
         public Vector4 Retro;
+        public Vector4 Clusters;
 
         /// <summary>
         /// The uniforms for <paramref name="frame"/>. <paramref name="cascades"/> are where the shadow maps were drawn, or
@@ -131,6 +132,7 @@ namespace Vertex.Rendering.Shaders
             }
 
             data.PointCount = Math.Min(frame.PointLights.Count, ShaderLibrary.MaxPointLights);
+            data.Clusters = frame.Clusters.Slicing;
             for (int i = 0; i < data.PointCount; i++)
             {
                 PointLightData light = frame.PointLights[i];

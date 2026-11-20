@@ -31,6 +31,9 @@ namespace Vertex.Rendering.OpenGL
         // Where the fog passes find what the other pass (or last frame) made.
         private const int _fogSourceUnit = 6;
 
+        // Where the scene's and fog's shaders find which lights reach each part of the view (see LightClusters).
+        private const int _clusterUnit = 7;
+
         // Where a game's shaders (surface shaders and post effects) find their textures: four, one after another.
         private const int _shaderTextureUnit = 8;
 
@@ -63,6 +66,8 @@ namespace Vertex.Rendering.OpenGL
         private GLTexture _white = null!;
 
         private uint _frameBuffer;
+        private uint _clusterBuffer;
+        private uint _clusterTexture;
         private uint _materialBuffer;
         private int _uniformAlignment = 256;
         private byte[] _materialData = new byte[4096];
@@ -152,6 +157,12 @@ namespace Vertex.Rendering.OpenGL
             if (alignment > 0) _uniformAlignment = alignment;
             _frameBuffer = _gl.GenBuffer();
             _materialBuffer = _gl.GenBuffer();
+            _clusterBuffer = _gl.GenBuffer();
+            _gl.BindBuffer(BufferTargetARB.TextureBuffer, _clusterBuffer);
+            _gl.BufferData(BufferTargetARB.TextureBuffer, 4, ReadOnlySpan<uint>.Empty, BufferUsageARB.StreamDraw);
+            _clusterTexture = _gl.GenTexture();
+            _gl.BindTexture(TextureTarget.TextureBuffer, _clusterTexture);
+            _gl.TexBuffer(TextureTarget.TextureBuffer, SizedInternalFormat.R32ui, _clusterBuffer);
 
             _shadowMaps = new GLShadowMaps(_gl, ShadowCascades.DefaultResolution);
             _screenViews = new GLViewTargets(_gl);
@@ -169,7 +180,7 @@ namespace Vertex.Rendering.OpenGL
             shader.BindBlock("FrameData", _frameBinding);
             shader.BindBlock("MaterialData", _materialBinding);
             shader.SetSamplers(("materialTexture", _textureUnit), ("shadowMap", _shadowUnit), ("normalMap", _normalUnit), ("cloudNoise", _cloudUnit),
-                ("fogVolume", FogUnit));
+                ("fogVolume", FogUnit), ("lightClusterWords", _clusterUnit));
             SetShaderTextureUnits(shader);
             return shader;
         }
@@ -178,7 +189,7 @@ namespace Vertex.Rendering.OpenGL
         {
             GLShader shader = GLShader.FromLibrary(_gl, ShaderLibrary.FullscreenVertex, fragment);
             shader.BindBlock("FrameData", _frameBinding);
-            shader.SetSamplers(("shadowMap", _shadowUnit), ("cloudNoise", _cloudUnit), ("fogHistory", _fogSourceUnit), ("fogLight", _fogSourceUnit));
+            shader.SetSamplers(("shadowMap", _shadowUnit), ("cloudNoise", _cloudUnit), ("fogHistory", _fogSourceUnit), ("fogLight", _fogSourceUnit), ("lightClusterWords", _clusterUnit));
             return shader;
         }
 
@@ -300,6 +311,13 @@ namespace Vertex.Rendering.OpenGL
                 _gl.BindBuffer(BufferTargetARB.UniformBuffer, _frameBuffer);
                 _gl.BufferData(BufferTargetARB.UniformBuffer, (nuint)sizeof(FrameUniforms), &uniforms, BufferUsageARB.StreamDraw);
                 _gl.BindBufferBase(BufferTargetARB.UniformBuffer, _frameBinding, _frameBuffer);
+
+                // Which lights reach each part of the view.
+                ReadOnlySpan<uint> clusters = frame.Clusters.Words;
+                _gl.BindBuffer(BufferTargetARB.TextureBuffer, _clusterBuffer);
+                fixed (uint* words = clusters) _gl.BufferData(BufferTargetARB.TextureBuffer, (nuint)(clusters.Length * sizeof(uint)), words, BufferUsageARB.StreamDraw);
+                _gl.ActiveTexture(TextureUnit.Texture0 + _clusterUnit);
+                _gl.BindTexture(TextureTarget.TextureBuffer, _clusterTexture);
 
                 if (fog)
                 {
@@ -782,6 +800,8 @@ namespace Vertex.Rendering.OpenGL
             _timer.Dispose();
             _gl.DeleteBuffer(_frameBuffer);
             _gl.DeleteBuffer(_materialBuffer);
+            _gl.DeleteTexture(_clusterTexture);
+            _gl.DeleteBuffer(_clusterBuffer);
             _gl.DeleteVertexArray(_emptyVertexArray);
         }
     }

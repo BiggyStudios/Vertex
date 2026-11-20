@@ -253,7 +253,8 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.UniformBuffer, vertexAndFragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
-                (DescriptorType.CombinedImageSampler, fragment));
+                (DescriptorType.CombinedImageSampler, fragment),
+                (DescriptorType.StorageBuffer, vertexAndFragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
                 (DescriptorType.UniformBuffer, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
@@ -663,6 +664,8 @@ namespace Vertex.Rendering.Vulkan
 
                 FrameUniforms uniforms = FrameUniforms.Create(frame, shadows ? frame.Cascades : null);
                 views.Ensure(frame.Width, frame.Height, _frame.DeleteLater);
+                _clusters = _frame.Uploads.Write(frame.Clusters.Words);
+                _clustersSize = (ulong)(frame.Clusters.Words.Length * sizeof(uint));
 
                 VkImageResource fogImage = _noFog;
                 if (uniforms.FogReach.Z > 0.5f)
@@ -1118,6 +1121,10 @@ namespace Vertex.Rendering.Vulkan
             _context.Vk.CmdBindIndexBuffer(commands, mesh.Buffer.Buffer, mesh.IndexOffset, IndexType.Uint32);
         }
 
+        // Where this view's light clusters went (see LightClusters), for its frame data to point to.
+        private (VkBuffer Buffer, ulong Offset) _clusters;
+        private ulong _clustersSize;
+
         private DescriptorSet WriteFrameData(in FrameUniforms data, VkImageResource fog)
         {
             (VkBuffer buffer, ulong offset) = _frame.Uploads.Write(in data);
@@ -1126,6 +1133,7 @@ namespace Vertex.Rendering.Vulkan
             VkDescriptors.WriteImage(_context, set, 1, _shadowMaps.Array.View, _shadowSampler);
             VkDescriptors.WriteImage(_context, set, 2, TextureImage(CloudNoise.Texture).View, _repeatSampler);
             VkDescriptors.WriteImage(_context, set, 3, fog.View, _clampSampler);
+            VkDescriptors.WriteBuffer(_context, set, 4, DescriptorType.StorageBuffer, _clusters.Buffer, _clusters.Offset, _clustersSize);
             return set;
         }
 
