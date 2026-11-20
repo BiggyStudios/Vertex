@@ -243,6 +243,12 @@ namespace Vertex.Editor
         /// <summary>Raised when the Console should be shown (an error the user needs to see).</summary>
         public event Action? ConsoleRequested;
 
+        /// <summary>Raised to bring up the Lighting panel.</summary>
+        public event Action? LightingRequested;
+
+        /// <summary>Brings up the Lighting panel (baking, and the sky).</summary>
+        public void ShowLighting() => LightingRequested?.Invoke();
+
         public void ShowConsole() => ConsoleRequested?.Invoke();
 
         private readonly System.Diagnostics.Stopwatch _buildTimer = new();

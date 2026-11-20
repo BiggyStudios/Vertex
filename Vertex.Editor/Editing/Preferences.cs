@@ -59,6 +59,9 @@ namespace Vertex.Editor.Editing
         // Which panels are docked where, as tabs, and which tab each place shows. A panel in none of them is closed.
         [HideInInspector] public List<string> LeftTabs { get; set; } = ["Outliner"];
         [HideInInspector] public List<string> RightTabs { get; set; } = ["Inspector"];
+
+        /// <summary>Whether the Lighting panel has been put beside the Inspector once already (it isn.t again, once closed).</summary>
+        [HideInInspector] public bool LightingShown { get; set; }
         [HideInInspector] public List<string> BottomTabs { get; set; } = ["Assets", "Console"];
         [HideInInspector] public Dictionary<string, string> ActiveTabs { get; set; } = new();
 

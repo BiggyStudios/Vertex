@@ -81,6 +81,7 @@ namespace Vertex.Editor
         private readonly DockLayout _dock;
         private readonly ConsolePanel _console;
         private readonly AnimationPanel _animation;
+        private readonly LightingPanel _lighting;
 
         /// <param name="renderer">For the title bar to say what's drawing; may be null in tests.</param>
         /// <param name="window">The window's controls, for the title bar's buttons; may be null in tests.</param>
@@ -95,12 +96,23 @@ namespace Vertex.Editor
             _assets = new AssetsPanel(Context);
             _console = new ConsolePanel(Context);
             _animation = new AnimationPanel(Context);
+            _lighting = new LightingPanel(Context);
             _dock = new DockLayout(Context.Preferences);
             _dock.Add(_outliner, DockArea.Left);
             _dock.Add(_inspector, DockArea.Right);
             _dock.Add(_assets, DockArea.Bottom);
             _dock.Add(_console, DockArea.Bottom);
             _dock.Add(_animation, DockArea.Bottom);
+            _dock.Add(_lighting, DockArea.Right);
+
+            // Lighting opens beside the Inspector the first time, so its baking can be found.
+            if (!Context.Preferences.LightingShown)
+            {
+                Context.Preferences.LightingShown = true;
+                if (!_dock.IsOpen(_lighting.Title)) Context.Preferences.RightTabs.Add(_lighting.Title);
+            }
+
+            Context.LightingRequested += () => _dock.Show(_lighting.Title);
             Context.AnimationOpenRequested += _ => _dock.Show(_animation.Title);
             Context.ConsoleRequested += () => _dock.Show(_console.Title);
             Context.Notified += text =>
@@ -419,6 +431,7 @@ namespace Vertex.Editor
                         new MenuItem("Assets", () => _dock.Toggle("Assets")) { Checked = _dock.IsOpen("Assets") },
                         new MenuItem("Console", () => _dock.Toggle("Console")) { Checked = _dock.IsOpen("Console"), Shortcut = "Ctrl+Shift+C" },
                         new MenuItem("Animation", () => _dock.Toggle("Animation")) { Checked = _dock.IsOpen("Animation") },
+                        new MenuItem("Lighting", () => _dock.Toggle("Lighting")) { Checked = _dock.IsOpen("Lighting"), Icon = Icons.Light },
                         MenuItem.Separator,
                         new MenuItem("Grid", () => Context.Preferences.ShowGrid = !Context.Preferences.ShowGrid) { Checked = Context.Preferences.ShowGrid },
                         new MenuItem("Post Effects", () => Context.Preferences.ShowEffects = !Context.Preferences.ShowEffects) { Checked = Context.Preferences.ShowEffects },

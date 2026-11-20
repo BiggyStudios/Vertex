@@ -77,6 +77,21 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void The_lighting_panel_is_beside_the_inspector_at_first_and_stays_closed_once_closed()
+        {
+            var app = new EditorApp();
+            Assert.Equal(["Inspector", "Lighting"], app.Dock.Tabs(Panels.DockArea.Right));
+            app.Context.ShowLighting();
+            Assert.Equal("Lighting", app.Dock.Active(Panels.DockArea.Right));
+            Frame(app, 2);
+
+            // Closed, it isn't put back next time.
+            app.Dock.Close("Lighting");
+            var again = new EditorApp(preferences: app.Context.Preferences);
+            Assert.False(again.Dock.IsOpen("Lighting"));
+        }
+
+        [Fact]
         public void A_stopped_bake_leaves_the_scene_as_it_was()
         {
             EditorContext context = Room();

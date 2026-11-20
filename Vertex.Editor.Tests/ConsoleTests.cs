@@ -56,6 +56,7 @@ namespace Vertex.Editor.Tests
         {
             var app = new EditorApp();
             DockLayout dock = app.Dock;
+            dock.Close("Lighting");
 
             Assert.Equal(["Assets", "Console"], dock.Tabs(DockArea.Bottom));
             dock.Move("Console", DockArea.Left);
