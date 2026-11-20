@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Silk.NET.Core.Loader;
+
 using Vertex.Rendering;
 
 namespace Vertex
@@ -82,6 +84,7 @@ namespace Vertex
         {
             Application.BaseDirectory = AppContext.BaseDirectory;
             Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+            FindPackedLibraries();
 
             string file = Path.Combine(AppContext.BaseDirectory, SettingsFile);
             PlayerSettings settings = File.Exists(file) ? PlayerSettings.FromJson(File.ReadAllText(file)) : new PlayerSettings();
@@ -100,6 +103,20 @@ namespace Vertex
             var window = new VertexWindow(game, settings);
             window.Renderer.ShadowResolution = Math.Clamp(settings.ShadowResolution, 256, 4096);
             window.Run();
+        }
+
+        /// <summary>
+        /// A built game is one program file with the native libraries (the window's, sound's, physics') packed in it, and
+        /// .NET unpacks them to a folder of its own when it starts. .NET finds them there, but Silk.NET (the window, sound
+        /// and models) looks for its libraries itself, beside the program: this tells it where they were unpacked to.
+        /// </summary>
+        internal static void FindPackedLibraries()
+        {
+            if (AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES") is not string list) return;
+            string[] folders = list.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (folders.Length == 0 || PathResolver.Default is not DefaultPathResolver resolver) return;
+
+            resolver.Resolvers.Insert(0, name => folders.Select(folder => Path.Combine(folder, name)).Where(File.Exists));
         }
 
         /// <summary>The game's own <see cref="Game"/> class, or one that opens the start scene.</summary>

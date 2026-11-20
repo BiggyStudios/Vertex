@@ -47,6 +47,28 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void A_built_games_window_and_sound_libraries_are_found_where_dotnet_unpacked_them()
+        {
+            // A built game is one file: .NET unpacks its native libraries into a folder and says where.
+            string folder = Path.Combine(Path.GetTempPath(), "VertexUnpacked", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string library = Path.Combine(folder, "glfw-unpacked-test.dll");
+            File.WriteAllText(library, "");
+            object? before = AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES");
+            try
+            {
+                AppContext.SetData("NATIVE_DLL_SEARCH_DIRECTORIES", folder + Path.PathSeparator);
+                BuiltGame.FindPackedLibraries();
+                Assert.Contains(library, Silk.NET.Core.Loader.PathResolver.Default.EnumeratePossibleLibraryLoadTargets("glfw-unpacked-test.dll"));
+            }
+            finally
+            {
+                AppContext.SetData("NATIVE_DLL_SEARCH_DIRECTORIES", before);
+                Directory.Delete(folder, recursive: true);
+            }
+        }
+
+        [Fact]
         public void The_engine_records_the_packages_it_uses_for_the_editor_to_build_games_with()
         {
             Dictionary<string, string?> packages = typeof(GameObject).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
