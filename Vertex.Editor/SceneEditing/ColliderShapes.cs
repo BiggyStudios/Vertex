@@ -168,7 +168,7 @@ namespace Vertex.Editor.SceneEditing
 
         private static void Ring(List<(Vector3, Vector3)> lines, Vector3 centre, Vector3 a, Vector3 b, float radius) => Arc(lines, centre, a, b, radius, 0f, MathF.Tau);
 
-        private static void Sphere(List<(Vector3, Vector3)> lines, Vector3 centre, Vector3 right, Vector3 up, Vector3 back, float radius, Vector3 eye)
+        internal static void Sphere(List<(Vector3, Vector3)> lines, Vector3 centre, Vector3 right, Vector3 up, Vector3 back, float radius, Vector3 eye)
         {
             Ring(lines, centre, right, back, radius);
             Ring(lines, centre, right, up, radius);

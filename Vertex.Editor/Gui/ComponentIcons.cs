@@ -20,6 +20,7 @@ namespace Vertex.Editor.Gui
         {
             [typeof(Transform)] = Icons.Move,
             [typeof(Camera)] = Icons.Camera,
+            [typeof(SpringArm)] = Icons.SpringArm,
             [typeof(Light)] = Icons.Light,
             [typeof(MeshRenderer)] = Icons.Cube,
             [typeof(SkinnedMeshRenderer)] = Icons.Bone,

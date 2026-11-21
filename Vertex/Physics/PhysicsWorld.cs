@@ -126,6 +126,50 @@ namespace Vertex.Physics
             return true;
         }
 
+        // The ball SphereCast moves, kept while casts ask for the same size.
+        private SphereShape? _castSphere;
+        private readonly List<ShapeCastResult> _castResults = new();
+        private readonly ShapeCastSettings _castSettings = new() { BackFaceModeTriangles = BackFaceMode.IgnoreBackFaces, BackFaceModeConvex = BackFaceMode.IgnoreBackFaces };
+
+        /// <summary>
+        /// Finds the first solid collider a ball of <paramref name="radius"/> would touch moving from <paramref name="origin"/>
+        /// along <paramref name="direction"/>: a raycast with thickness, for a camera that mustn't poke into walls. Triggers
+        /// and <paramref name="ignore"/> are left out, as for <see cref="Raycast(Vector3, Vector3, float, out RaycastHit, Collider?)"/>.
+        /// <see cref="RaycastHit.Distance"/> is how far the ball's centre got before touching, and <see cref="RaycastHit.Point"/>
+        /// where it touched. A ball that starts out touching something hits it at 0.
+        /// </summary>
+        public bool SphereCast(Vector3 origin, float radius, Vector3 direction, float maxDistance, out RaycastHit hit, Collider? ignore = null)
+        {
+            if (radius <= 0f) return Raycast(origin, direction, maxDistance, out hit, ignore);
+            hit = default;
+            if (direction == Vector3.Zero || maxDistance <= 0f) return false;
+
+            if (_castSphere == null || _castSphere.Radius != radius)
+            {
+                _castSphere?.Dispose();
+                _castSphere = new SphereShape(radius);
+            }
+
+            Vector3 normalized = Vector3.Normalize(direction);
+            _raycastBodies.Ignored = FindBodyId(ignore);
+            // Jolt takes the matrix the other way round to System.Numerics (the move in its last column, not its last row).
+            Matrix4x4 start = Matrix4x4.Transpose(Matrix4x4.CreateTranslation(origin));
+            Vector3 motion = normalized * maxDistance;
+            Vector3 baseOffset = Vector3.Zero;
+            _castResults.Clear();
+            if (!_system.NarrowPhaseQuery.CastShape(_castSphere, in start, in motion, _castSettings, in baseOffset, CollisionCollectorType.ClosestHit, _castResults,
+                    _anyBroadPhaseLayer, _anyObjectLayer, _raycastBodies, _allShapes) || _castResults.Count == 0) return false;
+
+            ShapeCastResult result = _castResults[0];
+            foreach (ShapeCastResult other in _castResults) if (other.Fraction < result.Fraction) result = other;
+            if (!_bodiesById.TryGetValue(result.BodyID2.ID, out PhysicsObject? target)) return false;
+
+            // The axis points from the ball into what it touched.
+            Vector3 normal = result.PenetrationAxis.LengthSquared() > 1e-12f ? -Vector3.Normalize(result.PenetrationAxis) : -normalized;
+            hit = new RaycastHit(target.Collider, result.ContactPointOn2, result.Fraction * maxDistance, normal);
+            return true;
+        }
+
         /// <summary>Finds the closest solid collider along a line across the X-Y plane (at Z 0): a 2D game's raycast.</summary>
         public bool Raycast(Vector2 origin, Vector2 direction, float maxDistance, out RaycastHit hit, Collider? ignore = null) =>
             Raycast(new Vector3(origin, 0f), new Vector3(direction, 0f), maxDistance, out hit, ignore);
@@ -1288,6 +1332,7 @@ namespace Vertex.Physics
             _anyBroadPhaseLayer.Dispose();
             _anyObjectLayer.Dispose();
             _allShapes.Dispose();
+            _castSphere?.Dispose();
         }
 
         private sealed class IgnoreOneBody : BodyFilter

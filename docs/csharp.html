@@ -115,6 +115,11 @@ if (GameObject.Scene.Physics.Raycast(eye.WorldPosition, eye.Forward, 100f, out R
     Log.Info($"Looking at {hit.GameObject.Name}, {hit.Distance:0.0} m away");
 }</pre>
     <p>For players, a <strong>CharacterController</strong> is easier than a rigidbody: set its <code>Velocity</code> and call <code>Move(Time.DeltaTime)</code> each frame, and it slides along walls, climbs steps and stands on slopes. <code>IsGrounded</code> says whether it's on something. Its position is at its feet. The Duel's <a href="tutorial-duel.html?track=cs">PlayerMovement</a> is a full example.</p>
+    <p>For a third-person camera, put a <strong>Spring Arm</strong> on the camera and make the camera a child of the character. It holds the camera behind and above the character, turns it round with the mouse, and pulls it in when a wall's in the way, so the character is never hidden. It can lag a little as it follows, look over a shoulder (<code>Offset</code>), and sway like a camera held in the hand. Move the character the way the camera faces with <code>FlatForward</code> and <code>FlatRight</code>:</p>
+    <pre class="cs">var arm = Camera.Main!.GetComponent&lt;SpringArm&gt;()!;
+Vector3 move = arm.FlatForward * forward + arm.FlatRight * sideways;   // from WASD
+controller.Velocity = move * Speed;</pre>
+    <p>The arm finds walls with <code>Scene.Physics.SphereCast</code>, which game code can use too: a raycast with thickness, for what a ball would hit on its way.</p>
 
     <h2>Scenes and files</h2>
     <pre class="cs">Scene.Load("Scenes/Level 2.scene");          // switch level (the old one's objects go)

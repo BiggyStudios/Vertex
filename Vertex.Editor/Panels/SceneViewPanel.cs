@@ -967,6 +967,22 @@ namespace Vertex.Editor.Panels
             }
 
             if (selected.GetComponent<Light>() is { Type: not LightType.Directional } light) DrawReach(view, light, Color.Lerp(light.Color, Color.White, 0.4f).WithAlpha(0.7f));
+            if (selected.GetComponent<SpringArm>() is { Enabled: true } arm) DrawArm(view, arm, Theme.Hex(0x7AA7FF));
+        }
+
+        /// <summary>
+        /// A spring arm: a small ball where it turns about, a line out to where it holds the camera when nothing's in the way,
+        /// and a ball there as thick as the arm checks for walls. It only moves the camera while the game runs, so this shows
+        /// where the camera will be.
+        /// </summary>
+        private static void DrawArm(ViewProjection view, SpringArm arm, Color color)
+        {
+            (Vector3 pivot, Vector3 end) = arm.Resting();
+            var lines = new List<(Vector3, Vector3)>();
+            ColliderShapes.Sphere(lines, pivot, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ, 0.08f, view.CameraPosition);
+            if (arm.Thickness > 0f) ColliderShapes.Sphere(lines, end, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ, arm.Thickness, view.CameraPosition);
+            foreach ((Vector3 from, Vector3 to) in lines) view.Line(from, to, color.WithAlpha(0.7f), 1.25f);
+            view.Line(pivot, end, color, 1.5f);
         }
 
         /// <summary>The twelve edges of a box, <paramref name="centre"/> and half-size <paramref name="extents"/>, placed by <paramref name="world"/>.</summary>

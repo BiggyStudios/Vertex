@@ -427,6 +427,35 @@ namespace Vertex.Editor.Gui
             Ui.Line(centre + new Vector2(-size * 0.36f, size * 0.36f), centre + new Vector2(size * 0.36f, size * 0.36f), color, 1.3f);
         }
 
+        /// <summary>A pivot, a coiled arm and a small camera at its end: a spring arm holding a camera out behind something.</summary>
+        public static void SpringArm(Vector2 centre, float size, Color color)
+        {
+            Vector2 pivot = centre + new Vector2(-size * 0.32f, size * 0.26f);
+            Vector2 end = centre + new Vector2(size * 0.12f, -size * 0.1f);
+            Vector2 along = Vector2.Normalize(end - pivot), across = new(-along.Y, along.X);
+            Ui.Circle(pivot, size * 0.08f, color);
+
+            // A zigzag between short straight ends, like a spring.
+            Vector2 start = pivot + along * size * 0.1f, stop = end - along * size * 0.04f;
+            float length = Vector2.Distance(start, stop);
+            Vector2 previous = start;
+            for (int i = 1; i <= 6; i++)
+            {
+                float t = i / 7f;
+                Vector2 next = start + along * (length * t) + across * ((i % 2 == 0 ? 1f : -1f) * size * 0.07f);
+                Ui.Line(previous, next, color, 1.2f);
+                previous = next;
+            }
+
+            Ui.Line(previous, stop, color, 1.2f);
+
+            // The camera at the end, looking back towards the pivot's side.
+            var body = new Rect(end.X - size * 0.02f, end.Y - size * 0.2f, size * 0.26f, size * 0.2f);
+            Ui.Outline(body, color, 1.5f, 1.2f);
+            Ui.Line(new Vector2(body.Right, body.Y + body.Height * 0.3f), new Vector2(body.Right + size * 0.1f, body.Y + body.Height * 0.1f), color, 1.2f);
+            Ui.Line(new Vector2(body.Right, body.Y + body.Height * 0.7f), new Vector2(body.Right + size * 0.1f, body.Y + body.Height * 0.9f), color, 1.2f);
+        }
+
         // ---------------------------------------------------------------- Networking
 
         /// <summary>Three machines joined up: a network game.</summary>
