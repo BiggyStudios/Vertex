@@ -46,6 +46,10 @@ namespace Vertex.Editor.Panels
         // Where the game's picture was last frame, in UI units, to tell clicks in it from clicks elsewhere.
         private Rect _gameRect;
         private bool _gameRectShown;
+        private bool _gameHovered;
+
+        /// <summary>Where the game's picture was last drawn, in UI units.</summary>
+        internal Rect GameRect => _gameRect;
 
         private const float _tabsHeight = 34f;
 
@@ -89,8 +93,9 @@ namespace Vertex.Editor.Panels
 
         /// <summary>
         /// Decides, before anything reads input this frame, whether the game or the editor has it: Shift+F1 gives it back
-        /// to the editor, as do Escape while the game has locked the cursor and clicking outside the game's picture;
-        /// clicking the picture gives it to the game.
+        /// to the editor, as does clicking outside the game's picture; clicking the picture gives it to the game.
+        /// Escape, while the game has locked the cursor, only shows it: the game still has the mouse while it's over its
+        /// picture, so a camera still turns, and clicking the picture locks it again.
         /// </summary>
         public void RouteInput()
         {
@@ -101,22 +106,48 @@ namespace Vertex.Editor.Panels
                 return;
             }
 
-            // Escape only while the game has locked the cursor (a camera has it): otherwise it's the game's, for its menus.
             bool shift = InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
-            bool shiftF1 = shift && InputSystem.GetKeyDown(Key.F1);
-            bool escape = InputSystem.CursorLocked && InputSystem.GetKeyDown(Key.Escape);
-            if (play.GameFocused && (shiftF1 || escape))
+            if (play.GameFocused && shift && InputSystem.GetKeyDown(Key.F1))
             {
                 play.GameFocused = false;
                 InputSystem.CursorLocked = false;
                 InputSystem.Consume(Key.F1);
-                InputSystem.Consume(Key.Escape);
                 _context.Notify("The editor has the mouse: click the game to give it back");
                 return;
             }
 
             bool pressed = InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButtonDown(MouseButton.Right);
             bool inGame = _gameTab && _graph == null && _gameRectShown && _gameRect.Contains(Canvas.MousePosition);
+            _gameHovered = inGame;
+
+            // Only while the cursor's locked (a camera has it): otherwise Escape is the game's, for its menus.
+            if (play.GameFocused && InputSystem.CursorLocked && !InputSystem.CursorFreed && InputSystem.GetKeyDown(Key.Escape))
+            {
+                InputSystem.CursorFreed = true;
+                InputSystem.Consume(Key.Escape);
+                _context.Notify("The cursor's free: click the game to hide it again, or anywhere else to edit");
+                return;
+            }
+
+            // Clicking the game takes the cursor back (the click isn't the game's: it would shoot); clicking anywhere
+            // else gives the editor the mouse.
+            if (pressed && play.GameFocused && InputSystem.CursorFreed)
+            {
+                if (inGame)
+                {
+                    InputSystem.CursorFreed = false;
+                    InputSystem.Consume(MouseButton.Left);
+                    InputSystem.Consume(MouseButton.Right);
+                }
+                else
+                {
+                    play.GameFocused = false;
+                    InputSystem.CursorLocked = false;
+                }
+
+                return;
+            }
+
             if (pressed && !InputSystem.CursorLocked)
             {
                 if (play.GameFocused && !inGame) play.GameFocused = false;
@@ -222,7 +253,10 @@ namespace Vertex.Editor.Panels
             if (_context.Play.Playing)
             {
                 PlayMode play = _context.Play;
-                string hint = play.Paused ? "Paused" : play.GameFocused ? InputSystem.CursorLocked ? "Playing  ·  Esc frees the mouse" : "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
+                string hint = play.Paused ? "Paused" : play.GameFocused
+                    ? InputSystem.CursorFreed ? "Playing  ·  click the game to hide the cursor"
+                    : InputSystem.CursorLocked ? "Playing  ·  Esc shows the cursor, Shift+F1 frees the mouse"
+                    : "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
                 Ui.Text(tabs.Shrink(12f, 0f), hint, play.Paused ? Theme.AccentText : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
             }
         }
@@ -388,7 +422,8 @@ namespace Vertex.Editor.Panels
             if (!visible) Canvas.PushClip(new Vector2(-10f), Vector2.Zero);
 
             bool editorMuted = InputSystem.Muted;
-            InputSystem.Muted = !play.GameFocused;
+            // With the cursor shown (Escape), the game only gets the mouse and keys while the cursor's over its picture.
+            InputSystem.Muted = !play.GameFocused || (InputSystem.CursorFreed && !_gameHovered);
             play.Step();
             InputSystem.Muted = editorMuted;
 

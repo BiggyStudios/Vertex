@@ -13,8 +13,9 @@ namespace Vertex.Editor.Editing
     /// <item>Any other scene runs on its own (its components' Start and Update, and physics), from a copy taken on Play
     /// and put back on Stop.</item>
     /// </list>
-    /// While playing, the game has the keyboard and mouse once its view is clicked; Shift+F1, Escape while the game has
-    /// locked the cursor, or clicking the editor outside the view gives them back.
+    /// While playing, the game has the keyboard and mouse once its view is clicked; Shift+F1 or clicking the editor
+    /// outside the view gives them back. Escape, while the game has locked the cursor, only shows it (see
+    /// <see cref="Panels.SceneViewPanel.RouteInput"/>).
     /// </summary>
     public sealed class PlayMode
     {
@@ -91,7 +92,7 @@ namespace Vertex.Editor.Editing
             Application.QuitRequested += Stop;
             Paused = false;
             GameFocused = true;
-            _context.Notify("Playing: Esc or Shift+F1 frees the mouse");
+            _context.Notify("Playing: Shift+F1 frees the mouse");
         }
 
         /// <summary>

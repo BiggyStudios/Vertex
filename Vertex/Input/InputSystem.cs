@@ -20,6 +20,7 @@ namespace Vertex.Input
         private static Vector2 _lastMousePosition;
         private static bool _hasMousePosition;
         private static bool _cursorLocked;
+        private static bool _cursorFreed;
         private static readonly System.Text.StringBuilder _typedText = new();
 
         public static Vector2 MouseDelta { get => Muted ? Vector2.Zero : _mouseDelta; private set => _mouseDelta = value; }
@@ -62,7 +63,27 @@ namespace Vertex.Input
                 if (_cursorLocked == value) return;
 
                 _cursorLocked = value;
+                if (!value) _cursorFreed = false;
                 _platform?.SetCursorLocked(value);
+                _hasMousePosition = false;
+            }
+        }
+
+        /// <summary>
+        /// While true, the cursor shows and moves about though the game still has it locked (<see cref="CursorLocked"/>
+        /// stays true, and moving the mouse still moves <see cref="MouseDelta"/>): an editor lets it go like this while
+        /// playing, so the game can still be steered and the cursor taken back with a click. Unlocking ends it.
+        /// </summary>
+        internal static bool CursorFreed
+        {
+            get => _cursorFreed;
+            set
+            {
+                value &= _cursorLocked;
+                if (_cursorFreed == value) return;
+
+                _cursorFreed = value;
+                _platform?.SetCursorLocked(!value);
                 _hasMousePosition = false;
             }
         }
@@ -92,6 +113,15 @@ namespace Vertex.Input
         /// </summary>
         public static void Consume(Key key) => _keysPressed.Remove(key);
 
+        /// <summary>
+        /// Marks this frame's press of <paramref name="button"/> as handled: nothing after sees it pressed, held or let go.
+        /// An editor's click that takes the cursor back for the game shouldn't also fire its gun.
+        /// </summary>
+        internal static void Consume(MouseButton button)
+        {
+            if (_buttonsPressed.Remove(button)) _buttonsHeld.Remove(button);
+        }
+
         /// <summary>Marks this frame's <see cref="TypedText"/> as handled, so nothing after receives it.</summary>
         public static void ConsumeTypedText() => _typedText.Clear();
 
@@ -105,7 +135,7 @@ namespace Vertex.Input
         internal static void SetPlatform(IInputHost? platform)
         {
             _platform = platform;
-            if (platform != null && _cursorLocked) platform.SetCursorLocked(true);
+            if (platform != null && _cursorLocked && !_cursorFreed) platform.SetCursorLocked(true);
         }
 
         internal static void PressKey(Key key)
@@ -190,6 +220,7 @@ namespace Vertex.Input
             _buttonsHeld.Clear();
             _hasMousePosition = false;
             _cursorLocked = false;
+            _cursorFreed = false;
             Muted = false;
             MousePosition = Vector2.Zero;
         }

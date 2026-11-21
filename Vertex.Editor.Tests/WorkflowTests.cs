@@ -157,32 +157,90 @@ namespace Vertex.Editor.Tests
             Assert.True(app.SceneView.ShowingGame);
         }
 
+        /// <summary>Adds up the mouse movement the game sees, and the frames it sees the left button down.</summary>
+        public sealed class MouseWatcher : Component
+        {
+            public static Vector2 Moved;
+            public static int Clicks;
+
+            protected internal override void Update()
+            {
+                Moved += InputSystem.MouseDelta;
+                if (InputSystem.GetMouseButtonDown(MouseButton.Left) || InputSystem.GetMouseButton(MouseButton.Left)) Clicks++;
+            }
+        }
+
         [Fact]
-        public void Escape_gives_the_mouse_back_when_the_game_has_locked_it()
+        public void Escape_shows_the_cursor_and_the_game_still_turns_with_it_until_a_click_hides_it_again()
         {
             var app = new EditorApp();
+            app.Context.Create("Watcher", g => g.AddComponent<MouseWatcher>());
             Frame(app);
             app.Context.Play.Start();
-            Frame(app);
+            Frame(app, 2);
             Assert.True(app.Context.Play.GameFocused);
+            Rect game = app.SceneView.GameRect;
+            var middle = new Vector2(game.X + game.Width * 0.5f, game.Y + game.Height * 0.5f);
+            InputSystem.MoveMouse(middle);
+            Frame(app);
 
-            // The cursor's free: Escape is the game's, for its own menus.
+            // The cursor isn't locked: Escape is the game's, for its own menus.
             InputSystem.PressKey(Key.Escape);
             Frame(app);
             InputSystem.ReleaseKey(Key.Escape);
             Frame(app);
             Assert.True(app.Context.Play.GameFocused);
+            Assert.False(InputSystem.CursorFreed);
 
-            // A camera has taken it: Escape lets it go and the editor has the mouse again.
+            // A camera has taken it: Escape shows it, but the game keeps it.
             InputSystem.CursorLocked = true;
             Frame(app);
             InputSystem.PressKey(Key.Escape);
             Frame(app);
             InputSystem.ReleaseKey(Key.Escape);
             Frame(app);
+            Assert.True(InputSystem.CursorFreed);
+            Assert.True(InputSystem.CursorLocked);
+            Assert.True(app.Context.Play.GameFocused);
+
+            // Moving over the game still steers it (from where the cursor showed up).
+            InputSystem.MoveMouse(middle);
+            Frame(app);
+            MouseWatcher.Moved = Vector2.Zero;
+            InputSystem.MoveMouse(middle + new Vector2(0f, 30f));
+            Frame(app);
+            Assert.Equal(30f, MouseWatcher.Moved.Y, 0.01f);
+
+            // Off the game's picture, it doesn't.
+            InputSystem.MoveMouse(new Vector2(game.Right + 40f, middle.Y));
+            Frame(app);
+            MouseWatcher.Moved = Vector2.Zero;
+            InputSystem.MoveMouse(new Vector2(game.Right + 40f, middle.Y + 30f));
+            Frame(app);
+            Assert.Equal(Vector2.Zero, MouseWatcher.Moved);
+
+            // Clicking the game hides the cursor again; the game doesn't take the click as a shot.
+            InputSystem.MoveMouse(middle);
+            Frame(app);
+            MouseWatcher.Clicks = 0;
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app, 3);
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app);
+            Assert.False(InputSystem.CursorFreed);
+            Assert.True(InputSystem.CursorLocked);
+            Assert.True(app.Context.Play.GameFocused);
+            Assert.Equal(0, MouseWatcher.Clicks);
+
+            // Shift+F1 still gives the editor the mouse.
+            InputSystem.PressKey(Key.ShiftLeft);
+            InputSystem.PressKey(Key.F1);
+            Frame(app);
+            InputSystem.ReleaseKey(Key.F1);
+            InputSystem.ReleaseKey(Key.ShiftLeft);
+            Frame(app);
             Assert.False(InputSystem.CursorLocked);
             Assert.False(app.Context.Play.GameFocused);
-            Assert.True(app.Context.Play.Playing);
             app.Context.Play.Stop();
         }
 
