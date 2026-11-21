@@ -158,6 +158,35 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Escape_gives_the_mouse_back_when_the_game_has_locked_it()
+        {
+            var app = new EditorApp();
+            Frame(app);
+            app.Context.Play.Start();
+            Frame(app);
+            Assert.True(app.Context.Play.GameFocused);
+
+            // The cursor's free: Escape is the game's, for its own menus.
+            InputSystem.PressKey(Key.Escape);
+            Frame(app);
+            InputSystem.ReleaseKey(Key.Escape);
+            Frame(app);
+            Assert.True(app.Context.Play.GameFocused);
+
+            // A camera has taken it: Escape lets it go and the editor has the mouse again.
+            InputSystem.CursorLocked = true;
+            Frame(app);
+            InputSystem.PressKey(Key.Escape);
+            Frame(app);
+            InputSystem.ReleaseKey(Key.Escape);
+            Frame(app);
+            Assert.False(InputSystem.CursorLocked);
+            Assert.False(app.Context.Play.GameFocused);
+            Assert.True(app.Context.Play.Playing);
+            app.Context.Play.Stop();
+        }
+
+        [Fact]
         public void Panning_holds_the_cursor_like_looking_around_and_lets_it_go_after()
         {
             var app = new EditorApp();

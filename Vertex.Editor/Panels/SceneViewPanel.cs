@@ -89,7 +89,8 @@ namespace Vertex.Editor.Panels
 
         /// <summary>
         /// Decides, before anything reads input this frame, whether the game or the editor has it: Shift+F1 gives it back
-        /// to the editor, as does clicking outside the game's picture; clicking the picture gives it to the game.
+        /// to the editor, as do Escape while the game has locked the cursor and clicking outside the game's picture;
+        /// clicking the picture gives it to the game.
         /// </summary>
         public void RouteInput()
         {
@@ -100,12 +101,16 @@ namespace Vertex.Editor.Panels
                 return;
             }
 
+            // Escape only while the game has locked the cursor (a camera has it): otherwise it's the game's, for its menus.
             bool shift = InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
-            if (play.GameFocused && shift && InputSystem.GetKeyDown(Key.F1))
+            bool shiftF1 = shift && InputSystem.GetKeyDown(Key.F1);
+            bool escape = InputSystem.CursorLocked && InputSystem.GetKeyDown(Key.Escape);
+            if (play.GameFocused && (shiftF1 || escape))
             {
                 play.GameFocused = false;
                 InputSystem.CursorLocked = false;
                 InputSystem.Consume(Key.F1);
+                InputSystem.Consume(Key.Escape);
                 _context.Notify("The editor has the mouse: click the game to give it back");
                 return;
             }
@@ -217,7 +222,7 @@ namespace Vertex.Editor.Panels
             if (_context.Play.Playing)
             {
                 PlayMode play = _context.Play;
-                string hint = play.Paused ? "Paused" : play.GameFocused ? "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
+                string hint = play.Paused ? "Paused" : play.GameFocused ? InputSystem.CursorLocked ? "Playing  ·  Esc frees the mouse" : "Playing  ·  Shift+F1 frees the mouse" : "Playing  ·  click the game to control it";
                 Ui.Text(tabs.Shrink(12f, 0f), hint, play.Paused ? Theme.AccentText : Theme.TextFaint, align: 1f, size: Theme.SmallTextSize);
             }
         }

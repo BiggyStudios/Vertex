@@ -726,7 +726,7 @@ namespace Vertex.Editor
                 ("Ctrl+D, F2, Del", "Duplicate, rename, delete"),
                 ("Ctrl+Z, Ctrl+Y", "Undo, redo"),
                 ("Ctrl+P", "Play and stop"),
-                ("Shift+F1", "While playing: give the mouse back to the editor")
+                ("Esc, Shift+F1", "While playing: give the mouse back to the editor")
             ];
 
             Dialog.Show("Controls", new Vector2(560f, 64f + rows.Length * 26f), rect =>
