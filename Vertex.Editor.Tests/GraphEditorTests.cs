@@ -80,6 +80,45 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_key_setting_can_be_given_a_mouse_button_by_clicking_the_field_with_it()
+        {
+            var setup = new Setup();
+            GraphNode pressed = setup.Graph.AddNode("Events/On Key Pressed", new Vector2(0f, 0f));
+            setup.Frame(2);
+            Vector2 field = setup.Port(pressed, "Key", output: false) + new Vector2(70f, 0f);
+
+            void Click(Vector2 at, MouseButton button = MouseButton.Left)
+            {
+                InputSystem.MoveMouse(at);
+                setup.Frame();
+                InputSystem.PressButton(button);
+                setup.Frame();
+                InputSystem.ReleaseButton(button);
+                setup.Frame();
+            }
+
+            // A click starts listening; a right click on the field then picks the right mouse button.
+            Click(field);
+            Click(field, MouseButton.Right);
+            Assert.Equal(nameof(Key.MouseRight), pressed.Values["Key"]?.ToString());
+            Assert.False(Popup.AnyOpen);
+
+            // Clicking it twice picks the left button.
+            Click(field);
+            Click(field);
+            Assert.Equal(nameof(Key.MouseLeft), pressed.Values["Key"]?.ToString());
+
+            // Keys still work, and a click somewhere else stops listening without changing it.
+            Click(field);
+            setup.Press(Key.J);
+            Assert.Equal(nameof(Key.J), pressed.Values["Key"]?.ToString());
+            Click(field);
+            Click(new Vector2(700f, 600f));
+            setup.Press(Key.K);
+            Assert.Equal(nameof(Key.J), pressed.Values["Key"]?.ToString());
+        }
+
+        [Fact]
         public void Dragging_from_an_output_to_an_input_links_them_and_undo_takes_it_back()
         {
             var setup = new Setup();

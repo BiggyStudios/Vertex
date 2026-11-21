@@ -153,6 +153,38 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void Key_nodes_can_be_given_mouse_buttons()
+        {
+            Graph graph = NewGraph();
+            GraphNode pressed = graph.AddNode("Events/On Key Pressed", Vector2.Zero);
+            pressed.Values["Key"] = "MouseRight";
+            GraphNode print = graph.AddNode("Actions/Print", Vector2.Zero);
+            print.Values["Value"] = "aim";
+            graph.Link(pressed.Id, "Then", print.Id, "In");
+
+            GameObject runner = Run(graph, frames: 2);
+
+            // The left button isn't the one asked for.
+            InputSystem.PressButton(MouseButton.Left);
+            Scene.Active.Update();
+            InputSystem.EndFrame();
+            Assert.DoesNotContain(_logged, e => e.Message == "aim");
+
+            InputSystem.PressButton(MouseButton.Right);
+            Scene.Active.Update();
+            InputSystem.EndFrame();
+            Scene.Active.Update();
+            Assert.Single(_logged, e => e.Message == "aim");
+
+            // Held and let go work the same way as for keys.
+            Assert.True(InputSystem.GetKey(Key.MouseRight));
+            Assert.False(InputSystem.GetKey(Key.MouseMiddle));
+            InputSystem.ReleaseButton(MouseButton.Right);
+            Assert.True(InputSystem.GetKeyUp(Key.MouseRight));
+            _ = runner;
+        }
+
+        [Fact]
         public void A_node_that_goes_wrong_is_reported_and_the_script_stops()
         {
             Graph graph = NewGraph();

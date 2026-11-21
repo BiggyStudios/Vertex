@@ -101,9 +101,9 @@ namespace Vertex.Scripting
                 },
                 "Every frame. Delta Time is how long the last frame took, in seconds: multiply speeds by it.", "tick frame loop", @event: "Update");
             Node("Events", "On Key Pressed", [Setting("Key", PortType.Enum<Key>(), Key.Space)], [FlowOut()], run => run.Continue("Then"),
-                "The frame a key goes down.", "keyboard input press", @event: "Update", when: run => InputSystem.GetKeyDown(run.In<Key>("Key")));
+                "The frame a key or mouse button goes down.", "keyboard input press mouse click button", @event: "Update", when: run => InputSystem.GetKeyDown(run.In<Key>("Key")));
             Node("Events", "On Key Released", [Setting("Key", PortType.Enum<Key>(), Key.Space)], [FlowOut()], run => run.Continue("Then"),
-                "The frame a key comes back up.", "keyboard input release", @event: "Update", when: run => InputSystem.GetKeyUp(run.In<Key>("Key")));
+                "The frame a key or mouse button comes back up.", "keyboard input release mouse click button", @event: "Update", when: run => InputSystem.GetKeyUp(run.In<Key>("Key")));
             Node("Events", "On Collision", [], [FlowOut(), Out("Other", PortType.Object)], run => run.Continue("Then"),
                 "When the object bumps into another (it needs a collider, and one of them a rigidbody). Other is what it hit.", "hit touch physics",
                 @event: "Collision");
@@ -228,7 +228,7 @@ namespace Vertex.Scripting
             // ---------------------------------------------------------------- Input and time
 
             Node("Input", "Key Held", [Setting("Key", PortType.Enum<Key>(), Key.Space)], [Out("Held", PortType.Boolean)],
-                run => run.Out("Held", InputSystem.GetKey(run.In<Key>("Key"))), "Whether a key is down right now.", "keyboard pressed down");
+                run => run.Out("Held", InputSystem.GetKey(run.In<Key>("Key"))), "Whether a key or mouse button is down right now.", "keyboard pressed down mouse button");
             Node("Input", "Axis", [Setting("Negative", PortType.Enum<Key>(), Key.A), Setting("Positive", PortType.Enum<Key>(), Key.D)], [Out("Value", PortType.Number)],
                 run => run.Out("Value", (InputSystem.GetKey(run.In<Key>("Positive")) ? 1f : 0f) - (InputSystem.GetKey(run.In<Key>("Negative")) ? 1f : 0f)),
                 "1 while the positive key's held, -1 while the negative one is, 0 for neither (or both).", "keyboard horizontal vertical wasd");

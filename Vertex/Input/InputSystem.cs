@@ -103,15 +103,22 @@ namespace Vertex.Input
 
         private static CursorShape _cursorShape;
 
-        public static bool GetKey(Key key) => !Muted && _keysHeld.Contains(key);
+        public static bool GetKey(Key key) => ButtonOf(key) is MouseButton button ? GetMouseButton(button) : !Muted && _keysHeld.Contains(key);
 
-        public static bool GetKeyDown(Key key) => !Muted && _keysPressed.Contains(key);
+        public static bool GetKeyDown(Key key) => ButtonOf(key) is MouseButton button ? GetMouseButtonDown(button) : !Muted && _keysPressed.Contains(key);
+
+        /// <summary>The mouse button a <see cref="Key"/> stands for (<see cref="Key.MouseLeft"/> and on), or null for a key on the keyboard.</summary>
+        public static MouseButton? ButtonOf(Key key) => key >= Key.MouseLeft && key <= Key.MouseForward ? (MouseButton)(key - Key.MouseLeft) : null;
 
         /// <summary>
         /// Marks this frame's press of <paramref name="key"/> as handled, so <see cref="GetKeyDown"/> is false for
         /// everything after: closing a menu with Escape shouldn't also open another one.
         /// </summary>
-        public static void Consume(Key key) => _keysPressed.Remove(key);
+        public static void Consume(Key key)
+        {
+            if (ButtonOf(key) is MouseButton button) Consume(button);
+            else _keysPressed.Remove(key);
+        }
 
         /// <summary>
         /// Marks this frame's press of <paramref name="button"/> as handled: nothing after sees it pressed, held or let go.
@@ -125,7 +132,7 @@ namespace Vertex.Input
         /// <summary>Marks this frame's <see cref="TypedText"/> as handled, so nothing after receives it.</summary>
         public static void ConsumeTypedText() => _typedText.Clear();
 
-        public static bool GetKeyUp(Key key) => !Muted && _keysReleased.Contains(key);
+        public static bool GetKeyUp(Key key) => ButtonOf(key) is MouseButton button ? GetMouseButtonUp(button) : !Muted && _keysReleased.Contains(key);
 
         public static bool GetMouseButton(MouseButton button) => !Muted && _buttonsHeld.Contains(button);
         public static bool GetMouseButtonDown(MouseButton button) => !Muted && _buttonsPressed.Contains(button);
@@ -140,12 +147,14 @@ namespace Vertex.Input
 
         internal static void PressKey(Key key)
         {
-            if (_keysHeld.Add(key)) _keysPressed.Add(key);
+            if (ButtonOf(key) is MouseButton button) PressButton(button);
+            else if (_keysHeld.Add(key)) _keysPressed.Add(key);
         }
 
         internal static void ReleaseKey(Key key)
         {
-            if (_keysHeld.Remove(key)) _keysReleased.Add(key);
+            if (ButtonOf(key) is MouseButton button) ReleaseButton(button);
+            else if (_keysHeld.Remove(key)) _keysReleased.Add(key);
         }
 
         internal static void PressButton(MouseButton button)

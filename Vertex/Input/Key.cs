@@ -4,6 +4,10 @@ namespace Vertex.Input
     /// A key on the keyboard, by where it is on a US layout: <see cref="W"/> is the key there whatever letter the
     /// player's layout puts on it, so WASD stays in the same place everywhere. For typed text, use
     /// <see cref="InputSystem.TypedText"/> instead.
+    /// <para>
+    /// The mouse's buttons are here too (<see cref="MouseLeft"/> and on), so anything that asks for a key, such as a
+    /// visual script's On Key Pressed, can be given a mouse button instead.
+    /// </para>
     /// </summary>
     public enum Key
     {
@@ -132,7 +136,14 @@ namespace Vertex.Input
         ControlRight = 345,
         AltRight = 346,
         SuperRight = 347,
-        Menu = 348
+        Menu = 348,
+
+        // The mouse's buttons, in the order of MouseButton.
+        MouseLeft = 1000,
+        MouseRight = 1001,
+        MouseMiddle = 1002,
+        MouseBack = 1003,
+        MouseForward = 1004
     }
 
     public enum MouseButton

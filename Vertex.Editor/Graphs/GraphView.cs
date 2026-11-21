@@ -744,14 +744,18 @@ namespace Vertex.Editor.Graphs
         {
             Interaction interaction = Ui.Interact(id, field);
             bool capturing = _capturingKey == id;
-            if (interaction.Clicked) _capturingKey = capturing ? 0 : id;
+
+            // Listening starts on the press, so the next press of a mouse button on the field can be the one chosen.
+            bool starting = !capturing && interaction.Pressed;
+            if (starting) _capturingKey = id;
+            capturing |= starting;
 
             Ui.Rect(field, capturing ? Theme.ControlHover : interaction.Hovered ? Theme.Control : Theme.Field, Theme.ControlRadius);
             if (capturing) Ui.Outline(field, Theme.Accent, Theme.ControlRadius, 1.5f);
-            Ui.Text(field.Shrink(6f, 0f), capturing ? "Press a key…" : Inspection.ComponentCatalog.SplitWords(key.ToString()), capturing ? Theme.AccentText : Theme.Text,
+            Ui.Text(field.Shrink(6f, 0f), capturing ? "Press a key or click…" : Inspection.ComponentCatalog.SplitWords(key.ToString()), capturing ? Theme.AccentText : Theme.Text,
                 size: Theme.SmallTextSize);
-            Ui.Tooltip(id, capturing ? null : "Click, then press the key");
-            if (!capturing) return;
+            Ui.Tooltip(id, capturing ? null : "Click, then press the key, or click here with the mouse button");
+            if (!capturing || starting) return;
 
             if (InputSystem.GetKeyDown(Key.Escape))
             {
@@ -763,6 +767,9 @@ namespace Vertex.Editor.Graphs
             foreach (Key candidate in Enum.GetValues<Key>())
             {
                 if (candidate == Key.Unknown || !InputSystem.GetKeyDown(candidate)) continue;
+
+                // A mouse button counts when it's pressed on the field: pressed anywhere else, it stops listening.
+                if (InputSystem.ButtonOf(candidate) != null && !interaction.Hovered) continue;
                 InputSystem.Consume(candidate);
                 _capturingKey = 0;
                 set(candidate);
