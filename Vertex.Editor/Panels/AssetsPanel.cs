@@ -386,9 +386,41 @@ namespace Vertex.Editor.Panels
             items.Add(MenuItem.Separator);
             items.Add(new MenuItem(ShowInLabel, () => NativeDialogs.ShowInFolder(entry.Path)) { Icon = Icons.Folder });
             items.Add(new MenuItem("Copy Path", () => InputSystem.ClipboardText = _context.Assets!.Relative(entry.Path)));
+
+            // Making something new here is to one side, so the file's own choices stand out.
             items.Add(MenuItem.Separator);
-            items.AddRange(NewItems(_folder!));
+            items.Add(new MenuItem("Create") { Icon = Icons.Plus, Children = Flat(NewItems(_folder!)) });
             return items;
+        }
+
+        /// <summary>
+        /// A menu's sections laid out in one list, between lines: for a menu that's already beside another (a menu
+        /// opens only one more beside it).
+        /// </summary>
+        private static List<MenuItem> Flat(List<MenuItem> items)
+        {
+            var flat = new List<MenuItem>();
+            void Line()
+            {
+                if (flat.Count > 0 && !flat[^1].IsSeparator) flat.Add(MenuItem.Separator);
+            }
+
+            foreach (MenuItem item in items)
+            {
+                if (item.IsSeparator) Line();
+                else if (item.Children != null)
+                {
+                    Line();
+                    foreach (MenuItem child in item.Children)
+                    {
+                        if (child.IsSeparator) continue;
+                        flat.Add(child);
+                    }
+                }
+                else flat.Add(item);
+            }
+
+            return flat;
         }
 
         private List<MenuItem> FolderMenu(string folder)
@@ -402,26 +434,18 @@ namespace Vertex.Editor.Panels
 
         private static string ShowInLabel => OperatingSystem.IsWindows() ? "Show in Explorer" : OperatingSystem.IsMacOS() ? "Show in Finder" : "Show in File Manager";
 
-        /// <summary>The things that can be made in <paramref name="folder"/>: each is made, then named.</summary>
+        /// <summary>
+        /// The things that can be made in <paramref name="folder"/>: each is made, then named. The everyday ones first,
+        /// the rest in sections that open beside the menu, so it stays short.
+        /// </summary>
         private List<MenuItem> NewItems(string folder)
         {
             var items = new List<MenuItem>
             {
                 new("New Folder", () => Made(Directory.CreateDirectory(Unique(Path.Combine(folder, "New Folder"), "")).FullName)) { Icon = Icons.Folder },
-                new("New Material", () => Made(_context.CreateMaterial(folder))) { Icon = (c, s, col) => Icons.Ring(c, s * 0.3f, col) },
-                new("New Scene", () => Made(NewScene(folder))) { Icon = Icons.Scene },
-                new("New Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph },
-                new("New VFX Graph", () => Made(_context.CreateVfxGraph(folder))) { Icon = Icons.Graph },
-                new("New Audio Graph", () => Made(_context.CreateAudioGraph(folder))) { Icon = Icons.Sound },
-                new("New Shader Graph", () => Made(_context.CreateShaderGraph(folder))) { Icon = Icons.Graph },
-                new("New Post Effect", () => Made(_context.CreatePostEffect(folder))) { Icon = Icons.ScreenEffect },
-                new("New Post Effect Graph", () => Made(_context.CreatePostEffectGraph(folder))) { Icon = Icons.ScreenEffect },
-                new("New Animation", () => Made(_context.CreateAnimation(folder))) { Icon = Icons.Keyframes },
-                new("New Animation Graph", () => Made(_context.CreateAnimationGraph(folder))) { Icon = Icons.Graph },
-                new("New Behavior Tree", () => Made(_context.CreateBehaviorTree(folder))) { Icon = Icons.BehaviorTree }
+                new("New Scene", () => Made(NewScene(folder))) { Icon = Icons.Scene }
             };
 
-            if (_context.Project != null) items.Add(new MenuItem("New Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });
             if (_context.Selection.Object is { } selected)
             {
                 items.Add(new MenuItem($"New Prefab from {selected.Name}", () =>
@@ -429,6 +453,49 @@ namespace Vertex.Editor.Panels
                     if (_context.CreatePrefab(selected, folder) is { } prefab) Made(prefab.Source);
                 }) { Icon = Icons.Prefab });
             }
+
+            items.Add(MenuItem.Separator);
+
+            var scripts = new List<MenuItem>();
+            if (_context.Project != null) scripts.Add(new MenuItem("C# Script", () => Made(_context.CreateScript(folder))) { Icon = Icons.Component });
+            scripts.Add(new MenuItem("Visual Script", () => Made(_context.CreateVisualScript(folder))) { Icon = Icons.Graph });
+
+            items.Add(new MenuItem("Script") { Icon = Icons.Component, Children = scripts });
+            items.Add(new MenuItem("Material & Shaders")
+            {
+                Icon = (c, s, col) => Icons.Ring(c, s * 0.3f, col),
+                Children =
+                [
+                    new("Material", () => Made(_context.CreateMaterial(folder))) { Icon = (c, s, col) => Icons.Ring(c, s * 0.3f, col) },
+                    new("Shader Graph", () => Made(_context.CreateShaderGraph(folder))) { Icon = Icons.Graph },
+                    MenuItem.Separator,
+                    new("Post Effect", () => Made(_context.CreatePostEffect(folder))) { Icon = Icons.ScreenEffect },
+                    new("Post Effect Graph", () => Made(_context.CreatePostEffectGraph(folder))) { Icon = Icons.ScreenEffect }
+                ]
+            });
+            items.Add(new MenuItem("Animation")
+            {
+                Icon = Icons.Keyframes,
+                Children =
+                [
+                    new("Animation", () => Made(_context.CreateAnimation(folder))) { Icon = Icons.Keyframes },
+                    new("Animation Graph", () => Made(_context.CreateAnimationGraph(folder))) { Icon = Icons.Graph }
+                ]
+            });
+            items.Add(new MenuItem("Effects & Audio")
+            {
+                Icon = Icons.Sound,
+                Children =
+                [
+                    new("VFX Graph", () => Made(_context.CreateVfxGraph(folder))) { Icon = Icons.Graph },
+                    new("Audio Graph", () => Made(_context.CreateAudioGraph(folder))) { Icon = Icons.Sound }
+                ]
+            });
+            items.Add(new MenuItem("AI")
+            {
+                Icon = Icons.BehaviorTree,
+                Children = [new("Behavior Tree", () => Made(_context.CreateBehaviorTree(folder))) { Icon = Icons.BehaviorTree }]
+            });
 
             return items;
         }

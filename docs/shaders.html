@@ -20,7 +20,7 @@
 
     <h2>Shader graphs</h2>
     <ol>
-        <li>In the Assets panel, press <strong>+</strong> and choose <strong>New Shader Graph</strong> for a material, or <strong>New Post Effect Graph</strong> for a camera. It makes a <code>.shadergraph</code> file and opens it in a tab, already set up to show how one's made.</li>
+        <li>In the Assets panel, press <strong>+</strong> and choose <strong>Material &amp; Shaders › Shader Graph</strong> for a material, or <strong>Material &amp; Shaders › Post Effect Graph</strong> for a camera. It makes a <code>.shadergraph</code> file and opens it in a tab, already set up to show how one's made.</li>
         <li>For a material, pick the file as the material's <strong>Shader</strong> in the inspector. For a camera, <strong>Add Component › Post Effect</strong> and pick it as its <em>Shader</em>. Each slot only offers shaders of its own kind.</li>
         <li>Edit the graph. The <strong>Preview</strong> in the corner of the tab shows what it makes as you go: a material's on a ball (or a block or a square; drag to turn it), a post effect's on a little scene. Everything using the graph changes with it, and it's saved as you edit.</li>
     </ol>
@@ -78,7 +78,7 @@ void surface(inout Surface s)
     </table>
 
     <h2>Post effects in GLSL</h2>
-    <p>In the Assets panel, <strong>New Post Effect</strong> makes a <code>.glsl</code> file that starts as a simple colour grade. A post effect is a function, <code>effect</code>, that's given a place on the screen and returns the colour to show there. This one makes the picture into big square pixels with fewer shades:</p>
+    <p>In the Assets panel, <strong>Material &amp; Shaders › Post Effect</strong> (on the <strong>+</strong> menu, or a right-click) makes a <code>.glsl</code> file that starts as a simple colour grade. A post effect is a function, <code>effect</code>, that's given a place on the screen and returns the colour to show there. This one makes the picture into big square pixels with fewer shades:</p>
     <pre class="cs" data-file="Pixels.glsl">// Big square pixels and fewer shades: a low-resolution look.
 property float Lines = 240 [60, 720];   // How many rows of pixels fill the screen
 property int Shades = 6 [2, 32];        // How many levels each colour has

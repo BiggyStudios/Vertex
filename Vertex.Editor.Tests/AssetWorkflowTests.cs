@@ -356,5 +356,39 @@ namespace Vertex.Editor.Tests
             Assert.Equal(1.5f, EditorApp.AutoScale(1f, 2160f));
             Assert.Equal(1f, EditorApp.AutoScale(1.5f, 2160f));
         }
+
+        [Fact]
+        public void The_assets_right_click_menus_keep_what_can_be_made_in_sections()
+        {
+            Project.Create(Path.Combine(_folder, "Game" + Project.Extension), "Game");
+            var context = new EditorContext();
+            context.OpenProject(_folder);
+            string root = context.Assets!.Root;
+            var panel = new AssetsPanel(context);
+            typeof(AssetsPanel).GetField("_folder", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(panel, root);
+            List<MenuItem> Call(string method, object argument) =>
+                (List<MenuItem>)typeof(AssetsPanel).GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(panel, [argument])!;
+
+            static IEnumerable<string> Makes(IEnumerable<MenuItem> items) =>
+                items.SelectMany(item => item.Children != null ? Makes(item.Children) : item.IsSeparator || item.Action == null ? [] : [item.Label]);
+
+            string[] everything = ["New Folder", "New Scene", "C# Script", "Visual Script", "Material", "Shader Graph", "Post Effect", "Post Effect Graph",
+                "Animation", "Animation Graph", "VFX Graph", "Audio Graph", "Behavior Tree"];
+
+            // Right-clicking the folder: a short list, the rest in sections beside it.
+            List<MenuItem> folder = Call("FolderMenu", root);
+            Assert.True(folder.Count(item => !item.IsSeparator) <= 10, string.Join(", ", folder.Select(item => item.Label)));
+            Assert.Subset(Makes(folder).ToHashSet(), everything.ToHashSet());
+            Assert.All(folder.Where(item => item.Children != null).SelectMany(item => item.Children!), child => Assert.Null(child.Children));
+
+            // Right-clicking a file: its own choices, and everything that can be made under Create, one menu deep.
+            string material = context.CreateMaterial(root, "Rust");
+            List<MenuItem> file = Call("EntryMenu", new AssetEntry(material, AssetKind.Material));
+            Assert.Equal(["Rename", "Duplicate", "Delete"], file.Take(3).Select(item => item.Label));
+            MenuItem create = Assert.Single(file, item => item.Children != null);
+            Assert.Equal("Create", create.Label);
+            Assert.All(create.Children!, child => Assert.Null(child.Children));
+            Assert.Subset(Makes(create.Children!).ToHashSet(), everything.ToHashSet());
+        }
     }
 }
