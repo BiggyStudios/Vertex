@@ -38,8 +38,11 @@ namespace Vertex.Editor.Graphs
             public readonly Dictionary<string, Vector2> Inputs = new();
             public readonly Dictionary<string, Vector2> Outputs = new();
 
-            /// <summary>Its inputs as shown: with as many of a repeated one as it has linked, and one more.</summary>
+            /// <summary>Its inputs as shown: with as many of a repeated one as it has linked, and one more, and split ones as their parts.</summary>
             public IReadOnlyList<Port> InputPorts = [];
+
+            /// <summary>Its outputs as shown.</summary>
+            public IReadOnlyList<Port> OutputPorts = [];
         }
 
         private GraphDocument? _doc;
@@ -77,6 +80,13 @@ namespace Vertex.Editor.Graphs
         private int _capturingKey;
 
         private bool _showVariables = true;
+
+        // The variables panel as last drawn (nothing's dropped on it), and the variable being renamed in it.
+        private Rect _variablesPanel;
+        private GraphVariable? _renamingVariable;
+
+        /// <summary>A variable being dragged from the variables panel into its graph, to get or set it there.</summary>
+        internal sealed record VariableDrag(Graph Graph, string Name);
 
         // A shader graph's preview, and whether it's shown.
         private readonly ShaderPreview _preview = new();
@@ -174,7 +184,9 @@ namespace Vertex.Editor.Graphs
             Ui.PopView();
 
             HandleSoundDrop(rect, doc, library);
+            HandleVariableDrop(rect, doc, library, id);
             DrawToolbar(rect, doc, library);
+            _variablesPanel = default;
             if (_showVariables) DrawVariables(rect, doc);
             if (graph.Kind == Vertex.ShaderGraphs.ShaderNodes.Kind) DrawShaderPanels(rect, doc);
             if (graph.Nodes.Count == 0)
@@ -193,10 +205,10 @@ namespace Vertex.Editor.Graphs
             foreach (GraphNode node in graph.Nodes)
             {
                 if (library.Find(node.Type) is not { } type) continue;
-                IReadOnlyList<Port> inputs = type.InputsOf(graph, node);
+                IReadOnlyList<Port> inputs = graph.InputsOf(node), outputs = graph.OutputsOf(node);
 
                 float left = 0f, right = 0f;
-                int rows = Math.Max(Math.Max(inputs.Count, type.Outputs.Count), 1);
+                int rows = Math.Max(Math.Max(inputs.Count, outputs.Count), 1);
                 for (int i = 0; i < rows; i++)
                 {
                     float l = 0f, r = 0f;
@@ -207,7 +219,7 @@ namespace Vertex.Editor.Graphs
                         if (ShowsEditor(graph, node, port)) l += 6f + EditorWidth(port, graph.TypeOf(node, port));
                     }
 
-                    if (i < type.Outputs.Count) r = LabelWidth(type.Outputs[i]) + 14f;
+                    if (i < outputs.Count) r = LabelWidth(outputs[i]) + 14f;
                     left = MathF.Max(left, l);
                     right = MathF.Max(right, r);
                 }
@@ -218,11 +230,12 @@ namespace Vertex.Editor.Graphs
                     Node = node,
                     Type = type,
                     InputPorts = inputs,
+                    OutputPorts = outputs,
                     Rect = new Rect(node.Position.X, node.Position.Y, width, _header + rows * _row + 8f)
                 };
 
                 for (int i = 0; i < inputs.Count; i++) layout.Inputs[inputs[i].Name] = new Vector2(layout.Rect.X, RowCentre(layout.Rect, i));
-                for (int i = 0; i < type.Outputs.Count; i++) layout.Outputs[type.Outputs[i].Name] = new Vector2(layout.Rect.Right, RowCentre(layout.Rect, i));
+                for (int i = 0; i < outputs.Count; i++) layout.Outputs[outputs[i].Name] = new Vector2(layout.Rect.Right, RowCentre(layout.Rect, i));
                 _layouts[node.Id] = layout;
             }
         }
@@ -239,8 +252,8 @@ namespace Vertex.Editor.Graphs
 
         private static float RowCentre(Rect node, int row) => node.Y + _header + 4f + row * _row + _row * 0.5f;
 
-        // Flow ports called In and Then go without saying.
-        private static string Label(Port port) => port.Type.IsFlow && port.Name is "In" or "Then" || port.Type == Vertex.AI.BehaviorNodes.Task && port.Name == "Parent" ? "" : port.Name;
+        // Flow ports called In and Then go without saying; a part of a split port is "Position X".
+        private static string Label(Port port) => port.Type.IsFlow && port.Name is "In" or "Then" || port.Type == Vertex.AI.BehaviorNodes.Task && port.Name == "Parent" ? "" : port.Name.Replace('.', ' ');
 
         /// <summary>A node's title: a variable node's says which variable ("Set Health").</summary>
         private static string Title(GraphNode node, NodeType type) =>
@@ -339,7 +352,7 @@ namespace Vertex.Editor.Graphs
         {
             if (!_layouts.TryGetValue(link.FromNode, out Layout? from) || !_layouts.TryGetValue(link.ToNode, out Layout? to)) return null;
             if (!from.Outputs.TryGetValue(link.FromPort, out Vector2 a) || !to.Inputs.TryGetValue(link.ToPort, out Vector2 b)) return null;
-            return (a, b, _doc!.Graph.TypeOf(from.Node, from.Type.Output(link.FromPort)!));
+            return _doc!.Graph.Output(from.Node, link.FromPort) is { } port ? (a, b, _doc.Graph.TypeOf(from.Node, port)) : null;
         }
 
         private const int _wirePoints = 28;
@@ -446,7 +459,13 @@ namespace Vertex.Editor.Graphs
                 _dragBefore = graph.ToJson();
             }
 
-            if (body.RightClicked)
+            if (body.RightClicked && PortUnderMouse(layout) is var (underMouse, isOutput) &&
+                (graph.CanSplit(node, underMouse, isOutput) || graph.PartOf(node, underMouse.Name, isOutput) != null))
+            {
+                // On the name of a port that splits (or a part of one): that port's menu, as on its dot.
+                Menu.Open(Ui.Id(nodeId, "portMenu"), Ui.Mouse, PortMenu(doc, node, underMouse, isOutput));
+            }
+            else if (body.RightClicked)
             {
                 if (!selected)
                 {
@@ -472,7 +491,7 @@ namespace Vertex.Editor.Graphs
             }
 
             for (int i = 0; i < layout.InputPorts.Count; i++) DrawInput(nodeId, doc, layout, layout.InputPorts[i], i);
-            for (int i = 0; i < type.Outputs.Count; i++) DrawOutput(nodeId, doc, layout, type.Outputs[i], i);
+            for (int i = 0; i < layout.OutputPorts.Count; i++) DrawOutput(nodeId, doc, layout, layout.OutputPorts[i], i);
         }
 
         /// <summary>
@@ -555,14 +574,8 @@ namespace Vertex.Editor.Graphs
 
             Ui.Tooltip(portId, port.Tooltip ?? (type.IsFlow ? null : type.Name));
 
-            // Right-click: a menu to cut its wires.
-            if (interaction.RightClicked)
-            {
-                Menu.Open(Ui.Id(portId, "menu"), Ui.Mouse,
-                [
-                    new MenuItem(wires.Count > 1 ? $"Disconnect {wires.Count} Wires" : "Disconnect", () => Disconnect(doc, wires)) { Enabled = wires.Count > 0, Shortcut = "Alt+Click" }
-                ]);
-            }
+            // Right-click: a menu to cut its wires, or split it into its parts.
+            if (interaction.RightClicked) Menu.Open(Ui.Id(portId, "menu"), Ui.Mouse, PortMenu(doc, layout.Node, port, output));
 
             if (!interaction.Pressed) return;
 
@@ -585,6 +598,49 @@ namespace Vertex.Editor.Graphs
                 _pickedUp = null;
                 _wire = (layout.Node.Id, port.Name, output);
             }
+        }
+
+        /// <summary>
+        /// A port's right-click menu: Disconnect its wires; for a vector or colour, Split it into its parts (X, Y and Z, to
+        /// link or type each on its own); for one of those parts, Join it back up.
+        /// </summary>
+        private List<MenuItem> PortMenu(GraphDocument doc, GraphNode node, Port port, bool output)
+        {
+            Graph graph = doc.Graph;
+            List<GraphLink> wires = (output ? graph.LinksFrom(node.Id, port.Name) : graph.LinksTo(node.Id, port.Name)).ToList();
+            var items = new List<MenuItem>
+            {
+                new(wires.Count > 1 ? $"Disconnect {wires.Count} Wires" : "Disconnect", () => Disconnect(doc, wires)) { Enabled = wires.Count > 0, Shortcut = "Alt+Click" }
+            };
+
+            if (graph.CanSplit(node, port, output))
+            {
+                string parts = string.Join(", ", graph.TypeOf(node, port).Parts);
+                items.Add(new MenuItem($"Split Into {parts}", () => doc.Edit(_context.History, $"Split {port.Name}", () => graph.Split(node, port.Name, output)))
+                {
+                    Icon = Icons.Split
+                });
+            }
+            else if (graph.PartOf(node, port.Name, output) is var (whole, _, _))
+            {
+                items.Add(new MenuItem($"Join Back Into {whole.Name}", () => doc.Edit(_context.History, $"Join {whole.Name}", () => graph.Join(node, whole.Name, output)))
+                {
+                    Icon = Icons.Join
+                });
+            }
+
+            return items;
+        }
+
+        /// <summary>The port whose row is under the mouse on a node (its name, not its dot), for its right-click menu; null if none.</summary>
+        private static (Port Port, bool Output)? PortUnderMouse(Layout layout)
+        {
+            float rowAt = (Ui.Mouse.Y - layout.Rect.Y - _header - 4f) / _row;
+            if (rowAt < 0f) return null;
+            int row = (int)rowAt;
+            bool output = Ui.Mouse.X > layout.Rect.Centre.X;
+            IReadOnlyList<Port> ports = output ? layout.OutputPorts : layout.InputPorts;
+            return row < ports.Count && ports[row] is { Linkable: true } port && !port.Type.IsFlow ? (port, output) : null;
         }
 
         /// <summary>Whether the link being dragged can end at port <paramref name="port"/> of node <paramref name="node"/>.</summary>
@@ -905,7 +961,7 @@ namespace Vertex.Editor.Graphs
         /// <summary>Whether a node of <paramref name="type"/> has a port the link being let go of could join.</summary>
         private static Port? JoinablePort(NodeLibrary library, NodeType type, PortType linkType, bool fromOutput) => fromOutput
             ? type.Inputs.Concat(type.Repeated is { } repeated ? [repeated] : []).FirstOrDefault(p => p.Linkable && library.CanLink(linkType, p.Type))
-            : type.Outputs.FirstOrDefault(p => library.CanLink(p.Type, linkType));
+            : type.Outputs.Concat(type.RepeatedOutput is { } more ? [more] : []).FirstOrDefault(p => library.CanLink(p.Type, linkType));
 
         private void AddList(int popupId, Rect rect, GraphDocument doc, NodeLibrary library)
         {
@@ -1006,7 +1062,7 @@ namespace Vertex.Editor.Graphs
                 PortType? linkType = null;
                 GraphNode? other = linked is { } wanted ? graph.Node(wanted.Node) : null;
                 if (linked is { } from && other != null && library.Find(other.Type) is { } otherType &&
-                    (from.FromOutput ? otherType.Output(from.Port) : otherType.Input(other, from.Port)) is { } otherPort)
+                    (from.FromOutput ? graph.Output(other, from.Port) : graph.Input(other, from.Port)) is { } otherPort)
                 {
                     linkType = graph.TypeOf(other, otherPort);
                 }
@@ -1023,7 +1079,7 @@ namespace Vertex.Editor.Graphs
                 // The first of its ports the link fits, as it is now (with its variable chosen).
                 Port? port = link.FromOutput
                     ? type.InputsOf(graph, node).FirstOrDefault(p => p.Linkable && graph.Library!.CanLink(linkType, graph.TypeOf(node, p)))
-                    : type.Outputs.FirstOrDefault(p => graph.Library!.CanLink(graph.TypeOf(node, p), linkType));
+                    : type.OutputsOf(graph, node).FirstOrDefault(p => graph.Library!.CanLink(graph.TypeOf(node, p), linkType));
                 if (port == null) return;
 
                 if (link.FromOutput) graph.Link(link.Node, link.Port, node.Id, port.Name);
@@ -1093,7 +1149,7 @@ namespace Vertex.Editor.Graphs
             foreach (GraphNode node in doc.Graph.Nodes.Where(n => doc.Selected.Contains(n.Id)))
             {
                 GraphNode copied = copy.AddNode(node.Type, node.Position);
-                foreach ((string name, object? value) in node.Values) copied.Values[name] = value;
+                copied.CopySettings(node);
                 ids[node.Id] = copied.Id;
             }
 
@@ -1128,7 +1184,7 @@ namespace Vertex.Editor.Graphs
                 foreach (GraphNode node in pasted.Nodes)
                 {
                     GraphNode added = doc.Graph.AddNode(node.Type, at + node.Position - corner);
-                    foreach ((string key, object? value) in node.Values) added.Values[key] = value;
+                    added.CopySettings(node);
                     ids[node.Id] = added.Id;
                     doc.Selected.Add(added.Id);
                 }
@@ -1291,6 +1347,48 @@ namespace Vertex.Editor.Graphs
             });
         }
 
+        /// <summary>
+        /// A variable dragged from the variables panel and let go over the graph: a Get or Set node for it there. A menu asks
+        /// which, unless Ctrl (get) or Alt (set) is held, or the kind of graph only has one (a shader graph's Get Property).
+        /// </summary>
+        private void HandleVariableDrop(Rect rect, GraphDocument doc, NodeLibrary library, int viewId)
+        {
+            if (!DragDrop.Dropped || DragDrop.Payload is not VariableDrag drag || drag.Graph != doc.Graph) return;
+            if (!rect.Contains(Ui.Mouse) || _variablesPanel.Contains(Ui.Mouse) || doc.Graph.Variable(drag.Name) == null) return;
+
+            (NodeType? get, NodeType? set) = VariableNodes(library);
+            Vector2 at = doc.Offset + (Ui.Mouse - rect.Position) / doc.Zoom;
+            if (set == null || Ctrl && get != null) AddVariableNode(doc, get, drag.Name, at);
+            else if (get == null || Alt) AddVariableNode(doc, set, drag.Name, at);
+            else
+            {
+                Menu.Open(Ui.Id(viewId, "variableDrop"), Ui.Mouse,
+                [
+                    new MenuItem($"Get {drag.Name}", () => AddVariableNode(doc, get, drag.Name, at)) { Shortcut = "Ctrl" },
+                    new MenuItem($"Set {drag.Name}", () => AddVariableNode(doc, set, drag.Name, at)) { Shortcut = "Alt" }
+                ]);
+            }
+        }
+
+        /// <summary>The kinds of node a graph of this kind gets and sets its variables with ("Get Variable", "Set Variable"), if it has them.</summary>
+        internal static (NodeType? Get, NodeType? Set) VariableNodes(NodeLibrary library)
+        {
+            NodeType? Named(string verb) => library.All.FirstOrDefault(t => t.Title.StartsWith(verb + " ", StringComparison.Ordinal) && t.Inputs.Any(p => p.IsVariableName));
+            return (Named("Get"), Named("Set"));
+        }
+
+        private void AddVariableNode(GraphDocument doc, NodeType? type, string variable, Vector2 at)
+        {
+            if (type?.Inputs.FirstOrDefault(p => p.IsVariableName) is not { } setting) return;
+            doc.Edit(_context.History, $"{type.Title.Split(' ')[0]} {variable}", () =>
+            {
+                GraphNode node = doc.Graph.AddNode(type.Id, at - new Vector2(20f, _header * 0.5f));
+                node.Values[setting.Name] = variable;
+                doc.Selected.Clear();
+                doc.Selected.Add(node.Id);
+            });
+        }
+
         // ---------------------------------------------------------------- Shader graphs
 
         /// <summary>The shader a shader graph's file makes (the same one materials and cameras using it have), or null.</summary>
@@ -1370,6 +1468,7 @@ namespace Vertex.Editor.Graphs
             const float rowHeight = 28f;
             float height = 38f + graph.Variables.Count * rowHeight + 36f;
             var panel = new Rect(rect.X + 10f, rect.Y + 54f, MathF.Min(330f, rect.Width - 20f), height);
+            _variablesPanel = panel;
             if (panel.Bottom > rect.Bottom - 30f) return;
 
             Ui.Block(Ui.Id("graph.variablesPanel"), panel);
@@ -1392,7 +1491,36 @@ namespace Vertex.Editor.Graphs
                 string name = variable.Name;
                 // A dot in its type's colour, as its ports are.
                 Ui.Circle(new Vector2(row.X + 5f, row.Centre.Y), 4.5f, variable.Type.WireColor);
-                if (TextInput.Draw(Ui.Id(id, "name"), row.CutLeft(14f).TakeLeft(88f), ref name) && name.Trim().Length > 0 && graph.Variable(name.Trim()) == null)
+
+                // Its name: dragged into the graph to get or set it, double-clicked to rename it.
+                int nameId = Ui.Id(id, "name");
+                Rect nameRect = row.CutLeft(14f).TakeLeft(88f);
+                bool named = false;
+                if (_renamingVariable == variable)
+                {
+                    named = TextInput.Draw(nameId, nameRect, ref name);
+                    if (Ui.FocusId != nameId) _renamingVariable = null;
+                }
+                else
+                {
+                    int grabId = Ui.Id(id, "grab");
+                    Interaction grab = Ui.Interact(grabId, row.TakeLeft(102f));
+                    Ui.Rect(nameRect, grab.Hovered || DragDrop.Payload is VariableDrag { } held && held.Name == variable.Name ? Theme.Control : Theme.Field, Theme.ControlRadius);
+                    Ui.Text(nameRect.Shrink(6f, 0f), Ui.Fit(variable.Name, nameRect.Width - 12f), Theme.Text);
+                    Ui.Tooltip(grabId, $"Drag into the graph to get or set {variable.Name} (Ctrl: get, Alt: set). Double-click to rename it");
+                    if (grab.Hovered) Ui.Cursor = CursorShape.Hand;
+                    if (grab.DoubleClicked)
+                    {
+                        _renamingVariable = variable;
+                        TextInput.Focus(nameId);
+                    }
+                    else if (grab.Pressed)
+                    {
+                        DragDrop.Begin(new VariableDrag(graph, variable.Name), variable.Name);
+                    }
+                }
+
+                if (named && name.Trim().Length > 0 && graph.Variable(name.Trim()) == null)
                 {
                     string old = variable.Name, renamed = name.Trim();
                     doc.Edit(_context.History, "Rename Variable", () =>
@@ -1455,6 +1583,10 @@ namespace Vertex.Editor.Graphs
                 string name = one;
                 for (int n = 2; graph.Variable(name) != null; n++) name = $"{one} {n}";
                 doc.Edit(_context.History, $"Add {one}", () => graph.Variables.Add(new GraphVariable(name, PortType.Number)));
+
+                // Named straight away, as it's made.
+                _renamingVariable = graph.Variables[^1];
+                TextInput.Focus(Ui.Id(Ui.Id(Ui.Id("graph.variable"), graph.Variables.Count - 1), "name"));
             }
         }
 

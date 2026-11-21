@@ -152,6 +152,18 @@ namespace Vertex.Graphs
             }
         }
 
+        /// <summary>
+        /// An output that repeats, after the others: "Then 1", "Then 2"... as many as are linked and one more, up to
+        /// <see cref="RepeatedOutputAtMost"/>, so a Sequence can do as many things as it's linked to. Null for none.
+        /// </summary>
+        public Port? RepeatedOutput { get; init; }
+
+        /// <summary>How many of <see cref="RepeatedOutput"/> there are with none linked.</summary>
+        public int RepeatedOutputAtLeast { get; init; } = 2;
+
+        /// <summary>The most of <see cref="RepeatedOutput"/> there can be.</summary>
+        public int RepeatedOutputAtMost { get; init; } = 10;
+
         public Port? Output(string name)
         {
             foreach (Port port in Outputs)
@@ -159,7 +171,44 @@ namespace Vertex.Graphs
                 if (port.Name == name) return port;
             }
 
-            return null;
+            return RepeatOutputIndex(name) is int index ? RepeatedOutputPort(index) : null;
+        }
+
+        /// <summary>A node's outputs, as it shows them: <see cref="Outputs"/>, then <see cref="RepeatedOutput"/> as many times as it needs.</summary>
+        public IReadOnlyList<Port> OutputsOf(Graph graph, GraphNode node)
+        {
+            if (RepeatedOutput == null) return Outputs;
+
+            int highest = 0;
+            foreach (GraphLink link in graph.Links)
+            {
+                if (link.FromNode == node.Id && RepeatOutputIndex(link.FromPort) is int index) highest = Math.Max(highest, index);
+            }
+
+            int count = Math.Min(Math.Max(RepeatedOutputAtLeast, highest + 1), RepeatedOutputAtMost);
+            var all = new List<Port>(Outputs.Count + count);
+            all.AddRange(Outputs);
+            for (int i = 1; i <= count; i++) all.Add(RepeatedOutputPort(i));
+            return all;
+        }
+
+        /// <summary>Which of <see cref="RepeatedOutput"/> a port is, counting from 1 ("Then 3" is 3); null if it isn't one.</summary>
+        public int? RepeatOutputIndex(string port)
+        {
+            if (RepeatedOutput == null || port.Length <= RepeatedOutput.Name.Length + 1 || !port.StartsWith(RepeatedOutput.Name + " ", StringComparison.Ordinal)) return null;
+            return int.TryParse(port.AsSpan(RepeatedOutput.Name.Length + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int index)
+                   && index >= 1 && index <= RepeatedOutputAtMost ? index : null;
+        }
+
+        private readonly List<Port> _repeatedOutputs = new();
+
+        private Port RepeatedOutputPort(int index)
+        {
+            lock (_repeatedOutputs)
+            {
+                while (_repeatedOutputs.Count < index) _repeatedOutputs.Add(RepeatedOutput! with { Name = $"{RepeatedOutput!.Name} {_repeatedOutputs.Count + 1}" });
+                return _repeatedOutputs[index - 1];
+            }
         }
 
         /// <summary>Whether it takes part in the flow (has a flow input), rather than only working out values.</summary>
@@ -209,6 +258,12 @@ namespace Vertex.Graphs
         /// into any other, as GLSL turns one into another.
         /// </summary>
         public virtual bool CanLink(PortType output, PortType input) => output.CanLinkTo(input);
+
+        /// <summary>
+        /// Whether a node's vector and colour ports can be split into their parts (X, Y and Z) in this kind of graph: those
+        /// whose graphs are run, as a visual script is, rather than turned into code.
+        /// </summary>
+        public virtual bool CanSplit => false;
 
         /// <summary>The types a graph of this kind's variables can be.</summary>
         public virtual IReadOnlyList<PortType> VariableTypes => PortType.VariableTypes;

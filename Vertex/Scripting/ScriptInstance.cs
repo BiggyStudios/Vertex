@@ -37,6 +37,9 @@ namespace Vertex.Scripting
 
         public void Out(string port, object? value) => Node.Outputs[port] = value;
 
+        /// <summary>Whether anything's linked to port <paramref name="port"/>: a flow output to something to run, or an input from a value.</summary>
+        public bool IsLinked(string port) => Node.Flows.ContainsKey(port) || Node.Inputs.ContainsKey(port);
+
         /// <summary>Runs what's linked to flow output <paramref name="port"/>, and comes back once it's done.</summary>
         public void Continue(string port) => _instance.Continue(Node, port);
 
@@ -136,7 +139,7 @@ namespace Vertex.Scripting
             foreach (GraphLink link in Graph.Links)
             {
                 if (!byId.TryGetValue(link.FromNode, out Compiled? from) || !byId.TryGetValue(link.ToNode, out Compiled? to)) continue;
-                if (from.Type.Output(link.FromPort) is not { } output) continue;
+                if (Graph.Output(from.Node, link.FromPort) is not { } output) continue;
 
                 if (output.Type.IsFlow) from.Flows[link.FromPort] = (to, link.ToPort);
                 else to.Inputs[link.ToPort] = (from, link.FromPort);
@@ -237,11 +240,19 @@ namespace Vertex.Scripting
         /// </summary>
         internal object? Read(Compiled node, string port)
         {
-            Port? info = node.Type.Input(port);
+            Port? info = node.Type.Input(port) ?? Graph.Input(node.Node, port);
             if (info == null) throw new InvalidOperationException($"{node.Type.Title} has no input {port}");
 
             object? value;
-            if (node.Inputs.TryGetValue(port, out var source))
+            if (node.Node.SplitInputs.Count > 0 && node.Node.SplitInputs.Contains(port))
+            {
+                // Split into its parts: each read on its own, and put together.
+                PortType whole = Graph.TypeOf(node.Node, info);
+                Span<float> parts = stackalloc float[whole.Parts.Count];
+                for (int i = 0; i < parts.Length; i++) parts[i] = (float)Read(node, Graph.PartName(port, whole.Parts[i]))!;
+                value = whole.Join(parts);
+            }
+            else if (node.Inputs.TryGetValue(port, out var source))
             {
                 if (source.Node.Pure)
                 {
@@ -261,7 +272,10 @@ namespace Vertex.Scripting
                     }
                 }
 
-                value = source.Node.Outputs.GetValueOrDefault(source.Port);
+                // From a part of a split output: that part of the whole.
+                value = source.Node.Node.SplitOutputs.Count > 0 && Graph.PartOf(source.Node.Node, source.Port, output: true) is var (whole, wholeType, index)
+                    ? wholeType.Part(source.Node.Outputs.GetValueOrDefault(whole.Name), index)
+                    : source.Node.Outputs.GetValueOrDefault(source.Port);
             }
             else
             {

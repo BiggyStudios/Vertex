@@ -20,6 +20,23 @@ namespace Vertex.Graphs
         /// <summary>Values set on it, by port name: numbers, true/false, text, vectors and enum choices.</summary>
         public Dictionary<string, object?> Values { get; } = new();
 
+        /// <summary>
+        /// Inputs shown split into their parts, by name: a vector input "Position" shown as Position X, Y and Z, each linked
+        /// or typed on its own (see <see cref="Graph.Split"/>).
+        /// </summary>
+        public HashSet<string> SplitInputs { get; } = new();
+
+        /// <summary>Outputs shown split into their parts, by name.</summary>
+        public HashSet<string> SplitOutputs { get; } = new();
+
+        /// <summary>Takes on <paramref name="other"/>'s values and split ports: for copies.</summary>
+        public void CopySettings(GraphNode other)
+        {
+            foreach ((string name, object? value) in other.Values) Values[name] = value;
+            SplitInputs.UnionWith(other.SplitInputs);
+            SplitOutputs.UnionWith(other.SplitOutputs);
+        }
+
         public GraphNode(int id, string type, Vector2 position)
         {
             Id = id;
@@ -126,7 +143,10 @@ namespace Vertex.Graphs
         {
             if (fromNode == toNode || Library is not { } library) return false;
             if (Node(fromNode) is not { } from || Node(toNode) is not { } to) return false;
-            if (library.Find(from.Type)?.Output(fromPort) is not { } output || library.Find(to.Type)?.Input(to, toPort) is not { } input) return false;
+            if (Output(from, fromPort) is not { } output || Input(to, toPort) is not { } input) return false;
+
+            // A split port is linked by its parts.
+            if (from.SplitOutputs.Contains(fromPort) || to.SplitInputs.Contains(toPort)) return false;
             return input.Linkable && library.CanLink(TypeOf(from, output), TypeOf(to, input));
         }
 
@@ -147,6 +167,14 @@ namespace Vertex.Graphs
         public void Tidy()
         {
             if (Library is not { } library) return;
+            // A port split into parts it no longer has (a variable that's not a vector now) goes back to being whole.
+            foreach (GraphNode node in Nodes)
+            {
+                if (library.Find(node.Type) is not { } type) continue;
+                node.SplitInputs.RemoveWhere(name => type.Input(node, name) is not { } port || TypeOf(node, port).Parts.Count == 0);
+                node.SplitOutputs.RemoveWhere(name => type.Output(name) is not { } port || TypeOf(node, port).Parts.Count == 0);
+            }
+
             Links.RemoveAll(l => !CanLink(l.FromNode, l.FromPort, l.ToNode, l.ToPort));
             foreach (GraphNode node in Nodes)
             {
@@ -168,7 +196,7 @@ namespace Vertex.Graphs
         {
             if (!CanLink(fromNode, fromPort, toNode, toPort)) return false;
 
-            Port output = Library!.Find(Node(fromNode)!.Type)!.Output(fromPort)!;
+            Port output = Output(Node(fromNode)!, fromPort)!;
             if (output.Type.IsFlow || output.OneLink) Links.RemoveAll(l => l.FromNode == fromNode && l.FromPort == fromPort);
             if (!output.Type.IsFlow) Links.RemoveAll(l => l.ToNode == toNode && l.ToPort == toPort);
 
@@ -190,6 +218,143 @@ namespace Vertex.Graphs
             }
 
             return null;
+        }
+
+        // ---------------------------------------------------------------- Ports, and splitting them into parts
+
+        /// <summary>The name of a part of a split port: "Position.X".</summary>
+        public static string PartName(string port, string part) => port + "." + part;
+
+        /// <summary>
+        /// For the name of a part of one of <paramref name="node"/>'s split ports ("Position.X"): the whole port, its type
+        /// and which part it is. Null if the name isn't one.
+        /// </summary>
+        public (Port Whole, PortType Type, int Index)? PartOf(GraphNode node, string name, bool output)
+        {
+            int dot = name.LastIndexOf('.');
+            if (dot <= 0 || !(output ? node.SplitOutputs : node.SplitInputs).Contains(name[..dot])) return null;
+            if (Library?.Find(node.Type) is not { } type) return null;
+            if ((output ? type.Output(name[..dot]) : type.Input(node, name[..dot])) is not { } whole) return null;
+
+            PortType wholeType = TypeOf(node, whole);
+            string part = name[(dot + 1)..];
+            for (int i = 0; i < wholeType.Parts.Count; i++)
+            {
+                if (wholeType.Parts[i] == part) return (whole, wholeType, i);
+            }
+
+            return null;
+        }
+
+        private static Port PartPort(Port whole, PortType type, int index, bool output) =>
+            new(PartName(whole.Name, type.Parts[index]), PortType.Number, output ? null : type.Part(whole.DefaultValue, index),
+                Tooltip: $"The {type.Parts[index]} of {whole.Name}");
+
+        /// <summary>Input <paramref name="name"/> of <paramref name="node"/>: one of its kind's, or a part of one it has split.</summary>
+        public Port? Input(GraphNode node, string name)
+        {
+            if (Library?.Find(node.Type) is not { } type) return null;
+            if (type.Input(node, name) is { } port) return port;
+            return PartOf(node, name, output: false) is var (whole, wholeType, index) ? PartPort(whole, wholeType, index, output: false) : null;
+        }
+
+        /// <summary>Output <paramref name="name"/> of <paramref name="node"/>: one of its kind's, or a part of one it has split.</summary>
+        public Port? Output(GraphNode node, string name)
+        {
+            if (Library?.Find(node.Type) is not { } type) return null;
+            if (type.Output(name) is { } port) return port;
+            return PartOf(node, name, output: true) is var (whole, wholeType, index) ? PartPort(whole, wholeType, index, output: true) : null;
+        }
+
+        /// <summary>A node's inputs as it shows them: its kind's (see <see cref="NodeType.InputsOf"/>), with split ones as their parts.</summary>
+        public IReadOnlyList<Port> InputsOf(GraphNode node) =>
+            Library?.Find(node.Type) is { } type ? WithParts(node, type.InputsOf(this, node), node.SplitInputs, output: false) : [];
+
+        /// <summary>A node's outputs as it shows them, with split ones as their parts.</summary>
+        public IReadOnlyList<Port> OutputsOf(GraphNode node) =>
+            Library?.Find(node.Type) is { } type ? WithParts(node, type.OutputsOf(this, node), node.SplitOutputs, output: true) : [];
+
+        private IReadOnlyList<Port> WithParts(GraphNode node, IReadOnlyList<Port> ports, HashSet<string> split, bool output)
+        {
+            if (split.Count == 0) return ports;
+            var shown = new List<Port>(ports.Count + 4);
+            foreach (Port port in ports)
+            {
+                PortType type = TypeOf(node, port);
+                if (!split.Contains(port.Name) || type.Parts.Count == 0)
+                {
+                    shown.Add(port);
+                    continue;
+                }
+
+                for (int i = 0; i < type.Parts.Count; i++) shown.Add(PartPort(port, type, i, output));
+            }
+
+            return shown;
+        }
+
+        /// <summary>Whether a port can be split into its parts: a vector or colour, in a kind of graph that lets them be.</summary>
+        public bool CanSplit(GraphNode node, Port port, bool output)
+        {
+            if (Library is not { CanSplit: true } || !port.Linkable || port.Type.IsFlow) return false;
+            if ((output ? node.SplitOutputs : node.SplitInputs).Contains(port.Name)) return false;
+            return TypeOf(node, port).Parts.Count > 0 && (output ? Output(node, port.Name) : Input(node, port.Name)) == port;
+        }
+
+        /// <summary>
+        /// Shows a vector or colour port as its parts (X, Y and Z), each a number linked or typed on its own; what was
+        /// linked to the whole port is let go, and the value typed in it is shared out among its parts.
+        /// </summary>
+        public void Split(GraphNode node, string port, bool output)
+        {
+            if ((output ? Output(node, port) : Input(node, port)) is not { } whole || !CanSplit(node, whole, output)) return;
+            PortType type = TypeOf(node, whole);
+
+            if (output)
+            {
+                Links.RemoveAll(l => l.FromNode == node.Id && l.FromPort == port);
+                node.SplitOutputs.Add(port);
+            }
+            else
+            {
+                Links.RemoveAll(l => l.ToNode == node.Id && l.ToPort == port);
+                object? value = node.Values.TryGetValue(port, out object? set) ? set : whole.DefaultValue;
+                for (int i = 0; i < type.Parts.Count; i++) node.Values[PartName(port, type.Parts[i])] = type.Part(value, i);
+                node.Values.Remove(port);
+                node.SplitInputs.Add(port);
+            }
+
+            Changed();
+        }
+
+        /// <summary>Puts a split port back together: links to its parts go, and their typed values make its value.</summary>
+        public void Join(GraphNode node, string port, bool output)
+        {
+            if (!(output ? node.SplitOutputs : node.SplitInputs).Contains(port)) return;
+            Port? whole = Library?.Find(node.Type) is { } kind ? output ? kind.Output(port) : kind.Input(node, port) : null;
+            IReadOnlyList<string> parts = whole != null ? TypeOf(node, whole).Parts : [];
+
+            if (output)
+            {
+                Links.RemoveAll(l => l.FromNode == node.Id && PartOf(node, l.FromPort, output: true)?.Whole.Name == port);
+                node.SplitOutputs.Remove(port);
+            }
+            else
+            {
+                Links.RemoveAll(l => l.ToNode == node.Id && PartOf(node, l.ToPort, output: false)?.Whole.Name == port);
+                Span<float> values = stackalloc float[parts.Count];
+                for (int i = 0; i < parts.Count; i++)
+                {
+                    string name = PartName(port, parts[i]);
+                    values[i] = node.Values.TryGetValue(name, out object? value) ? (float)PortType.Number.Convert(value)! : whole != null ? TypeOf(node, whole).Part(whole.DefaultValue, i) : 0f;
+                    node.Values.Remove(name);
+                }
+
+                if (whole != null) node.Values[port] = TypeOf(node, whole).Join(values);
+                node.SplitInputs.Remove(port);
+            }
+
+            Changed();
         }
 
         // ---------------------------------------------------------------- While it runs
@@ -324,6 +489,11 @@ namespace Vertex.Graphs
                         foreach (JsonProperty value in values.EnumerateObject()) node.Values[value.Name] = ReadValue(value.Value);
                     }
 
+                    node.SplitInputs.Clear();
+                    node.SplitOutputs.Clear();
+                    if (saved.TryGetProperty("splitIn", out JsonElement splitIn)) node.SplitInputs.UnionWith(splitIn.EnumerateArray().Select(e => e.GetString() ?? ""));
+                    if (saved.TryGetProperty("splitOut", out JsonElement splitOut)) node.SplitOutputs.UnionWith(splitOut.EnumerateArray().Select(e => e.GetString() ?? ""));
+
                     Nodes.Add(node);
                     highest = Math.Max(highest, id);
                 }
@@ -391,6 +561,16 @@ namespace Vertex.Graphs
                         json.WriteEndObject();
                     }
 
+                    void Split(string name, HashSet<string> split)
+                    {
+                        if (split.Count == 0) return;
+                        json.WriteStartArray(name);
+                        foreach (string port in split.Order(StringComparer.Ordinal)) json.WriteStringValue(port);
+                        json.WriteEndArray();
+                    }
+
+                    Split("splitIn", node.SplitInputs);
+                    Split("splitOut", node.SplitOutputs);
                     json.WriteEndObject();
                 }
 

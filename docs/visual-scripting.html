@@ -35,7 +35,7 @@
     <p>The <strong>white wires</strong> between the triangles are the flow: when a node is done, it carries on along its output. Nodes that only work something out have no flow; they're worked out when something needs them.</p>
     <ul>
         <li><strong>Branch</strong> goes one way if a condition's true, the other if not.</li>
-        <li><strong>Sequence</strong> runs <em>Then 1</em>, then <em>Then 2</em>, then <em>Then 3</em>: for several things in a row from one event.</li>
+        <li><strong>Sequence</strong> runs <em>Then 1</em>, then <em>Then 2</em>, then <em>Then 3</em>: for several things in a row from one event. Wiring its last output adds another, up to ten.</li>
         <li><strong>For Loop</strong> runs its body a number of times, with the <em>Index</em>.</li>
         <li><strong>Wait</strong> carries on after some seconds, without holding anything else up.</li>
         <li><strong>Cooldown</strong> lets the flow through at most once every so many seconds: fire rates, jump spam.</li>
@@ -46,9 +46,10 @@
     <p>Coloured wires carry values from an output to an input. The colour is the type, and the editor only lets wires join ports that fit (a number fits a vector's three parts; anything fits text).</p>
     <div class="chips" id="type-legend"></div>
     <p>An input with no wire uses the value typed on the node. An <strong>Object</strong> input with no wire means the object the script is on (<em>Self</em>). Grey settings with no port (a key, a name) are chosen on the node itself.</p>
+    <p>Right-click a vector or colour port (its dot or its name) and choose <strong>Split Into X, Y, Z</strong> to show it as one number for each part. Each can be wired or typed on its own: wire a height into Y and type X and Z, without a Make Vector node. A split output gives each part on its own the same way. <strong>Join Back</strong> on a part's menu puts it back together.</p>
 
     <h2>Variables</h2>
-    <p>Each graph has <strong>Variables</strong> (the button at the top of the graph): numbers, true/false, text, vectors, colours and objects, with starting values. <strong>Get</strong> and <strong>Set Variable</strong> nodes read and change them.</p>
+    <p>Each graph has <strong>Variables</strong> (the button at the top of the graph): numbers, true/false, text, vectors, colours and objects, with starting values. <strong>Get</strong> and <strong>Set Variable</strong> nodes read and change them: drag a variable from the list into the graph and choose Get or Set (hold <kbd>Ctrl</kbd> to get or <kbd>Alt</kbd> to set without asking). Double-click a variable's name to rename it.</p>
     <ul>
         <li><strong>Each object has its own.</strong> Two enemies running the same script each have their own Health.</li>
         <li><strong>Starting values per object.</strong> Under the Visual Script component in the inspector, the graph's variables are listed: set one there and it's this object's own (shown bright, with a ↶ to put it back). It's how a script points at things in the scene, like a door's lever or a player's head.</li>
@@ -70,6 +71,8 @@
         <tr><td>Right-click, or <kbd>Space</kbd></td><td>Add a node: type part of its name or what it's for</td></tr>
         <tr><td>Drag from a port</td><td>Wire it to another (let go on empty space to add a node already wired)</td></tr>
         <tr><td>Drag a wire off an input, or <kbd>Alt</kbd>-click it</td><td>Disconnect it</td></tr>
+        <tr><td>Drag a variable into the graph</td><td>Get or set it (<kbd>Ctrl</kbd>: get, <kbd>Alt</kbd>: set)</td></tr>
+        <tr><td>Right-click a vector port</td><td>Split it into X, Y and Z, or join it back</td></tr>
         <tr><td>Middle mouse drag, wheel</td><td>Pan, zoom</td></tr>
         <tr><td><kbd>Del</kbd>, <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Delete what's selected, undo</td></tr>
     </table>

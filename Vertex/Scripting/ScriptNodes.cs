@@ -23,6 +23,8 @@ namespace Vertex.Scripting
 
         private sealed class ScriptLibrary() : NodeLibrary(ScriptNodes.Kind, "Visual Script")
         {
+            public override bool CanSplit => true;
+
             public override Color CategoryColor(string category) => category switch
             {
                 "Events" => new Color(0.82f, 0.3f, 0.3f),
@@ -48,6 +50,9 @@ namespace Vertex.Scripting
             if (a is string || b is string) return PortType.Text.Convert(a) as string == PortType.Text.Convert(b) as string;
             return Equals(a, b);
         }
+
+        /// <summary>The most a Sequence can have.</summary>
+        private const int _sequenceSteps = 10;
 
         /// <summary>Every kind of node a visual script can have.</summary>
         public static NodeLibrary Library { get; } = Build();
@@ -109,13 +114,22 @@ namespace Vertex.Scripting
 
             Node("Flow", "Branch", [FlowIn(), In("Condition", PortType.Boolean)], [FlowOut("True"), FlowOut("False")],
                 run => run.Continue(run.In<bool>("Condition") ? "True" : "False"), "Goes one way if the condition's true, the other if not.", "if else");
-            Node("Flow", "Sequence", [FlowIn()], [FlowOut("Then 1"), FlowOut("Then 2"), FlowOut("Then 3")], run =>
+            // As many outputs as are linked and one more, up to ten. Only linked ones are run, so spare ones cost nothing.
+            string[] steps = Enumerable.Range(1, _sequenceSteps).Select(i => $"Then {i}").ToArray();
+            library.Add(new ScriptNode("Flow/Sequence", "Sequence", "Flow", [FlowIn()], [], run =>
                 {
-                    run.Continue("Then 1");
-                    run.Continue("Then 2");
-                    run.Continue("Then 3");
-                },
-                "Does several things in order: all of Then 1, then all of Then 2, then Then 3.", "order steps");
+                    foreach (string step in steps)
+                    {
+                        if (run.IsLinked(step)) run.Continue(step);
+                    }
+                })
+            {
+                Description = $"Does several things in order: all of Then 1, then all of Then 2, and so on. Linking the last adds another, up to {_sequenceSteps}.",
+                Keywords = "order steps",
+                RepeatedOutput = FlowOut(),
+                RepeatedOutputAtLeast = 3,
+                RepeatedOutputAtMost = _sequenceSteps
+            });
             Node("Flow", "For Loop", [FlowIn(), In("From", PortType.Number, 0f), In("To", PortType.Number, 10f)],
                 [FlowOut("Body"), Out("Index", PortType.Number), FlowOut("Done")], run =>
                 {

@@ -70,7 +70,8 @@ JsonNode Nodes()
                 ["description"] = node.Description ?? "",
                 ["keywords"] = node.Keywords,
                 ["inputs"] = new JsonArray(node.Inputs.Select(PortJson).ToArray()),
-                ["outputs"] = new JsonArray(node.Outputs.Select(PortJson).ToArray())
+                // An output that repeats (a Sequence's Then 1, Then 2...) as many as it has to start with.
+                ["outputs"] = new JsonArray(node.Outputs.Concat(node.RepeatedOutput is { } more ? Enumerable.Range(1, node.RepeatedOutputAtLeast).Select(i => node.Output($"{more.Name} {i}")!) : []).Select(PortJson).ToArray())
             };
             if (node is ScriptNode { Event: { } @event }) entry["event"] = @event;
             if (node is VfxNode vfx) entry["role"] = vfx.Role.ToString();

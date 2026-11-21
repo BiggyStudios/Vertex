@@ -112,6 +112,18 @@ namespace Vertex.Editor.Gui
             if (IsAnyOpen) _closedAt = Ui.Time;
         }
 
+        /// <summary>The labels of the open menu's items, for tests.</summary>
+        internal static IEnumerable<string> Labels => IsAnyOpen ? _items!.Where(i => !i.IsSeparator).Select(i => i.Label) : [];
+
+        /// <summary>Picks the open menu's item labelled <paramref name="label"/>, as a click would, for tests. False if there's none, or it's off.</summary>
+        internal static bool Pick(string label)
+        {
+            if (!IsAnyOpen || _items!.FirstOrDefault(i => i.Label == label) is not { Enabled: true } item) return false;
+            Close();
+            item.Action?.Invoke();
+            return true;
+        }
+
         /// <summary>The number of the item picked from <paramref name="owner"/>'s menu, once, on the frame after; otherwise null.</summary>
         public static int? TakeChoice(int owner)
         {

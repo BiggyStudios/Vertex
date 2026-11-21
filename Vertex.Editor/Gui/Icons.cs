@@ -280,6 +280,27 @@ namespace Vertex.Editor.Gui
             Chevron(centre + new Vector2(r - size * 0.04f, 0f), size * 0.5f, color, -90f);
         }
 
+        /// <summary>One line fanning out into three: a port split into its parts.</summary>
+        public static void Split(Vector2 centre, float size, Color color) => Fan(centre, size, color, -1f);
+
+        /// <summary>Three lines coming together into one: parts joined back into a whole.</summary>
+        public static void Join(Vector2 centre, float size, Color color) => Fan(centre, size, color, 1f);
+
+        // Three ends on one side, meeting at a point and going on as one; facing left (joining) or right (splitting).
+        private static void Fan(Vector2 centre, float size, Color color, float facing)
+        {
+            float w = size * 0.32f, h = size * 0.26f;
+            Vector2 meet = centre + new Vector2(facing * w * 0.15f, 0f);
+            Vector2 single = centre + new Vector2(facing * w, 0f);
+            Ui.Line(meet, single, color, 1.4f);
+            foreach (float y in (ReadOnlySpan<float>)[-h, 0f, h])
+            {
+                Vector2 end = centre + new Vector2(-facing * w, y);
+                Ui.Line(end, meet, color, 1.4f);
+                Ui.Circle(end, size * 0.06f, color);
+            }
+        }
+
         public static void Trash(Vector2 centre, float size, Color color)
         {
             float w = size * 0.26f;

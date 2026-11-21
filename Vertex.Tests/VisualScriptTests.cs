@@ -296,5 +296,118 @@ namespace Vertex.Tests
 
             Assert.Equal(["front door", "back door"], _logged.Where(e => e.Level == LogLevel.Info).Select(e => e.Message));
         }
+
+        [Fact]
+        public void A_sequence_grows_an_output_as_its_last_is_linked_up_to_ten_and_runs_them_in_order()
+        {
+            Graph graph = NewGraph();
+            GraphNode start = graph.AddNode("Events/On Start", Vector2.Zero);
+            GraphNode sequence = graph.AddNode("Flow/Sequence", Vector2.Zero);
+            graph.Link(start.Id, "Then", sequence.Id, "In");
+            NodeType type = graph.Library!.Find(sequence.Type)!;
+
+            // Three to start with, as it always had.
+            Assert.Equal(["Then 1", "Then 2", "Then 3"], type.OutputsOf(graph, sequence).Select(p => p.Name));
+
+            // Linked out of order, each says its number; the fifth linked shows a sixth to link next.
+            foreach (int i in new[] { 5, 1, 3, 2, 4 })
+            {
+                GraphNode print = graph.AddNode("Actions/Print", Vector2.Zero);
+                print.Values["Value"] = $"step {i}";
+                Assert.True(graph.Link(sequence.Id, $"Then {i}", print.Id, "In"));
+            }
+
+            Assert.Equal(6, type.OutputsOf(graph, sequence).Count);
+            Run(graph);
+            Assert.Equal(Enumerable.Range(1, 5).Select(i => $"step {i}"), _logged.Where(e => e.Level == LogLevel.Info).Select(e => e.Message));
+
+            // No more than ten.
+            for (int i = 6; i <= 10; i++) Assert.True(graph.Link(sequence.Id, $"Then {i}", graph.AddNode("Actions/Print", Vector2.Zero).Id, "In"));
+            Assert.Equal(10, type.OutputsOf(graph, sequence).Count);
+            Assert.False(graph.Link(sequence.Id, "Then 11", graph.AddNode("Actions/Print", Vector2.Zero).Id, "In"));
+        }
+
+        [Fact]
+        public void A_vector_input_split_into_x_y_and_z_takes_each_from_a_link_or_what_is_typed()
+        {
+            Graph graph = NewGraph();
+            GraphNode start = graph.AddNode("Events/On Start", Vector2.Zero);
+            GraphNode move = graph.AddNode("Actions/Move By", Vector2.Zero);
+            GraphNode add = graph.AddNode("Math/Add", Vector2.Zero);
+            add.Values["A"] = 2f;
+            add.Values["B"] = 0.5f;
+            move.Values["Offset"] = new Vector3(1f, 9f, 3f);
+            graph.Link(start.Id, "Then", move.Id, "In");
+            graph.Link(add.Id, "Result", move.Id, "Offset");
+
+            // Splitting lets go of the whole vector's link, and shares out what was typed.
+            graph.Split(move, "Offset", output: false);
+            Assert.Empty(graph.LinksTo(move.Id, "Offset"));
+            Assert.Equal(["In", "Target", "Offset.X", "Offset.Y", "Offset.Z", "Local"], graph.InputsOf(move).Select(p => p.Name));
+            Assert.Equal((1f, 9f, 3f), ((float)move.Values["Offset.X"]!, (float)move.Values["Offset.Y"]!, (float)move.Values["Offset.Z"]!));
+
+            // Y from the sum; the whole can't be linked while it's split.
+            Assert.True(graph.Link(add.Id, "Result", move.Id, "Offset.Y"));
+            Assert.False(graph.Link(add.Id, "Result", move.Id, "Offset"));
+
+            // Kept when saved.
+            Graph loaded = Graph.FromJson(graph.ToJson());
+            GraphNode loadedMove = loaded.Node(move.Id)!;
+            Assert.Contains("Offset", loadedMove.SplitInputs);
+            Assert.Single(loaded.LinksTo(move.Id, "Offset.Y"));
+
+            GameObject runner = Run(loaded);
+            Assert.Equal(new Vector3(1f, 2.5f, 3f), runner.Transform.Position);
+
+            // Joined back up: the parts' links go, and their typed values make the vector again.
+            graph.Join(move, "Offset", output: false);
+            Assert.DoesNotContain(graph.Links, l => l.ToNode == move.Id && l.ToPort.StartsWith("Offset", StringComparison.Ordinal));
+            Assert.Equal(new Vector3(1f, 9f, 3f), move.Values["Offset"]);
+            Assert.DoesNotContain("Offset.X", move.Values.Keys);
+        }
+
+        [Fact]
+        public void A_vector_output_split_into_parts_gives_each_part_on_its_own()
+        {
+            Graph graph = NewGraph();
+            GraphNode start = graph.AddNode("Events/On Start", Vector2.Zero);
+            GraphNode position = graph.AddNode("Objects/Get Position", Vector2.Zero);
+            GraphNode print = graph.AddNode("Actions/Print", Vector2.Zero);
+            graph.Link(start.Id, "Then", print.Id, "In");
+
+            graph.Split(position, "Position", output: true);
+            Assert.Equal(["Position.X", "Position.Y", "Position.Z"], graph.OutputsOf(position).Select(p => p.Name));
+            Assert.True(graph.Link(position.Id, "Position.Z", print.Id, "Value"));
+
+            var gameObject = new GameObject("Runner");
+            gameObject.Transform.Position = new Vector3(4f, 5f, 6f);
+            gameObject.AddComponent<VisualScript>().Script = graph;
+            Scene.Active.Update();
+            Assert.Equal(["6"], _logged.Where(e => e.Level == LogLevel.Info).Select(e => e.Message));
+        }
+
+        [Fact]
+        public void Only_vectors_and_colours_split_and_only_in_graphs_that_run()
+        {
+            Graph graph = NewGraph();
+            GraphNode add = graph.AddNode("Math/Add", Vector2.Zero);
+            NodeLibrary library = graph.Library!;
+            Assert.False(graph.CanSplit(add, library.Find(add.Type)!.Input("A")!, output: false));
+
+            // A set variable's value takes its variable's type: a vector splits, and goes back to whole if it isn't one any more.
+            graph.Variables.Add(new GraphVariable("Spot", PortType.Vector));
+            GraphNode set = graph.AddNode("Variables/Set Variable", Vector2.Zero);
+            set.Values["Variable"] = "Spot";
+            graph.Split(set, "Value", output: false);
+            Assert.Contains("Value", set.SplitInputs);
+            graph.Variables[0].Type = PortType.Number;
+            graph.Tidy();
+            Assert.Empty(set.SplitInputs);
+
+            var shader = new Graph(Vertex.ShaderGraphs.ShaderNodes.Kind);
+            GraphNode node = shader.AddNode(shader.Library!.All.First(t => t.Inputs.Any(p => p.Type == PortType.Vector || p.Type == PortType.Color)).Id, Vector2.Zero);
+            Port vector = shader.Library!.Find(node.Type)!.Inputs.First(p => p.Type == PortType.Vector || p.Type == PortType.Color);
+            Assert.False(shader.CanSplit(node, vector, output: false));
+        }
     }
 }

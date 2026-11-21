@@ -342,5 +342,131 @@ namespace Vertex.Editor.Tests
             GraphNode gradient = graph.Nodes.First(n => n.Type == "Colors/Gradient");
             Assert.False(graph.CanLink(gradient.Id, "Color", output.Id, "Size Scale"));
         }
+
+        // The first variable's name in the variables panel: the panel's at (10, 54), its rows from 36 down, names 22 in.
+        private static readonly Vector2 _firstVariable = new(70f, 112f);
+
+        [Fact]
+        public void A_variable_dragged_into_the_graph_asks_get_or_set_and_ctrl_or_alt_choose_at_once()
+        {
+            var setup = new Setup();
+            setup.Graph.Variables.Add(new GraphVariable("Health", PortType.Number, 100f));
+            setup.Frame(3);
+
+            setup.Drag(_firstVariable, new Vector2(600f, 400f));
+            Assert.Equal(["Get Health", "Set Health"], Menu.Labels);
+            Assert.True(Menu.Pick("Get Health"));
+            GraphNode get = Assert.Single(setup.Graph.Nodes);
+            Assert.Equal(("Variables/Get Variable", "Health"), (get.Type, get.Values["Variable"]));
+            setup.Frame(40);
+
+            // Alt sets, Ctrl gets, without asking.
+            InputSystem.PressKey(Key.AltLeft);
+            setup.Drag(_firstVariable, new Vector2(600f, 600f));
+            InputSystem.ReleaseKey(Key.AltLeft);
+            Assert.False(Menu.IsAnyOpen);
+            Assert.Single(setup.Graph.Nodes, n => n.Type == "Variables/Set Variable" && n.Values["Variable"] as string == "Health");
+            setup.Frame(40);
+
+            InputSystem.PressKey(Key.ControlLeft);
+            setup.Drag(_firstVariable, new Vector2(800f, 600f));
+            InputSystem.ReleaseKey(Key.ControlLeft);
+            Assert.Equal(2, setup.Graph.Nodes.Count(n => n.Type == "Variables/Get Variable"));
+            setup.Frame(40);
+
+            // Let go back over the panel: nothing.
+            setup.Drag(_firstVariable, new Vector2(200f, 140f));
+            Assert.Equal(3, setup.Graph.Nodes.Count);
+            Assert.False(Menu.IsAnyOpen);
+
+            setup.Context.Undo();
+            Assert.Equal(2, setup.Graph.Nodes.Count);
+        }
+
+        [Fact]
+        public void Double_clicking_a_variables_name_renames_it_and_its_nodes_follow()
+        {
+            var setup = new Setup();
+            setup.Graph.Variables.Add(new GraphVariable("Health", PortType.Number, 100f));
+            GraphNode get = setup.Graph.AddNode("Variables/Get Variable", new Vector2(400f, 300f));
+            get.Values["Variable"] = "Health";
+            setup.Frame(3);
+
+            InputSystem.MoveMouse(_firstVariable);
+            setup.Frame(2);
+            for (int i = 0; i < 2; i++)
+            {
+                InputSystem.PressButton(MouseButton.Left);
+                setup.Frame();
+                InputSystem.ReleaseButton(MouseButton.Left);
+                setup.Frame();
+            }
+
+            Assert.NotEqual(0, Ui.FocusId);
+            setup.Type("Lives");
+            setup.Press(Key.Enter);
+
+            Assert.Equal("Lives", setup.Graph.Variables[0].Name);
+            Assert.Equal("Lives", get.Values["Variable"]);
+        }
+
+        [Fact]
+        public void A_vector_port_right_clicked_splits_into_x_y_and_z_to_link_one_and_joins_back()
+        {
+            var setup = new Setup();
+            GraphNode move = setup.Graph.AddNode("Actions/Move By", new Vector2(400f, 0f));
+            GraphNode add = setup.Graph.AddNode("Math/Add", new Vector2(0f, 200f));
+            move.Values["Offset"] = new Vector3(1f, 2f, 3f);
+            setup.Frame(3);
+
+            // Right-click on the port's name, not just its dot.
+            Vector2 label = setup.Port(move, "Offset", output: false) + new Vector2(20f * setup.Doc.Zoom, 0f);
+            InputSystem.MoveMouse(label);
+            setup.Frame(2);
+            InputSystem.PressButton(MouseButton.Right);
+            setup.Frame();
+            InputSystem.ReleaseButton(MouseButton.Right);
+            setup.Frame();
+            Assert.Contains("Split Into X, Y, Z", Menu.Labels);
+            Assert.True(Menu.Pick("Split Into X, Y, Z"));
+            setup.Frame(2);
+
+            Assert.Contains("Offset", move.SplitInputs);
+            Assert.Equal(2f, move.Values["Offset.Y"]);
+
+            // Each part is a port of its own: a number linked into Y.
+            setup.Drag(setup.Port(add, "Result", output: true), setup.Port(move, "Offset.Y", output: false));
+            Assert.Single(setup.Graph.LinksTo(move.Id, "Offset.Y"));
+
+            // A part's menu joins it back up; undo splits it again with its link.
+            InputSystem.MoveMouse(setup.Port(move, "Offset.Z", output: false));
+            setup.Frame(2);
+            InputSystem.PressButton(MouseButton.Right);
+            setup.Frame();
+            InputSystem.ReleaseButton(MouseButton.Right);
+            setup.Frame();
+            Assert.True(Menu.Pick("Join Back Into Offset"));
+            Assert.Empty(move.SplitInputs);
+            Assert.Empty(setup.Graph.Links);
+            Assert.Equal(new Vector3(1f, 2f, 3f), move.Values["Offset"]);
+
+            setup.Context.Undo();
+            Assert.Contains("Offset", move.SplitInputs);
+            Assert.Single(setup.Graph.LinksTo(move.Id, "Offset.Y"));
+        }
+
+        [Fact]
+        public void A_sequence_shows_one_more_output_than_it_has_linked()
+        {
+            var setup = new Setup();
+            GraphNode sequence = setup.Graph.AddNode("Flow/Sequence", new Vector2(0f, 0f));
+            GraphNode print = setup.Graph.AddNode("Actions/Print", new Vector2(400f, 0f));
+            setup.Frame(3);
+            Assert.Null(setup.View.PortOnScreen(setup.Doc, sequence.Id, "Then 4", output: true));
+
+            setup.Drag(setup.Port(sequence, "Then 3", output: true), setup.Port(print, "In", output: false));
+            setup.Frame(2);
+            Assert.NotNull(setup.View.PortOnScreen(setup.Doc, sequence.Id, "Then 4", output: true));
+        }
     }
 }

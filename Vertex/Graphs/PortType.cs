@@ -132,6 +132,37 @@ namespace Vertex.Graphs
             return Default;
         }
 
+        private static readonly string[] _xyz = ["X", "Y", "Z"], _rgba = ["R", "G", "B", "A"];
+
+        /// <summary>
+        /// The numbers a value of this type is made of, for a port split into them: a vector's X, Y and Z, a colour's R, G,
+        /// B and A. Empty for a type that doesn't split.
+        /// </summary>
+        public IReadOnlyList<string> Parts => this == Vector ? _xyz : this == Color ? _rgba : [];
+
+        /// <summary>Part <paramref name="index"/> of <paramref name="value"/> (a vector's Y for 1), as this type.</summary>
+        public float Part(object? value, int index)
+        {
+            object? whole = Convert(value);
+            return whole switch
+            {
+                Vector3 v when index < 3 => v[index],
+                Vertex.Color c when index < 4 => index switch { 0 => c.R, 1 => c.G, 2 => c.B, _ => c.A },
+                _ => 0f
+            };
+        }
+
+        /// <summary>A value of this type made from its parts, in the order of <see cref="Parts"/>.</summary>
+        public object? Join(ReadOnlySpan<float> parts)
+        {
+            Span<float> at = stackalloc float[4];
+            at[3] = 1f;
+            for (int i = 0; i < Math.Min(parts.Length, 4); i++) at[i] = parts[i];
+            if (this == Vector) return new Vector3(at[0], at[1], at[2]);
+            if (this == Color) return new Vertex.Color(at[0], at[1], at[2], at[3]);
+            return Default;
+        }
+
         private static float ToNumber(object? value) => value switch
         {
             float f => f,
