@@ -11,6 +11,7 @@ using Silk.NET.Windowing;
 using Vertex.Audio;
 using Vertex.Editor.Editing;
 using Vertex.Editor.Gui;
+using Vertex.Editor.Platform;
 using Vertex.Input;
 using Vertex.Platform;
 using Vertex.Rendering;
@@ -31,6 +32,7 @@ namespace Vertex.Editor
 
         // Moving and resizing by hand, with the cursor in screen coordinates.
         private bool _moving;
+        private bool _dragEnded;
         private Vector2D<int> _moveFromCursor, _moveFromWindow;
         private int _resizeEdges;
         private Vector2D<int> _resizeFromCursor, _resizeFromPosition, _resizeFromSize;
@@ -81,6 +83,7 @@ namespace Vertex.Editor
         {
             _renderer.Initialise(_window);
             AllowResizing();
+            if (OperatingSystem.IsWindows() && _window.Native?.Win32 is { } win32) WindowsFrame.Install(win32.Hwnd);
             _ = new SilkInput(_window);
             Sound.Initialise();
             Theme.LoadFonts();
@@ -113,6 +116,13 @@ namespace Vertex.Editor
                 _screenCheck = 30;
                 _app.DisplayScale = DisplayScale();
                 _app.ScreenHeight = ScreenHeight();
+            }
+
+            // Windows kept the button's letting go to itself while it moved the window.
+            if (_dragEnded)
+            {
+                _dragEnded = false;
+                InputSystem.ReleaseButton(MouseButton.Left);
             }
 
             Time.Advance(deltaTime);
@@ -167,6 +177,15 @@ namespace Vertex.Editor
             Vector2D<int> cursor = Cursor();
             if (cursor == _moveFromCursor) return;
 
+            // Once it's dragged, on Windows, Windows moves it: it snaps to the screen's edges as other windows do.
+            if (WindowsFrame.Installed)
+            {
+                _moving = false;
+                WindowsFrame.Drag();
+                _dragEnded = true;
+                return;
+            }
+
             // Dragging a maximised window brings it back to its own size, under the cursor where it was grabbed.
             if (Maximized && _restore is { } restore)
             {
@@ -182,7 +201,12 @@ namespace Vertex.Editor
 
         private void Maximize()
         {
-            if (WorkArea() is { } area)
+            // Maximised by Windows, so dragging it away or snapping it knows it was (see WindowsFrame).
+            if (WindowsFrame.Installed)
+            {
+                _window.WindowState = WindowState.Maximized;
+            }
+            else if (WorkArea() is { } area)
             {
                 _restore ??= (_window.Position, _window.Size);
                 _window.Position = area.Position;
