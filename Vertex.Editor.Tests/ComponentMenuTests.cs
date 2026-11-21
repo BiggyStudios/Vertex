@@ -92,8 +92,8 @@ namespace Vertex.Editor.Tests
             int menu = Ui.Id(card, "menu");
             Assert.True(Menu.IsOpen(menu));
 
-            // Reset Transform is the fifth row: after Reset Position, Rotation and Scale, and a line.
-            Vector2? reset = Find(app, Ui.Id(Ui.Id(menu, "menu"), 4), header!.Value.X + 30f, header.Value.Y, header.Value.Y + 160f);
+            // Reset Transform is the first row, before a line and Reset Position, Rotation and Scale.
+            Vector2? reset = Find(app, Ui.Id(Ui.Id(menu, "menu"), 0), header!.Value.X + 30f, header.Value.Y, header.Value.Y + 160f);
             Assert.NotNull(reset);
             InputSystem.PressButton(MouseButton.Left);
             Frame(app);

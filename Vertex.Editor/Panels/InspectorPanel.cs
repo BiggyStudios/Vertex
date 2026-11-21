@@ -1159,11 +1159,11 @@ namespace Vertex.Editor.Panels
 
             return
             [
+                Reset("Reset Transform", all) with { Icon = Icons.Rotate },
+                MenuItem.Separator,
                 Reset("Reset Position", all[0]),
                 Reset("Reset Rotation", all[1]),
-                Reset("Reset Scale", all[2]),
-                MenuItem.Separator,
-                Reset("Reset Transform", all) with { Icon = Icons.Rotate }
+                Reset("Reset Scale", all[2])
             ];
         }
 
