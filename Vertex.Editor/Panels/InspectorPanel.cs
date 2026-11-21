@@ -353,7 +353,8 @@ namespace Vertex.Editor.Panels
             }
             else
             {
-                y = Card(gameObject.Transform, "Transform", Icons.Move, x, y, width, removable: false, body: cy => DrawTransform(gameObject.Transform, x + 12f, cy, width - 24f));
+                y = Card(gameObject.Transform, "Transform", Icons.Move, x, y, width, removable: false, body: cy => DrawTransform(gameObject.Transform, x + 12f, cy, width - 24f),
+                    menu: () => TransformMenu([gameObject.Transform]));
             }
 
             y = DrawComponents(gameObject, uiRect, x, y, width);
@@ -405,7 +406,8 @@ namespace Vertex.Editor.Panels
             if (rects.All(r => r == null))
             {
                 y = Card(main.Transform, "Transform", Icons.Move, x, y, width, removable: false,
-                    body: cy => DrawTransform(main.Transform, x + 12f, cy, width - 24f, others.Select(o => o.Transform).ToList()));
+                    body: cy => DrawTransform(main.Transform, x + 12f, cy, width - 24f, others.Select(o => o.Transform).ToList()),
+                    menu: () => TransformMenu([main.Transform, .. others.Select(o => o.Transform)]));
             }
             else if (rects.All(r => r != null))
             {
@@ -531,8 +533,9 @@ namespace Vertex.Editor.Panels
         /// open and shut. Returns where the next card goes.
         /// </summary>
         /// <param name="alsoOn">The same component on the other selected objects: switching it on or off, or removing it, does them all.</param>
+        /// <param name="menu">For a card that isn't a component's (a transform's), what its menu has, if it has one.</param>
         private float Card(object owner, string title, Icon icon, float x, float y, float width, bool removable, Func<float, float> body, bool draggable = false,
-            bool lifted = false, IReadOnlyList<Component>? alsoOn = null)
+            bool lifted = false, IReadOnlyList<Component>? alsoOn = null, Func<List<MenuItem>>? menu = null)
         {
             int id = Ui.Id(RuntimeHelpers.GetHashCode(owner), "card");
             bool open = !_folded.TryGetValue(owner, out _);
@@ -551,7 +554,7 @@ namespace Vertex.Editor.Panels
             var header = new Rect(card.X, card.Y, card.Width, _cardHeader);
             Rect menuButton = header.TakeRight(30f).Shrink(3f);
             Rect toggle = header.CutRight(30f).TakeRight(26f);
-            Rect titleRect = removable ? header.CutRight(58f) : header;
+            Rect titleRect = removable ? header.CutRight(58f) : menu != null ? header.CutRight(30f) : header;
 
             Color iconColor = ComponentIcons.ColorFor(owner.GetType());
             bool nowOpen = Widgets.Foldout(id, titleRect.Shrink(2f, 3f), title, open, icon: icon, iconColor: owner is Component or Transform ? iconColor : null);
@@ -582,12 +585,17 @@ namespace Vertex.Editor.Panels
                     else SetValue.Apply(_context.History, enabled ? "Enable" : "Disable", component, enabledProperty, enabled);
                 }
 
-                // The menu hangs from its button, or opens where the mouse is on a right-click anywhere on the header.
+                menu = () => alsoOn is { Count: > 0 } ? RemoveFromAllMenu([component, .. alsoOn]) : ComponentMenu(component);
+            }
+
+            // The menu hangs from its button, or opens where the mouse is on a right-click anywhere on the header.
+            if (menu != null)
+            {
                 int menuId = Ui.Id(id, "menu");
                 bool rightClicked = Ui.MousePressed(MouseButton.Right) && (Ui.HotId == id || Ui.HotId == menuId) && header.Contains(Ui.Mouse);
                 if (Widgets.IconButton(menuId, menuButton, Icons.More, "More") || rightClicked)
                 {
-                    List<MenuItem> items = alsoOn is { Count: > 0 } ? RemoveFromAllMenu([component, .. alsoOn]) : ComponentMenu(component);
+                    List<MenuItem> items = menu();
                     if (rightClicked) Menu.Open(menuId, Ui.Mouse, items);
                     else Menu.Open(menuId, new Vector2(menuButton.X, menuButton.Bottom + 3f), items, flipBy: menuButton.Height + 6f);
                 }
@@ -1117,6 +1125,45 @@ namespace Vertex.Editor.Panels
                     _context.History.Do(new RemoveComponent(gameObject, component));
                     _context.Notify($"Removed {ComponentCatalog.DisplayName(component.GetType())}");
                 }) { Icon = Icons.Trash }
+            ];
+        }
+
+        /// <summary>
+        /// A transform's menu: putting its position, rotation or scale (or all three) back to where a new object starts,
+        /// on each of <paramref name="transforms"/> (all the objects selected), as one change to undo.
+        /// </summary>
+        private List<MenuItem> TransformMenu(IReadOnlyList<Transform> transforms)
+        {
+            var position = typeof(Transform).GetProperty(nameof(Transform.Position))!;
+            var rotation = typeof(Transform).GetProperty(nameof(Transform.Rotation))!;
+            var scale = typeof(Transform).GetProperty(nameof(Transform.Scale))!;
+            (System.Reflection.PropertyInfo Property, object Start)[] all = [(position, Vector3.Zero), (rotation, Quaternion.Identity), (scale, Vector3.One)];
+
+            bool Differs((System.Reflection.PropertyInfo Property, object Start) value) => transforms.Any(t => !Equals(value.Property.GetValue(t), value.Start));
+
+            MenuItem Reset(string name, params (System.Reflection.PropertyInfo Property, object Start)[] values) => new(name, () =>
+            {
+                var changes = new List<IUndoable>();
+                foreach (Transform transform in transforms)
+                {
+                    foreach ((System.Reflection.PropertyInfo property, object start) in values)
+                    {
+                        object? before = property.GetValue(transform);
+                        if (!Equals(before, start)) changes.Add(new SetValue(name, transform, property, before, start));
+                    }
+                }
+
+                if (changes.Count > 0) _context.History.Do(new ChangeGroup(name, changes));
+            })
+            { Enabled = values.Any(Differs) };
+
+            return
+            [
+                Reset("Reset Position", all[0]),
+                Reset("Reset Rotation", all[1]),
+                Reset("Reset Scale", all[2]),
+                MenuItem.Separator,
+                Reset("Reset Transform", all) with { Icon = Icons.Rotate }
             ];
         }
 

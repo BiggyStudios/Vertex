@@ -55,5 +55,64 @@ namespace Vertex.Editor.Tests
             app.Context.Undo();
             Assert.NotNull(crate.GetComponent<BoxCollider>());
         }
+
+        [Fact]
+        public void Right_clicking_the_transform_resets_it_on_every_object_selected_as_one_undo()
+        {
+            var app = new EditorApp();
+            GameObject crate = app.Context.Create("Crate");
+            GameObject barrel = app.Context.Create("Barrel");
+            foreach (GameObject gameObject in (GameObject[])[crate, barrel])
+            {
+                gameObject.Transform.Position = new Vector3(3f, 1f, -2f);
+                gameObject.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.7f);
+                gameObject.Transform.Scale = new Vector3(2f, 0.5f, 1f);
+            }
+
+            app.Context.Selection.Select([crate, barrel]);
+            Frame(app, 20);
+
+            // The card's for whichever of them the inspector shows first.
+            int[] cards = [Ui.Id(RuntimeHelpers.GetHashCode(crate.Transform), "card"), Ui.Id(RuntimeHelpers.GetHashCode(barrel.Transform), "card")];
+            Vector2? header = null;
+            int card = 0;
+            for (float y = 60f; y < ScreenHeight && header == null; y += 4f)
+            {
+                InputSystem.MoveMouse(new Vector2(ScreenWidth - 200f, y));
+                Frame(app, 2);
+                if (cards.Contains(Ui.HotId)) (header, card) = (new Vector2(ScreenWidth - 200f, y), Ui.HotId);
+            }
+
+            Assert.NotNull(header);
+            InputSystem.PressButton(MouseButton.Right);
+            Frame(app);
+            InputSystem.ReleaseButton(MouseButton.Right);
+            Frame(app, 3);
+
+            int menu = Ui.Id(card, "menu");
+            Assert.True(Menu.IsOpen(menu));
+
+            // Reset Transform is the fifth row: after Reset Position, Rotation and Scale, and a line.
+            Vector2? reset = Find(app, Ui.Id(Ui.Id(menu, "menu"), 4), header!.Value.X + 30f, header.Value.Y, header.Value.Y + 160f);
+            Assert.NotNull(reset);
+            InputSystem.PressButton(MouseButton.Left);
+            Frame(app);
+            InputSystem.ReleaseButton(MouseButton.Left);
+            Frame(app, 3);
+
+            foreach (GameObject gameObject in (GameObject[])[crate, barrel])
+            {
+                Assert.Equal(Vector3.Zero, gameObject.Transform.Position);
+                Assert.Equal(Quaternion.Identity, gameObject.Transform.Rotation);
+                Assert.Equal(Vector3.One, gameObject.Transform.Scale);
+            }
+
+            app.Context.Undo();
+            foreach (GameObject gameObject in (GameObject[])[crate, barrel])
+            {
+                Assert.Equal(new Vector3(3f, 1f, -2f), gameObject.Transform.Position);
+                Assert.Equal(new Vector3(2f, 0.5f, 1f), gameObject.Transform.Scale);
+            }
+        }
     }
 }
