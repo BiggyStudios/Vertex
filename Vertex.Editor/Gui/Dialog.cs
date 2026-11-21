@@ -63,12 +63,29 @@ namespace Vertex.Editor.Gui
             });
         }
 
-        /// <summary>A question with a choice of answers, the first highlighted. Each answer runs its action and closes the dialog.</summary>
+        /// <summary>
+        /// A question with a choice of answers, the first highlighted. Each answer runs its action and closes the dialog; Enter
+        /// gives the highlighted one.
+        /// </summary>
         public static void Ask(string title, string question, params (string Label, Action Action)[] answers)
         {
             Show(title, new Vector2(460f, 150f), rect =>
             {
-                Ui.Text(rect.TakeTop(40f), question, Theme.Text);
+                if (answers.Length > 0 && Ui.FocusId == 0 && !Menu.IsAnyOpen && !Popup.AnyOpen &&
+                    (InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter)))
+                {
+                    InputSystem.Consume(Key.Enter);
+                    InputSystem.Consume(Key.KeypadEnter);
+                    Close();
+                    answers[0].Action();
+                    return;
+                }
+
+                foreach (string line in Ui.Wrap(question, rect.Width))
+                {
+                    Ui.Text(rect.TakeTop(20f), line, Theme.Text);
+                    rect = rect.CutTop(20f);
+                }
                 float right = rect.Right;
                 for (int i = answers.Length - 1; i >= 0; i--)
                 {

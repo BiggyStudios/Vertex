@@ -213,5 +213,66 @@ namespace Vertex.Editor.Tests
 
             Assert.Equal(["Stone Moss", "Stone Dry", "Sand"], _app.AssetsPanel.NewNames(entries));
         }
+
+        [Fact]
+        public void Del_then_Enter_deletes_what_is_selected()
+        {
+            List<string> rocks = Materials("A", "B");
+            Click(TileOf(rocks[0]));
+            Tap(Key.Delete);
+            Assert.True(Dialog.IsOpen);
+
+            Tap(Key.Enter);
+            Frame(_app, 2);
+            Assert.False(Dialog.IsOpen);
+            Assert.False(File.Exists(rocks[0]));
+            Assert.True(File.Exists(rocks[1]));
+        }
+
+        [Fact]
+        public void Deleted_files_and_folders_go_to_the_bin_and_can_be_had_back_from_there()
+        {
+            string bin = Path.Combine(_folder, "Bin");
+            Vertex.Editor.Platform.RecycleBin.StandIn = bin;
+            List<string> rocks = Materials("Rock");
+            string folder = Directory.CreateDirectory(Path.Combine(_root, "Old")).FullName;
+            File.WriteAllText(Path.Combine(folder, "notes.txt"), "keep");
+            _app.Context.Assets!.Refresh();
+            Frame(_app, 3);
+
+            Click(TileOf(rocks[0]));
+            Click(TileOf(folder), Key.ControlLeft);
+            Tap(Key.Delete);
+            Tap(Key.Enter);
+
+            Assert.False(File.Exists(rocks[0]));
+            Assert.False(Directory.Exists(folder));
+            Assert.True(File.Exists(Path.Combine(bin, "Rock.material")));
+            Assert.Equal("keep", File.ReadAllText(Path.Combine(bin, "Old", "notes.txt")));
+
+            // Another of the same name doesn't go over the first.
+            Materials("Rock");
+            Vertex.Editor.Platform.RecycleBin.Move(rocks[0]);
+            Assert.True(File.Exists(Path.Combine(bin, "Rock 2.material")));
+        }
+
+        [Fact]
+        public void The_linux_trash_keeps_a_note_of_where_each_thing_came_from()
+        {
+            string bin = Path.Combine(_folder, "Trash");
+            string file = Path.Combine(_folder, "A b.txt");
+            File.WriteAllText(file, "x");
+            string stored = Vertex.Editor.Platform.RecycleBin.MoveToTrash(file, bin);
+
+            Assert.False(File.Exists(file));
+            Assert.Equal(Path.Combine(bin, "files", "A b.txt"), stored);
+            string note = File.ReadAllText(Path.Combine(bin, "info", "A b.txt.trashinfo"));
+            Assert.StartsWith("[Trash Info]\nPath=", note);
+            Assert.Contains("A%20b.txt", note);
+            Assert.Contains("DeletionDate=", note);
+
+            File.WriteAllText(file, "y");
+            Assert.Equal(Path.Combine(bin, "files", "A b.2.txt"), Vertex.Editor.Platform.RecycleBin.MoveToTrash(file, bin));
+        }
     }
 }

@@ -790,7 +790,7 @@ namespace Vertex.Editor.Panels
             string what = entries.Count == 1
                 ? entries[0].Kind == AssetKind.Folder ? $"the folder {entries[0].Name} and everything in it" : entries[0].Name
                 : folders == 0 ? $"these {entries.Count} items" : $"these {entries.Count} items, and everything in the {(folders == 1 ? "folder" : $"{folders} folders")} among them";
-            Dialog.Ask("Delete", $"Delete {what}? This can't be undone.",
+            Dialog.Ask("Delete", $"Move {what} to the {RecycleBin.Name}? It can be put back from there until the {RecycleBin.Name} is emptied.",
                 ("Delete", () => DeleteAll(entries)),
                 ("Cancel", () => { }));
         }
@@ -803,9 +803,8 @@ namespace Vertex.Editor.Panels
                 try
                 {
                     if (entry.Kind == AssetKind.Sound) SoundPreview.Forget(entry.Path);
-                    if (entry.Kind == AssetKind.Folder) Directory.Delete(entry.Path, recursive: true);
-                    else if (File.Exists(entry.Path)) File.Delete(entry.Path);
-                    else continue;
+                    if (!File.Exists(entry.Path) && !Directory.Exists(entry.Path)) continue;
+                    RecycleBin.Move(entry.Path);
 
                     Assets.Forget(entry.Path);
                     Thumbnails.Forget(entry.Path);
@@ -820,7 +819,7 @@ namespace Vertex.Editor.Panels
             _context.Assets?.Refresh();
             HashSet<string> gone = entries.Select(e => e.Path).ToHashSet();
             _context.Selection.SelectAssets(_context.Selection.Assets.Where(a => !gone.Contains(a.Path)));
-            if (deleted > 0) _context.Notify(deleted == 1 ? $"Deleted {entries[0].Name}" : $"Deleted {deleted} items");
+            if (deleted > 0) _context.Notify(deleted == 1 ? $"Moved {entries[0].Name} to the {RecycleBin.Name}" : $"Moved {deleted} items to the {RecycleBin.Name}");
         }
 
         // ---------------------------------------------------------------- Renaming several at once

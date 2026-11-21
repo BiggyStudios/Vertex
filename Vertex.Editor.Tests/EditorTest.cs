@@ -30,6 +30,9 @@ namespace Vertex.Editor.Tests
             Thumbnails.Reset();
             Thumbnails.CacheFolder = Path.Combine(Path.GetTempPath(), "VertexEditorTests", "Thumbnails");
 
+            // Deleted files go to a bin of the tests' own, not the real one.
+            Vertex.Editor.Platform.RecycleBin.StandIn = Path.Combine(Path.GetTempPath(), "VertexEditorTests", "Bin");
+
             if (!_fontsLoaded)
             {
                 Theme.LoadFonts();
