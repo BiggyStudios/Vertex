@@ -172,7 +172,7 @@ namespace Vertex.Editor.Tests
             var context = new EditorContext();
             GameObject holder = context.Create("Holder", g => g.Transform.Position = new Vector3(3f, 0f, 0f));
 
-            MenuItem cube = CreateMenu.Items(context, holder.Transform).Single(item => item.Label == "Cube");
+            MenuItem cube = CreateMenu.Items(context, holder.Transform).Single(item => item.Label == "3D Object").Children!.Single(item => item.Label == "Cube");
             cube.Action!();
 
             GameObject made = context.Selection.Object!;

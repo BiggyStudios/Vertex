@@ -457,13 +457,10 @@ namespace Vertex.Editor.Panels
                 return several;
             }
 
-            // Things made from here go under the object: a cube on an empty, a light on a lamp post.
             var items = new List<MenuItem>
             {
-                new("Create") { Icon = Icons.Plus, Children = CreateMenu.Items(_context, gameObject.Transform, flat: true) },
-                new("Duplicate", () => _context.Duplicate(gameObject)) { Shortcut = "Ctrl+D" },
-                MenuItem.Separator,
                 new("Rename", () => BeginRename(gameObject)) { Shortcut = "F2" },
+                new("Duplicate", () => _context.Duplicate(gameObject)) { Shortcut = "Ctrl+D" },
                 new("Delete", () => _context.Delete(gameObject)) { Shortcut = "Del", Icon = Icons.Trash }
             };
 
@@ -476,6 +473,14 @@ namespace Vertex.Editor.Panels
             {
                 items.Add(new MenuItem("Expand All", () => SetOpen(gameObject, true)));
                 items.Add(new MenuItem("Collapse All", () => SetOpen(gameObject, false)));
+            }
+
+            // What can be made, in its sections (a menu opens only one more beside it, so they're here, not in a Create
+            // menu). Things made from here go under the object: a cube on an empty, a light on a lamp post.
+            items.Add(MenuItem.Separator);
+            foreach (MenuItem item in CreateMenu.Items(_context, gameObject.Transform))
+            {
+                items.Add(item.Label == "Empty" && item.Children == null ? item with { Label = "Create Empty Child" } : item);
             }
 
             if (_context.Assets is { } assets)

@@ -88,6 +88,41 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void Right_clicking_an_object_in_the_outliner_offers_what_to_make_in_sections()
+        {
+            var context = new EditorContext();
+            GameObject holder = context.Create("Holder");
+            var outliner = new OutlinerPanel(context);
+            var rect = new Rect(0f, 0f, 300f, 600f);
+            void Draw() => outliner.Draw(rect);
+            UiFrame(Draw);
+            UiFrame(Draw);
+
+            Vector2? row = null;
+            for (float y = 0f; y < 400f && row == null; y += 4f)
+            {
+                InputSystem.MoveMouse(new Vector2(150f, y));
+                UiFrame(Draw);
+                UiFrame(Draw);
+                if (Ui.HotId == Ui.Id(RuntimeHelpers.GetHashCode(holder), "row")) row = new Vector2(150f, y + 6f);
+            }
+
+            InputSystem.MoveMouse(row!.Value);
+            UiFrame(Draw);
+            InputSystem.PressButton(MouseButton.Right);
+            UiFrame(Draw);
+            InputSystem.ReleaseButton(MouseButton.Right);
+            UiFrame(Draw);
+
+            List<string> labels = Menu.Labels.ToList();
+            Assert.Contains("Create Empty Child", labels);
+            foreach (string section in new[] { "3D Object", "Light", "2D", "UI" }) Assert.Contains(section, labels);
+            Assert.DoesNotContain("Cube", labels);
+            Assert.DoesNotContain("UI Canvas", labels);
+            Menu.Close();
+        }
+
+        [Fact]
         public void The_outliners_highlight_slides_up_as_well_as_down()
         {
             var context = new EditorContext();
