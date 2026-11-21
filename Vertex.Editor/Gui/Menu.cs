@@ -57,19 +57,27 @@ namespace Vertex.Editor.Gui
         private static float _subOpenedAt;
         private static bool _keysInSub;
 
-        // The item the mouse is resting on, and since when: a submenu opens (or another closes) once it's rested a moment,
-        // so crossing other items on the way to a submenu doesn't close it.
+        // The item the mouse is on, and since when. Pointing at an item opens its submenu (or closes another's) at once,
+        // unless the mouse is on its way across other items to the submenu that's open: then that stays open until the
+        // mouse stops, or has been on the other item a while.
         private static int _resting = -1;
         private static float _restingSince;
+
+        // Where the mouse has been lately, to tell which way it's heading.
+        private static readonly Queue<(float Time, Vector2 At)> _trail = new();
 
         private const float _itemHeight = 26f;
         private const float _separatorHeight = 9f;
         private const float _padding = 5f;
-        private const float _restBeforeSwitching = 0.15f;
+        private const float _aimLookBack = 0.06f;
+        private const float _longestAim = 0.4f;
 
         public static bool IsAnyOpen => _items != null && _closedAt < 0f;
 
         public static bool IsOpen(int owner) => IsAnyOpen && _owner == owner;
+
+        /// <summary>Which item's submenu is open beside the menu, or -1.</summary>
+        internal static int SubmenuOf => IsAnyOpen ? _subOf : -1;
 
         /// <summary>Opens a menu at <paramref name="position"/> (its top-left), for the control <paramref name="owner"/>.</summary>
         public static void Open(int owner, Vector2 position, IReadOnlyList<MenuItem> items, float minWidth = 0f, float flipBy = 0f)
@@ -85,6 +93,7 @@ namespace Vertex.Editor.Gui
             _closedAt = -1f;
             _highlighted = -1;
             _resting = -1;
+            _trail.Clear();
             CloseSub();
 
             // Starts on the ticked item, for a dropdown.
@@ -127,6 +136,29 @@ namespace Vertex.Editor.Gui
             _subOf = -1;
             _subHighlighted = -1;
             _keysInSub = false;
+        }
+
+        // Whether the mouse is on its way into the open submenu, this frame.
+        private static bool _aiming;
+
+        /// <summary>
+        /// Whether the mouse, gone from <paramref name="from"/> to <paramref name="to"/>, is heading into the submenu at
+        /// <paramref name="sub"/>: it's within the wedge from where it was to the near side of the submenu. Not if it's
+        /// stopped.
+        /// </summary>
+        internal static bool HeadingFor(Vector2 from, Vector2 to, Rect sub)
+        {
+            if (Vector2.DistanceSquared(from, to) < 1f || sub.Contains(to)) return false;
+
+            // The submenu's near side, a little taller, so a path that drifts slightly still counts.
+            float edge = sub.X >= from.X ? sub.X : sub.Right;
+            var top = new Vector2(edge, sub.Y - 6f);
+            var bottom = new Vector2(edge, sub.Bottom + 6f);
+
+            static float Side(Vector2 a, Vector2 b, Vector2 p) => (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
+            float d1 = Side(from, top, to), d2 = Side(top, bottom, to), d3 = Side(bottom, from, to);
+            bool negative = d1 < 0f || d2 < 0f || d3 < 0f, positive = d1 > 0f || d2 > 0f || d3 > 0f;
+            return !(negative && positive);
         }
 
         private static int FirstEnabled(IReadOnlyList<MenuItem> items)
@@ -224,6 +256,10 @@ namespace Vertex.Editor.Gui
                 HandleKeys(items);
             }
 
+            _trail.Enqueue((Ui.Time, Ui.Mouse));
+            while (_trail.Count > 1 && Ui.Time - _trail.Peek().Time > _aimLookBack) _trail.Dequeue();
+            _aiming = subItems != null && HeadingFor(_trail.Peek().At, Ui.Mouse, subRect);
+
             DrawPanel(items, rect, menuId, ref _highlighted, sub: false, closing);
             if (subItems != null && _subOf >= 0)
             {
@@ -278,11 +314,11 @@ namespace Vertex.Editor.Gui
                 }
             }
 
-            // Resting on an item opens its submenu, or closes another's.
-            if (!sub && !closing && overSomething && _resting >= 0 && Ui.Time - _restingSince > _restBeforeSwitching)
+            // Pointing at an item opens its submenu, or closes another's, unless the mouse is heading into the open one.
+            if (!sub && !closing && overSomething && _resting >= 0 && _resting != _subOf && !(_aiming && Ui.Time - _restingSince < _longestAim))
             {
-                if (items[_resting].Children != null && _subOf != _resting) OpenSub(_resting, withKeys: false);
-                else if (items[_resting].Children == null && _subOf >= 0) CloseSub();
+                if (items[_resting].Children != null) OpenSub(_resting, withKeys: false);
+                else if (_subOf >= 0) CloseSub();
             }
 
             if (!sub && !overSomething) _resting = -1;

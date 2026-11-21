@@ -96,6 +96,76 @@ namespace Vertex.Editor.Tests
             Assert.Equal("Sphere", picked);
         }
 
+        // Three rows, at y 105-131, 131-157 and 157-183, of a menu opened at (100, 100) and 150 wide: its submenus open at x 247.
+        private static List<MenuItem> SectionedItems() =>
+        [
+            new MenuItem("Script") { Children = [new MenuItem("C# Script"), new MenuItem("Visual Script")] },
+            new MenuItem("Material") { Children = [new MenuItem("Material"), new MenuItem("Shader Graph")] },
+            new MenuItem("Refresh", () => { })
+        ];
+
+        private static int FramesUntil(Func<bool> done)
+        {
+            for (int frame = 1; frame <= 60; frame++)
+            {
+                UiFrame(() => { });
+                if (done()) return frame;
+            }
+
+            return int.MaxValue;
+        }
+
+        [Fact]
+        public void Moving_down_a_menu_opens_and_closes_submenus_straight_away()
+        {
+            int owner = Ui.Id("test.sections");
+            InputSystem.MoveMouse(new Vector2(150f, 118f));
+            UiFrame(() => Menu.Open(owner, new Vector2(100f, 100f), SectionedItems()));
+            Assert.True(FramesUntil(() => Menu.SubmenuOf == 0) <= 3);
+
+            // Straight down onto the next section: its submenu, without a pause.
+            InputSystem.MoveMouse(new Vector2(150f, 144f));
+            Assert.True(FramesUntil(() => Menu.SubmenuOf == 1) <= 3);
+
+            // Onto an item without one: the open one goes.
+            InputSystem.MoveMouse(new Vector2(150f, 170f));
+            Assert.True(FramesUntil(() => Menu.SubmenuOf == -1) <= 3);
+        }
+
+        [Fact]
+        public void A_submenu_stays_open_while_the_mouse_heads_into_it_across_another_item()
+        {
+            int owner = Ui.Id("test.aim");
+            InputSystem.MoveMouse(new Vector2(200f, 110f));
+            UiFrame(() => Menu.Open(owner, new Vector2(100f, 100f), SectionedItems()));
+            Assert.True(FramesUntil(() => Menu.SubmenuOf == 0) <= 3);
+
+            // Down and to the right, towards the first submenu, crossing the second row on the way.
+            for (int step = 1; step <= 4; step++)
+            {
+                InputSystem.MoveMouse(new Vector2(200f + step * 10f, 110f + step * 7.5f));
+                UiFrame(() => { });
+                Assert.Equal(0, Menu.SubmenuOf);
+            }
+
+            // Stopped on the second row instead: its own submenu opens.
+            Assert.True(FramesUntil(() => Menu.SubmenuOf == 1) <= 8);
+        }
+
+        [Fact]
+        public void The_mouse_heads_into_a_submenu_only_within_the_wedge_to_its_near_side()
+        {
+            var sub = new Rect(250f, 100f, 150f, 60f);
+            Assert.True(Menu.HeadingFor(new Vector2(200f, 120f), new Vector2(215f, 130f), sub));
+            Assert.False(Menu.HeadingFor(new Vector2(200f, 120f), new Vector2(200f, 140f), sub));
+            Assert.False(Menu.HeadingFor(new Vector2(200f, 120f), new Vector2(190f, 125f), sub));
+            Assert.False(Menu.HeadingFor(new Vector2(200f, 120f), new Vector2(200f, 120f), sub));
+
+            // A submenu on the left, where there was no room on the right.
+            var left = new Rect(0f, 100f, 150f, 60f);
+            Assert.True(Menu.HeadingFor(new Vector2(200f, 120f), new Vector2(185f, 125f), left));
+        }
+
         [Fact]
         public void Something_made_from_an_objects_menu_goes_under_it()
         {
