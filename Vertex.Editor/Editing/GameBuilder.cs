@@ -112,13 +112,13 @@ namespace Vertex.Editor.Editing
             progress?.Invoke($"Building for {FolderNameOf(platform)}…");
             if (Directory.Exists(published)) Directory.Delete(published, recursive: true);
             string engine = $"-p:CustomAfterMicrosoftCommonTargets=\"{GameCode.WriteEngineTargets()}\"";
-            (int exitCode, string log) = GameCode.Run("dotnet", $"publish \"{Path.Combine(work, PlayerAssembly + ".csproj")}\" -c Release -o \"{published}\" -nologo -v:q -clp:NoSummary {engine}", work);
+            (int exitCode, string log) = GameCode.Run("dotnet", $"publish \"{Path.Combine(work, PlayerAssembly + ".csproj")}\" -c {Configuration(settings)} -o \"{published}\" -nologo -v:q -clp:NoSummary {engine}", work);
             if (exitCode != 0) return new Result(false, log, final, notes);
 
             progress?.Invoke("Copying the assets…");
             CopyAssets(project.AssetsDirectory, Path.Combine(published, "Assets"));
             File.WriteAllText(Path.Combine(published, BuiltGame.SettingsFile), settings.ToPlayerSettings().ToJson());
-            Tidy(published, gameAssembly, platform);
+            Tidy(published, gameAssembly, platform, keepSymbols: settings.DebugBuild);
 
             // The program's named after the game.
             string fileName = FileName(name);
@@ -156,6 +156,9 @@ namespace Vertex.Editor.Editing
             MoveFolder(made, destination);
             return new Result(true, log, final, notes);
         }
+
+        /// <summary>What the game's code is built as: Debug for a debug build (unoptimised, so a debugger can step through it), otherwise Release.</summary>
+        internal static string Configuration(ProjectSettings settings) => settings.DebugBuild ? "Debug" : "Release";
 
         /// <summary>Why the project can't be built yet, or null if it can: it needs somewhere to start.</summary>
         public static string? Problem(Project project)
@@ -286,7 +289,7 @@ namespace Vertex.Editor.Editing
         /// What the built game doesn't use: the engine's doc comments, and from a game whose code is a program of its own,
         /// that program's starter and its settings (the built game starts through its own).
         /// </summary>
-        private static void Tidy(string folder, string? gameAssembly, BuildPlatform platform)
+        private static void Tidy(string folder, string? gameAssembly, BuildPlatform platform, bool keepSymbols)
         {
             var unused = new List<string> { "Vertex.xml" };
             if (gameAssembly != null && gameAssembly != PlayerAssembly)
@@ -302,7 +305,9 @@ namespace Vertex.Editor.Editing
                 if (File.Exists(path)) File.Delete(path);
             }
 
-            // Debugging symbols that didn't go into the program (the engine's, from the editor): only for whoever made it.
+            // Debugging symbols that didn't go into the program (the engine's and the game's): only for whoever made it,
+            // though a debug build keeps them, so errors say which line they were on.
+            if (keepSymbols) return;
             foreach (string symbols in Directory.EnumerateFiles(folder, "*.pdb")) File.Delete(symbols);
         }
 

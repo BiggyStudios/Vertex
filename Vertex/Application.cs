@@ -12,6 +12,13 @@ namespace Vertex
         /// <summary>The game's version, as its project settings give it ("0.1"): for a title screen's corner.</summary>
         public static string Version { get; set; } = "0.1";
 
+        /// <summary>
+        /// Whether this is a debug build (Build Game with Debug Build ticked): F3 shows the frame rate and frame times, and
+        /// the console (the key left of 1) opens even if the game hasn't given it a font. Check it to add cheats or test
+        /// shortcuts that players shouldn't get.
+        /// </summary>
+        public static bool IsDebugBuild { get; set; }
+
         /// <summary>Raised by <see cref="Quit"/>. Whatever hosts the game (its window, an editor) closes it.</summary>
         internal static event Action? QuitRequested;
 

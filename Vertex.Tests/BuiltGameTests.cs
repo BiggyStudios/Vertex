@@ -20,7 +20,8 @@ namespace Vertex.Tests
                 Height = 900,
                 Resizable = false,
                 Renderer = RendererChoice.OpenGL,
-                PhysicsRate = 120
+                PhysicsRate = 120,
+                DebugBuild = true
             };
 
             string json = settings.ToJson();
@@ -33,6 +34,42 @@ namespace Vertex.Tests
             Assert.Equal("Old", old.Name);
             Assert.Equal(WindowMode.Windowed, old.WindowMode);
             Assert.Equal(60, old.PhysicsRate);
+        }
+
+        [Fact]
+        public void A_debug_builds_frame_times_come_up_on_F3_and_a_build_for_players_has_none()
+        {
+            var backend = new RendererTests.RecordingBackend();
+            var renderer = new Rendering.Renderer(backend);
+            var stats = new Rendering.RenderStatsOverlay(renderer);
+            try
+            {
+                void PressF3()
+                {
+                    Input.InputSystem.PressKey(Input.Key.F3);
+                    UI.Canvas.BeginFrame(1280, 720, 720);
+                    stats.Update();
+                    UI.Canvas.EndFrame();
+                    Input.InputSystem.EndFrame();
+                    Input.InputSystem.ReleaseKey(Input.Key.F3);
+                    Input.InputSystem.EndFrame();
+                }
+
+                BuiltGame.Apply(new PlayerSettings { DebugBuild = false });
+                PressF3();
+                Assert.False(stats.Visible);
+
+                BuiltGame.Apply(new PlayerSettings { DebugBuild = true });
+                Assert.True(Application.IsDebugBuild);
+                PressF3();
+                Assert.True(stats.Visible);
+                PressF3();
+                Assert.False(stats.Visible);
+            }
+            finally
+            {
+                Application.IsDebugBuild = false;
+            }
         }
 
         [Fact]

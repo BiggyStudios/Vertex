@@ -56,6 +56,9 @@ namespace Vertex
         public int PhysicsRate { get; set; } = 60;
         public int ShadowResolution { get; set; } = 2048;
 
+        /// <summary>A debug build: see <see cref="Application.IsDebugBuild"/>.</summary>
+        public bool DebugBuild { get; set; }
+
         private static readonly JsonSerializerOptions _json = new()
         {
             WriteIndented = true,
@@ -94,15 +97,21 @@ namespace Vertex
         /// <summary>Runs a game with <paramref name="settings"/>, as <see cref="Run(string?)"/> does with its settings file.</summary>
         public static void Run(PlayerSettings settings, string? gameAssembly)
         {
-            Application.Name = settings.Name;
-            Application.Company = settings.Company;
-            Application.Version = settings.Version;
-            Time.FixedDeltaTime = 1f / Math.Clamp(settings.PhysicsRate, 10, 240);
-
+            Apply(settings);
             Game game = CreateGame(settings, gameAssembly);
             var window = new VertexWindow(game, settings);
             window.Renderer.ShadowResolution = Math.Clamp(settings.ShadowResolution, 256, 4096);
             window.Run();
+        }
+
+        /// <summary>What the settings say about the game as a whole: its name, whether it's a debug build, how often physics steps.</summary>
+        internal static void Apply(PlayerSettings settings)
+        {
+            Application.Name = settings.Name;
+            Application.Company = settings.Company;
+            Application.Version = settings.Version;
+            Application.IsDebugBuild = settings.DebugBuild;
+            Time.FixedDeltaTime = 1f / Math.Clamp(settings.PhysicsRate, 10, 240);
         }
 
         /// <summary>

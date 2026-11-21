@@ -188,6 +188,12 @@ namespace Vertex.Editor.Tests
             PlayerSettings player = loaded.Settings.ToPlayerSettings();
             Assert.Equal(("Game", "Icon.png", RendererChoice.OpenGL), (player.Name, player.Icon, player.Renderer));
 
+            // A debug build says so to the game, and builds its code for debugging.
+            Assert.Equal("Release", GameBuilder.Configuration(loaded.Settings));
+            loaded.Settings.DebugBuild = true;
+            Assert.True(loaded.Settings.ToPlayerSettings().DebugBuild);
+            Assert.Equal("Debug", GameBuilder.Configuration(loaded.Settings));
+
             // A project from before these settings still opens, with their defaults.
             File.WriteAllText(path, """{ "Name": "Old", "Version": "0.1", "StartupScene": "", "GameProject": "", "PhysicsRate": 60, "ShadowResolution": 2048 }""");
             Assert.Equal(WindowMode.Windowed, Project.Load(path).Settings.WindowMode);

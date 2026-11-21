@@ -90,14 +90,16 @@ namespace Vertex
             _stats = new RenderStatsOverlay(Renderer);
             _loop.DrawingOverlays += _stats.Update;
             DevConsole.AddVariable("r_showstats", "Shows the frame rate, what drawing takes on the CPU and GPU (by pass), and how many draws. 1 on, 0 off.",
-                () => _stats.Visible ? 1f : 0f,
-                value =>
-                {
-                    _stats.Visible = value >= 0.5f;
-                    Renderer.MeasureGpuTime = _stats.Visible;
-                });
+                () => _stats.Visible ? 1f : 0f, value => _stats.Visible = value >= 0.5f);
             DevConsole.AddVariable("r_shadowresolution", "How detailed the sun's shadows are: 2048 normally, 1024 for faster drawing on integrated graphics (from 256 to 4096).",
                 () => Renderer.ShadowResolution, value => Renderer.ShadowResolution = Math.Clamp((int)value, 256, 4096));
+
+            // A debug build's console opens whether or not the game gives it a font (its own Load can still change it).
+            if (Application.IsDebugBuild)
+            {
+                DevConsole.Font ??= Font.Default;
+                Log.Info("Debug build: F3 shows the frame rate and frame times; the key left of 1 opens the console.");
+            }
 
             _loop.Load();
         }

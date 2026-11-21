@@ -129,6 +129,7 @@
         <li>Building needs the .NET SDK, as building game code does. The first build for each system downloads that system's .NET runtime, so it takes a minute or two; after that a build takes seconds. A build is about 50 MB.</li>
         <li>The first time the game starts on a computer, it unpacks the libraries for its window, sound and physics into a cache folder of .NET's, and uses them from there after that.</li>
         <li>Files built on Windows lose the mark that says they're programs: on Linux and macOS, mark the game's program as one (<code>chmod +x</code>) if it doesn't start.</li>
+        <li><strong>Debug Build</strong> makes a build for testing. <kbd>F3</kbd> shows the frame rate, how long each frame takes on the CPU and GPU (and each part of drawing), and how many draws there were. The console opens with the key left of <kbd>1</kbd> even if the game hasn't given it a font, the game's code is built for debugging, and errors say which line they came from. A note in the corner says it's a debug build. Game code can check <code>Application.IsDebugBuild</code> for cheats and shortcuts only testers should have.</li>
     </ul>
 
     <h2>Lighting and sky</h2>

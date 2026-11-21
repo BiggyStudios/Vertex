@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 
+using Vertex.Input;
 using Vertex.UI;
 
 namespace Vertex.Rendering
@@ -25,7 +26,21 @@ namespace Vertex.Rendering
         private int _gpuFrames;
         private long _draws, _culled, _shadowDraws, _lightShadows;
 
-        public bool Visible { get; set; }
+        /// <summary>The key that shows and hides it in a debug build (<see cref="Application.IsDebugBuild"/>).</summary>
+        public const Key ToggleKey = Key.F3;
+
+        /// <summary>Whether it's shown. The GPU's time is only measured while it is, as measuring costs a little.</summary>
+        public bool Visible
+        {
+            get => _visible;
+            set
+            {
+                _visible = value;
+                _renderer.MeasureGpuTime = value;
+            }
+        }
+
+        private bool _visible;
 
         /// <summary>How long the last frame's game update took (everything but drawing), set by the window.</summary>
         public double UpdateMilliseconds { get; set; }
@@ -35,9 +50,25 @@ namespace Vertex.Rendering
             _renderer = renderer;
         }
 
-        /// <summary>Adds the last frame's numbers, and draws the averages if <see cref="Visible"/>.</summary>
+        /// <summary>
+        /// Adds the last frame's numbers, and draws the averages if <see cref="Visible"/>. In a debug build, F3 shows or
+        /// hides it (not while the console's open and has the keyboard), and a note in the corner says it's a debug build.
+        /// </summary>
         public void Update()
         {
+            if (Application.IsDebugBuild)
+            {
+                if (!DevConsole.IsOpen && InputSystem.GetKeyDown(ToggleKey))
+                {
+                    Visible = !Visible;
+                    _lines.Clear();
+                    _elapsed = 0f;
+                    _frames = 0;
+                }
+
+                DrawDebugNote();
+            }
+
             if (!Visible) return;
 
             RenderStats stats = _renderer.Stats;
@@ -102,6 +133,17 @@ namespace Vertex.Rendering
 
         /// <summary>The numbers last shown, as text, for logging.</summary>
         public string LastSummary { get; private set; } = "";
+
+        /// <summary>"Debug build", small in the bottom-right corner, so a debug build isn't mistaken for one to give players.</summary>
+        private void DrawDebugNote()
+        {
+            Font font = DevConsole.Font ?? Font.Default;
+            string note = Visible ? "Debug build" : "Debug build  ·  F3 frame times";
+            Vector2 size = Canvas.MeasureText(font, note, _noteSize);
+            Canvas.DrawText(font, note, new Vector2(Canvas.Width - size.X - 12f, Canvas.Height - Canvas.LineHeight(font, _noteSize) - 8f), new Color(1f, 1f, 1f, 0.5f), _noteSize, shadow: true);
+        }
+
+        private const float _noteSize = 13f;
 
         private void Draw()
         {

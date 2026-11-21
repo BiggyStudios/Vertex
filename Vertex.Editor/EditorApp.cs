@@ -564,7 +564,7 @@ namespace Vertex.Editor
         {
             if (Context.Project is not { } project) return;
 
-            Dialog.Show("Build Game", new Vector2(600f, 470f), rect =>
+            Dialog.Show("Build Game", new Vector2(600f, 506f), rect =>
             {
                 ProjectSettings settings = project.Settings;
                 float y = rect.Y;
@@ -617,6 +617,17 @@ namespace Vertex.Editor
                 Platform("Windows", settings.BuildWindows, on => settings.BuildWindows = on, "A folder with the game's .exe, for 64-bit Windows 10 and 11");
                 Platform("Linux", settings.BuildLinux, on => settings.BuildLinux = on, "A folder with the game's program, for 64-bit Linux");
                 Platform("macOS", settings.BuildMac, on => settings.BuildMac = on, "A .app for Macs with Apple Silicon. Built anywhere but a Mac, it has to be signed on one before it opens");
+                y += 36f;
+
+                // A build for testing, or for players.
+                Ui.Text(new Rect(rect.X, y, 110f, 24f), "Kind", Theme.TextDim);
+                bool debug = settings.DebugBuild;
+                const string debugTip = "For testing: F3 shows the frame rate and frame times, the console opens with the key left of 1, "
+                    + "and the game's code is built for debugging, with the line each error was on. Leave it off for builds to give players";
+                if (Widgets.Checkbox(Ui.Id("build.debug"), new Rect(rect.X + 120f, y + 3f, 18f, 18f), ref debug, debugTip)) settings.DebugBuild = debug;
+                float after = rect.X + 146f + Ui.Text("Debug Build", new Vector2(rect.X + 146f, y + 3f), Theme.Text) + 14f;
+                Ui.Text(new Rect(after, y + 3f, rect.Right - after, 20f), debug ? "F3 frame times, the console, errors with lines" : "For players",
+                    Theme.TextFaint, size: Theme.SmallTextSize);
                 y += 36f;
 
                 // Into which folder.

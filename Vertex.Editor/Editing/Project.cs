@@ -61,6 +61,9 @@ namespace Vertex.Editor.Editing
         [HideInInspector] public bool BuildLinux { get; set; }
         [HideInInspector] public bool BuildMac { get; set; }
 
+        /// <summary>Builds made for testing: the frame rate and times on F3, the console, and the game's code built for debugging.</summary>
+        [HideInInspector] public bool DebugBuild { get; set; }
+
         /// <summary>What the built game reads when it starts (its game.json).</summary>
         public PlayerSettings ToPlayerSettings() => new()
         {
@@ -75,7 +78,8 @@ namespace Vertex.Editor.Editing
             Resizable = Resizable,
             Renderer = Renderer,
             PhysicsRate = PhysicsRate,
-            ShadowResolution = ShadowResolution
+            ShadowResolution = ShadowResolution,
+            DebugBuild = DebugBuild
         };
     }
 
