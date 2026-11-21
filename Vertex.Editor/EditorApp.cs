@@ -74,6 +74,7 @@ namespace Vertex.Editor
         public SceneViewPanel SceneView => _sceneView;
         public InspectorPanel Inspector => _inspector;
         internal AnimationPanel Animation => _animation;
+        internal AssetsPanel AssetsPanel => _assets;
 
         /// <summary>Where the panels are docked, as tabs round the scene view.</summary>
         public DockLayout Dock => _dock;

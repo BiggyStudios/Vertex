@@ -49,8 +49,17 @@ namespace Vertex.Editor
         /// <summary>The scene itself is selected, so the inspector shows its lighting and sky.</summary>
         public bool Scene { get; private set; }
 
-        /// <summary>A file in the asset browser.</summary>
-        public AssetEntry? Asset { get; private set; }
+        // Files in the asset browser, in the order they were picked.
+        private readonly List<AssetEntry> _assets = new();
+
+        /// <summary>The selected files in the asset browser, in the order they were picked.</summary>
+        public IReadOnlyList<AssetEntry> Assets => _assets;
+
+        /// <summary>The main selected file in the asset browser (the one picked last), which the inspector shows.</summary>
+        public AssetEntry? Asset => _assets.Count > 0 ? _assets[^1] : null;
+
+        /// <summary>Whether the file at <paramref name="path"/> is one of those selected.</summary>
+        public bool ContainsAsset(string path) => _assets.Any(a => a.Path == path);
 
         /// <summary>Counts every change of selection, so panels can tell.</summary>
         public int Version { get; private set; }
@@ -63,7 +72,8 @@ namespace Vertex.Editor
             if (!Scene && Asset == null && (gameObject == null ? _objects.Count == 0 : _objects.Count == 1 && _objects[0] == gameObject)) return;
             _objects.Clear();
             if (gameObject != null) _objects.Add(gameObject);
-            (Scene, Asset) = (false, null);
+            Scene = false;
+            _assets.Clear();
             Version++;
         }
 
@@ -74,7 +84,8 @@ namespace Vertex.Editor
             if (!Scene && Asset == null && wanted.SequenceEqual(_objects)) return;
             _objects.Clear();
             _objects.AddRange(wanted);
-            (Scene, Asset) = (false, null);
+            Scene = false;
+            _assets.Clear();
             Version++;
         }
 
@@ -85,7 +96,8 @@ namespace Vertex.Editor
             if (Scene || Asset != null) _objects.Clear();
             _objects.Remove(gameObject);
             _objects.Add(gameObject);
-            (Scene, Asset) = (false, null);
+            Scene = false;
+            _assets.Clear();
             Version++;
         }
 
@@ -116,16 +128,32 @@ namespace Vertex.Editor
         {
             if (Scene) return;
             _objects.Clear();
-            (Scene, Asset) = (true, null);
+            Scene = true;
+            _assets.Clear();
             Version++;
         }
 
-        public void SelectAsset(AssetEntry? asset)
+        /// <summary>Selects just the file <paramref name="asset"/> (or nothing, for null).</summary>
+        public void SelectAsset(AssetEntry? asset) => SelectAssets(asset == null ? [] : [asset]);
+
+        /// <summary>Selects these files; the last is the main one.</summary>
+        public void SelectAssets(IEnumerable<AssetEntry> assets)
         {
-            if (Asset == asset && _objects.Count == 0) return;
+            List<AssetEntry> wanted = assets.DistinctBy(a => a.Path).ToList();
+            if (!Scene && _objects.Count == 0 && wanted.SequenceEqual(_assets)) return;
             _objects.Clear();
-            (Scene, Asset) = (false, asset);
+            Scene = false;
+            _assets.Clear();
+            _assets.AddRange(wanted);
             Version++;
+        }
+
+        /// <summary>Ctrl-click on a file: selects it along with the others (as the main one), or leaves it out if it was selected.</summary>
+        public void ToggleAsset(AssetEntry asset)
+        {
+            List<AssetEntry> wanted = _assets.Where(a => a.Path != asset.Path).ToList();
+            if (wanted.Count == _assets.Count) wanted.Add(asset);
+            SelectAssets(wanted);
         }
 
         public void Clear() => Select((GameObject?)null);

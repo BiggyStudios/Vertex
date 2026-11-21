@@ -28,6 +28,28 @@ namespace Vertex.Editor.Panels
         // Clicked in last, so F2, Delete and Ctrl+D are its.
         private bool _focused;
 
+        // The tiles shown this frame, in order, and where each is: for Shift-click ranges and boxes dragged round several.
+        private IReadOnlyList<AssetEntry> _entries = [];
+        private readonly List<(AssetEntry Entry, Rect Cell)> _cells = new();
+
+        // Where a Shift-click range runs from: the tile clicked last without Shift.
+        private string? _anchor;
+
+        // A tile pressed while it's one of several selected: let go without dragging, it's selected on its own.
+        private string? _pressedAmong;
+
+        // A box dragged from empty space, selecting the tiles it touches; and those it touches so far.
+        private Vector2? _boxFrom;
+        private bool _boxing;
+        private readonly HashSet<string> _inBox = new();
+
+        // Renaming several at once: numbered ("Rock 1", "Rock 2"...) or by replacing part of their names.
+        private bool _renameByReplacing;
+        private string _manyName = "";
+        private int _manyStart = 1;
+        private string _find = "";
+        private string _replaceWith = "";
+
         public string Title => "Assets";
         public Icon Icon => Icons.Folder;
 
@@ -73,10 +95,19 @@ namespace Vertex.Editor.Panels
                 : assets.List(_folder);
 
             Rect area = content.Shrink(Theme.Padding, 6f);
+            _entries = entries;
+            _cells.Clear();
 
             // The whole area takes right-clicks and clicks on empty space; the tiles, drawn after, are on top of it.
+            // Dragged from empty space, it's a box round the tiles to select.
             Interaction background = Ui.Interact(Ui.Id("assets.background"), area, rightClick: true);
-            if (background.Clicked) _context.Selection.SelectAsset(null);
+            if (background.Pressed)
+            {
+                _boxFrom = Ui.Mouse;
+                _boxing = false;
+            }
+
+            if (background.Clicked && !_boxing && !Control) _context.Selection.SelectAsset(null);
             if (background.RightClicked) Menu.Open(Ui.Id("assets.background"), Ui.Mouse, FolderMenu(_folder));
 
             int scrollId = Ui.Id("assets.scroll");
@@ -100,6 +131,8 @@ namespace Vertex.Editor.Panels
             float rows = MathF.Ceiling(entries.Count / (float)columns);
             scroll.End(rows * cellHeight + 8f);
 
+            DrawBox(area);
+            if (!Ui.MouseHeld()) _pressedAmong = null;
             HandleObjectDrop(area);
             if (_focused && !Ui.KeyboardTaken && !Menu.IsAnyOpen && !Dialog.IsOpen) HandleKeys();
         }
@@ -144,11 +177,82 @@ namespace Vertex.Editor.Panels
             if (Widgets.ThinSlider(Ui.Id("assets.size"), slider, ref size, 56f, 140f, "Tile size")) _context.Preferences.AssetTileSize = MathF.Round(size);
         }
 
+        /// <summary>Where the tile of the file at <paramref name="path"/> was drawn last frame, if it was.</summary>
+        internal Rect? CellOf(string path) => _cells.FirstOrDefault(c => c.Entry.Path == path) is { Entry: not null } found ? found.Cell : null;
+
+        private static bool Control => InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
+        private static bool Shift => InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+
+        /// <summary>Whether a tile shows as selected: it is, or a box being dragged takes it in (or, with Ctrl, adds to what is).</summary>
+        private bool ShownSelected(AssetEntry entry) => _boxing
+            ? _inBox.Contains(entry.Path) || Control && _context.Selection.ContainsAsset(entry.Path)
+            : _context.Selection.ContainsAsset(entry.Path);
+
+        /// <summary>
+        /// The box dragged from empty space: the tiles it touches are shown selected as it grows, and are selected when
+        /// it's let go (with Ctrl, along with those already).
+        /// </summary>
+        private void DrawBox(Rect area)
+        {
+            if (_boxFrom is not Vector2 from) return;
+
+            if (!Ui.MouseHeld())
+            {
+                if (_boxing)
+                {
+                    List<AssetEntry> boxed = _entries.Where(e => _inBox.Contains(e.Path)).ToList();
+                    _context.Selection.SelectAssets(Control ? _context.Selection.Assets.Concat(boxed) : boxed);
+                }
+
+                _boxFrom = null;
+                _boxing = false;
+                _inBox.Clear();
+                return;
+            }
+
+            if (!_boxing && Vector2.Distance(from, Ui.Mouse) < 5f) return;
+            _boxing = true;
+
+            Vector2 to = Vector2.Clamp(Ui.Mouse, area.Position, area.Position + area.Size);
+            var box = new Rect(MathF.Min(from.X, to.X), MathF.Min(from.Y, to.Y), MathF.Abs(to.X - from.X), MathF.Abs(to.Y - from.Y));
+            _inBox.Clear();
+            foreach ((AssetEntry entry, Rect cell) in _cells)
+            {
+                if (cell.X < box.Right && cell.Right > box.X && cell.Y < box.Bottom && cell.Bottom > box.Y) _inBox.Add(entry.Path);
+            }
+
+            Ui.Rect(box, Theme.Accent.WithAlpha(0.14f));
+            Ui.Outline(box, Theme.Accent.WithAlpha(0.9f), 0f, 1f);
+        }
+
+        /// <summary>A press on a tile: just it, Ctrl to add it to (or take it from) the others, Shift for every tile from the last one clicked.</summary>
+        private void PressTile(AssetEntry entry)
+        {
+            Selection selection = _context.Selection;
+            if (Shift && _anchor != null && _entries.FirstOrDefault(e => e.Path == _anchor) is { } anchor)
+            {
+                int from = _entries.ToList().IndexOf(anchor), to = _entries.ToList().IndexOf(entry);
+                int step = to >= from ? 1 : -1;
+
+                // From the anchor to the tile clicked, so the clicked one is the main one.
+                var range = new List<AssetEntry>();
+                for (int i = from; i != to + step; i += step) range.Add(_entries[i]);
+                selection.SelectAssets(Control ? selection.Assets.Concat(range) : range);
+                return;
+            }
+
+            _anchor = entry.Path;
+            if (Control) selection.ToggleAsset(entry);
+            else if (selection.ContainsAsset(entry.Path) && selection.Assets.Count > 1) _pressedAmong = entry.Path;
+            else selection.SelectAsset(entry);
+        }
+
         private void DrawTile(AssetEntry entry, Rect cell, float tile)
         {
             int id = Ui.Id("asset:" + entry.Path);
             Interaction interaction = Ui.Interact(id, cell, rightClick: true);
-            bool selected = _context.Selection.Asset?.Path == entry.Path;
+            _cells.Add((entry, cell));
+            bool selected = ShownSelected(entry);
 
             // A folder lights up while something that can go in it is dragged over.
             bool dropInto = entry.Kind == AssetKind.Folder && cell.Contains(Ui.Mouse) &&
@@ -178,19 +282,40 @@ namespace Vertex.Editor.Panels
 
             if (interaction.Pressed)
             {
+                PressTile(entry);
+
+                // Dragged, it takes the others selected with it (onto a folder).
+                int count = _context.Selection.Assets.Count;
+                if (_context.Selection.ContainsAsset(entry.Path)) DragDrop.Begin(entry, count > 1 ? $"{count} files" : entry.Name);
+            }
+
+            // Pressed among several selected and let go without dragging: just it.
+            if (interaction.Clicked && _pressedAmong == entry.Path && !DragDrop.Dragging)
+            {
                 _context.Selection.SelectAsset(entry);
-                DragDrop.Begin(entry, entry.Name);
+                _pressedAmong = null;
             }
 
             if (interaction.DoubleClicked) Open(entry);
             if (interaction.RightClicked)
             {
-                _context.Selection.SelectAsset(entry);
-                Menu.Open(Ui.Id(id, "menu"), Ui.Mouse, EntryMenu(entry));
+                // On one of several selected, the menu is for them all.
+                if (!_context.Selection.ContainsAsset(entry.Path))
+                {
+                    _context.Selection.SelectAsset(entry);
+                    _anchor = entry.Path;
+                }
+
+                List<MenuItem> items = _context.Selection.Assets.Count > 1 ? ManyMenu([.. _context.Selection.Assets]) : EntryMenu(entry);
+                Menu.Open(Ui.Id(id, "menu"), Ui.Mouse, items);
             }
 
-            // Files dragged onto a folder move into it.
-            if (dropInto && DragDrop.Dropped && DragDrop.Payload is AssetEntry moved) Move(moved, entry.Path);
+            // Files dragged onto a folder move into it: all those selected, if it's one of them.
+            if (dropInto && DragDrop.Dropped && DragDrop.Payload is AssetEntry moved)
+            {
+                List<AssetEntry> moving = _context.Selection.ContainsAsset(moved.Path) ? [.. _context.Selection.Assets] : [moved];
+                MoveAll(moving.Where(m => m.Path != entry.Path).ToList(), entry.Path);
+            }
         }
 
         /// <summary>
@@ -381,8 +506,8 @@ namespace Vertex.Editor.Panels
             if (open != null) items.Add(new MenuItem(open, () => Open(entry)));
             if (entry.Kind == AssetKind.Prefab) items.Add(new MenuItem("Add to Scene", () => _context.AddPrefab(entry.Path, _context.SpawnPoint)));
             items.Add(new MenuItem("Rename", () => BeginRename(entry)) { Shortcut = "F2" });
-            if (entry.Kind != AssetKind.Folder) items.Add(new MenuItem("Duplicate", () => Duplicate(entry)) { Shortcut = "Ctrl+D" });
-            items.Add(new MenuItem("Delete", () => AskDelete(entry)) { Shortcut = "Del", Icon = Icons.Trash });
+            if (entry.Kind != AssetKind.Folder) items.Add(new MenuItem("Duplicate", () => DuplicateAll([entry])) { Shortcut = "Ctrl+D" });
+            items.Add(new MenuItem("Delete", () => AskDelete([entry])) { Shortcut = "Del", Icon = Icons.Trash });
             items.Add(MenuItem.Separator);
             items.Add(new MenuItem(ShowInLabel, () => NativeDialogs.ShowInFolder(entry.Path)) { Icon = Icons.Folder });
             items.Add(new MenuItem("Copy Path", () => InputSystem.ClipboardText = _context.Assets!.Relative(entry.Path)));
@@ -421,6 +546,21 @@ namespace Vertex.Editor.Panels
             }
 
             return flat;
+        }
+
+        /// <summary>The menu of several files selected together: what can be done to them all.</summary>
+        private List<MenuItem> ManyMenu(List<AssetEntry> picked)
+        {
+            List<AssetEntry> files = picked.Where(p => p.Kind != AssetKind.Folder).ToList();
+            return
+            [
+                new MenuItem($"Rename {picked.Count} Items…", () => AskRenameMany(picked)) { Shortcut = "F2" },
+                new MenuItem(files.Count == picked.Count ? $"Duplicate {files.Count} Items" : "Duplicate the Files", () => DuplicateAll(files))
+                    { Shortcut = "Ctrl+D", Enabled = files.Count > 0 },
+                new MenuItem($"Delete {picked.Count} Items", () => AskDelete(picked)) { Shortcut = "Del", Icon = Icons.Trash },
+                MenuItem.Separator,
+                new MenuItem("Create") { Icon = Icons.Plus, Children = Flat(NewItems(_folder!)) }
+            ];
         }
 
         private List<MenuItem> FolderMenu(string folder)
@@ -557,14 +697,7 @@ namespace Vertex.Editor.Panels
             try
             {
                 MoveFile(entry, target);
-
-                // A script's class is renamed with it, so the two still match.
-                if (entry.Kind == AssetKind.Script)
-                {
-                    string oldName = Path.GetFileNameWithoutExtension(entry.Path), newName = EditorContext.ClassName(name);
-                    string code = File.ReadAllText(target);
-                    if (code.Contains($"class {oldName}")) File.WriteAllText(target, code.Replace($"class {oldName}", $"class {newName}"));
-                }
+                if (entry.Kind == AssetKind.Script) RenameClass(target, Path.GetFileNameWithoutExtension(entry.Path));
             }
             catch (Exception exception)
             {
@@ -572,25 +705,34 @@ namespace Vertex.Editor.Panels
             }
         }
 
-        private void Move(AssetEntry entry, string folder)
+        /// <summary>Moves files into <paramref name="folder"/>, telling how it went once for them all.</summary>
+        private void MoveAll(List<AssetEntry> entries, string folder)
         {
-            string target = Path.Combine(folder, entry.Name);
-            if (string.Equals(Path.GetDirectoryName(entry.Path), folder, StringComparison.OrdinalIgnoreCase)) return;
-            if (File.Exists(target) || Directory.Exists(target))
+            int moved = 0;
+            string? problem = null;
+            foreach (AssetEntry entry in entries)
             {
-                _context.Notify($"{Path.GetFileName(folder)} already has a {entry.Name}");
-                return;
+                string target = Path.Combine(folder, entry.Name);
+                if (string.Equals(Path.GetDirectoryName(entry.Path), folder, StringComparison.OrdinalIgnoreCase)) continue;
+                if (File.Exists(target) || Directory.Exists(target))
+                {
+                    problem ??= $"{Path.GetFileName(folder)} already has a {entry.Name}";
+                    continue;
+                }
+
+                try
+                {
+                    MoveFile(entry, target);
+                    moved++;
+                }
+                catch (Exception exception)
+                {
+                    problem ??= $"Couldn't move {entry.Name}: {exception.Message}";
+                }
             }
 
-            try
-            {
-                MoveFile(entry, target);
-                _context.Notify($"Moved {entry.Name} into {Path.GetFileName(folder)}");
-            }
-            catch (Exception exception)
-            {
-                _context.Notify($"Couldn't move {entry.Name}: {exception.Message}");
-            }
+            if (problem != null) _context.Notify(problem);
+            else if (moved > 0) _context.Notify(moved == 1 ? $"Moved {entries[0].Name} into {Path.GetFileName(folder)}" : $"Moved {moved} items into {Path.GetFileName(folder)}");
         }
 
         private void MoveFile(AssetEntry entry, string target)
@@ -608,62 +750,286 @@ namespace Vertex.Editor.Panels
             _context.FileMoved(entry.Path, target);
             Thumbnails.Forget(entry.Path);
             _context.Assets?.Refresh();
-            if (_context.Selection.Asset?.Path == entry.Path) _context.Selection.SelectAsset(new AssetEntry(target, entry.Kind));
+
+            // Still selected under its new name (with the others selected alongside it).
+            Selection selection = _context.Selection;
+            if (selection.ContainsAsset(entry.Path)) selection.SelectAssets(selection.Assets.Select(a => a.Path == entry.Path ? new AssetEntry(target, entry.Kind) : a));
         }
 
-        private void Duplicate(AssetEntry entry)
+        /// <summary>Copies files beside themselves ("Brick copy"). One copy is selected and named; several are selected.</summary>
+        private void DuplicateAll(List<AssetEntry> entries)
         {
-            try
+            var copies = new List<AssetEntry>();
+            foreach (AssetEntry entry in entries.Where(e => e.Kind != AssetKind.Folder))
             {
-                string path = Unique(Path.Combine(Path.GetDirectoryName(entry.Path)!, entry.NameWithoutExtension + " copy"), Path.GetExtension(entry.Path));
-                File.Copy(entry.Path, path);
-                Made(path);
+                try
+                {
+                    string path = Unique(Path.Combine(Path.GetDirectoryName(entry.Path)!, entry.NameWithoutExtension + " copy"), Path.GetExtension(entry.Path));
+                    File.Copy(entry.Path, path);
+                    copies.Add(new AssetEntry(path, entry.Kind));
+                }
+                catch (Exception exception)
+                {
+                    _context.Notify($"Couldn't duplicate {entry.Name}: {exception.Message}");
+                }
             }
-            catch (Exception exception)
+
+            if (copies.Count == 1) Made(copies[0].Path);
+            else if (copies.Count > 1)
             {
-                _context.Notify($"Couldn't duplicate {entry.Name}: {exception.Message}");
+                _context.Assets?.Refresh();
+                _context.Selection.SelectAssets(copies);
+                _context.Notify($"Duplicated {copies.Count} items");
             }
         }
 
-        private void AskDelete(AssetEntry entry)
+        private void AskDelete(List<AssetEntry> entries)
         {
-            string what = entry.Kind == AssetKind.Folder ? $"the folder {entry.Name} and everything in it" : entry.Name;
+            if (entries.Count == 0) return;
+            int folders = entries.Count(e => e.Kind == AssetKind.Folder);
+            string what = entries.Count == 1
+                ? entries[0].Kind == AssetKind.Folder ? $"the folder {entries[0].Name} and everything in it" : entries[0].Name
+                : folders == 0 ? $"these {entries.Count} items" : $"these {entries.Count} items, and everything in the {(folders == 1 ? "folder" : $"{folders} folders")} among them";
             Dialog.Ask("Delete", $"Delete {what}? This can't be undone.",
-                ("Delete", () => Delete(entry)),
+                ("Delete", () => DeleteAll(entries)),
                 ("Cancel", () => { }));
         }
 
-        private void Delete(AssetEntry entry)
+        private void DeleteAll(List<AssetEntry> entries)
         {
+            int deleted = 0;
+            foreach (AssetEntry entry in entries)
+            {
+                try
+                {
+                    if (entry.Kind == AssetKind.Sound) SoundPreview.Forget(entry.Path);
+                    if (entry.Kind == AssetKind.Folder) Directory.Delete(entry.Path, recursive: true);
+                    else if (File.Exists(entry.Path)) File.Delete(entry.Path);
+                    else continue;
+
+                    Assets.Forget(entry.Path);
+                    Thumbnails.Forget(entry.Path);
+                    deleted++;
+                }
+                catch (Exception exception)
+                {
+                    _context.Notify($"Couldn't delete {entry.Name}: {exception.Message}");
+                }
+            }
+
+            _context.Assets?.Refresh();
+            HashSet<string> gone = entries.Select(e => e.Path).ToHashSet();
+            _context.Selection.SelectAssets(_context.Selection.Assets.Where(a => !gone.Contains(a.Path)));
+            if (deleted > 0) _context.Notify(deleted == 1 ? $"Deleted {entries[0].Name}" : $"Deleted {deleted} items");
+        }
+
+        // ---------------------------------------------------------------- Renaming several at once
+
+        /// <summary>Renames <paramref name="picked"/> together, in a dialog: numbered from a name, or by replacing text in their names.</summary>
+        private void AskRenameMany(List<AssetEntry> picked)
+        {
+            // In the order they're shown, so the numbers run along the tiles.
+            List<AssetEntry> shown = _entries.ToList();
+            picked = picked.OrderBy(p => shown.FindIndex(e => e.Path == p.Path) is var at and >= 0 ? at : int.MaxValue).ToList();
+
+            // Starting from the main one's name without its number ("Rock 3" → "Rock").
+            string main = _context.Selection.Asset is { } asset && picked.Any(p => p.Path == asset.Path) ? NameOf(asset) : NameOf(picked[0]);
+            _manyName = System.Text.RegularExpressions.Regex.Replace(main, @"[\s_-]*\d+$", "");
+            if (_manyName.Length == 0) _manyName = main;
+            _manyStart = 1;
+            _find = "";
+            _replaceWith = "";
+
+            int nameId = Ui.Id("assets.renameMany.name");
+            Dialog.Show($"Rename {picked.Count} Items", new Vector2(500f, 400f), rect => DrawRenameMany(rect, picked));
+            TextInput.Focus(_renameByReplacing ? Ui.Id("assets.renameMany.find") : nameId);
+        }
+
+        private static string NameOf(AssetEntry entry) => entry.Kind == AssetKind.Folder ? entry.Name : entry.NameWithoutExtension;
+
+        /// <summary>The new names <paramref name="picked"/> get from what's typed in the dialog.</summary>
+        internal List<string> NewNames(IReadOnlyList<AssetEntry> picked) => _renameByReplacing
+            ? picked.Select(p => _find.Length == 0 ? NameOf(p) : NameOf(p).Replace(_find, _replaceWith, StringComparison.Ordinal).Trim()).ToList()
+            : picked.Select((_, i) => $"{_manyName.Trim()} {_manyStart + i}").ToList();
+
+        /// <summary>What's wrong with renaming <paramref name="picked"/> to <paramref name="names"/>, if anything.</summary>
+        internal static string? RenameProblem(IReadOnlyList<AssetEntry> picked, IReadOnlyList<string> names)
+        {
+            if (names.Any(n => n.Length == 0)) return "Every one needs a name";
+            if (names.Any(n => n.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)) return "A name can't have / \\ : * ? \" < > | in it";
+            if (picked.Select((p, i) => NameOf(p) == names[i]).All(same => same)) return "Nothing would change";
+
+            HashSet<string> sources = picked.Select(p => p.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < picked.Count; i++)
+            {
+                string target = TargetOf(picked[i], names[i]);
+                if (!targets.Add(target)) return $"Two would be called {Path.GetFileName(target)}";
+                if ((File.Exists(target) || Directory.Exists(target)) && !sources.Contains(target)) return $"There's already a {Path.GetFileName(target)}";
+            }
+
+            return null;
+        }
+
+        private static string TargetOf(AssetEntry entry, string name) =>
+            Path.Combine(Path.GetDirectoryName(entry.Path)!, name + (entry.Kind == AssetKind.Folder ? "" : Path.GetExtension(entry.Path)));
+
+        private void DrawRenameMany(Rect rect, List<AssetEntry> picked)
+        {
+            // Enter renames them, even from a field (which takes the key when it finishes).
+            bool enter = InputSystem.GetKeyDown(Key.Enter) || InputSystem.GetKeyDown(Key.KeypadEnter);
+            float y = rect.Y;
+
+            // How: numbered, or by replacing text.
+            var number = new Rect(rect.X, y, 150f, 28f);
+            var replace = new Rect(number.Right + 6f, y, 150f, 28f);
+            if (Widgets.Button(Ui.Id("assets.renameMany.number"), number, "Number Them", _renameByReplacing ? ButtonStyle.Subtle : ButtonStyle.Primary))
+            {
+                _renameByReplacing = false;
+                TextInput.Focus(Ui.Id("assets.renameMany.name"));
+            }
+
+            if (Widgets.Button(Ui.Id("assets.renameMany.replace"), replace, "Replace Text", _renameByReplacing ? ButtonStyle.Primary : ButtonStyle.Subtle))
+            {
+                _renameByReplacing = true;
+                TextInput.Focus(Ui.Id("assets.renameMany.find"));
+            }
+
+            y += 42f;
+            const float labelWidth = 110f;
+            void Field(string label, string id, ref string text, string placeholder)
+            {
+                Ui.Text(new Rect(rect.X, y, labelWidth, 28f), label, Theme.TextDim);
+                TextInput.Draw(Ui.Id(id), new Rect(rect.X + labelWidth, y, rect.Width - labelWidth, 28f), ref text, placeholder, live: true);
+                y += 36f;
+            }
+
+            if (_renameByReplacing)
+            {
+                Field("Find", "assets.renameMany.find", ref _find, "Text in their names");
+                Field("Replace with", "assets.renameMany.with", ref _replaceWith, "Nothing, to take it out");
+            }
+            else
+            {
+                Field("Name", "assets.renameMany.name", ref _manyName, "What they're called");
+                Ui.Text(new Rect(rect.X, y, labelWidth, 28f), "Numbered from", Theme.TextDim);
+                NumberField.Int(Ui.Id("assets.renameMany.start"), new Rect(rect.X + labelWidth, y, 90f, 28f), ref _manyStart, min: 0);
+                y += 36f;
+            }
+
+            // What they'd become, as many as fit.
+            List<string> names = NewNames(picked);
+            string? problem = RenameProblem(picked, names);
+            y += 4f;
+            Ui.Rect(new Rect(rect.X, y, rect.Width, 1f), Theme.Border);
+            y += 10f;
+
+            float bottom = rect.Bottom - 44f;
+            int fits = Math.Max((int)((bottom - y) / 24f), 1);
+            int show = picked.Count > fits ? fits - 1 : picked.Count;
+            for (int i = 0; i < show; i++)
+            {
+                float half = (rect.Width - 30f) * 0.5f;
+                Ui.Text(new Rect(rect.X, y, half, 24f), NameOf(picked[i]), Theme.TextDim, size: Theme.SmallTextSize);
+                Icons.Chevron(new Vector2(rect.X + half + 15f, y + 12f), 11f, Theme.TextFaint);
+                Ui.Text(new Rect(rect.X + half + 30f, y, half, 24f), names[i], names[i] == NameOf(picked[i]) ? Theme.TextFaint : Theme.Text, size: Theme.SmallTextSize);
+                y += 24f;
+            }
+
+            if (show < picked.Count) Ui.Text(new Rect(rect.X, y, rect.Width, 20f), $"and {picked.Count - show} more", Theme.TextFaint, size: Theme.SmallTextSize);
+
+            // Rename (or Enter), once it's all right; why not, if it isn't.
+            Rect buttons = rect.TakeBottom(30f);
+            if (Widgets.Button(Ui.Id("assets.renameMany.cancel"), buttons.TakeRight(90f), "Cancel")) Dialog.Close();
+            if (problem != null) Ui.Text(buttons.CutRight(100f), problem, problem == "Nothing would change" ? Theme.TextFaint : Theme.Warning, size: Theme.SmallTextSize);
+            else if (Widgets.Button(Ui.Id("assets.renameMany.go"), buttons.CutRight(98f).TakeRight(100f), "Rename", ButtonStyle.Primary) || enter)
+            {
+                InputSystem.Consume(Key.Enter);
+                InputSystem.Consume(Key.KeypadEnter);
+                Dialog.Close();
+                RenameMany(picked, names);
+            }
+        }
+
+        /// <summary>
+        /// Renames <paramref name="picked"/> to <paramref name="names"/>. When one's new name is another's old one (two
+        /// swapping), they all go by stand-in names first, so none is in another's way.
+        /// </summary>
+        internal void RenameMany(IReadOnlyList<AssetEntry> picked, IReadOnlyList<string> names)
+        {
+            List<(AssetEntry Entry, string Target)> moves = picked.Select((p, i) => (p, TargetOf(p, names[i])))
+                .Where(m => !string.Equals(m.Item1.Path, m.Item2, StringComparison.Ordinal)).ToList();
+            HashSet<string> sources = picked.Select(p => p.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool inTheWay = moves.Any(m => sources.Contains(m.Target));
+
+            int renamed = 0;
             try
             {
-                if (entry.Kind == AssetKind.Sound) SoundPreview.Forget(entry.Path);
-                if (entry.Kind == AssetKind.Folder) Directory.Delete(entry.Path, recursive: true);
-                else File.Delete(entry.Path);
+                var steps = new List<(AssetEntry From, string To, string OldName)>();
+                foreach ((AssetEntry entry, string target) in moves)
+                {
+                    AssetEntry from = entry;
+                    if (inTheWay)
+                    {
+                        string standIn = Unique(Path.Combine(Path.GetDirectoryName(entry.Path)!, $"renaming {Guid.NewGuid():N}"), Path.GetExtension(entry.Path));
+                        if (entry.Kind == AssetKind.Folder) standIn = Path.Combine(Path.GetDirectoryName(entry.Path)!, $"renaming {Guid.NewGuid():N}");
+                        MoveFile(entry, standIn);
+                        from = new AssetEntry(standIn, entry.Kind);
+                    }
 
-                Assets.Forget(entry.Path);
-                Thumbnails.Forget(entry.Path);
-                _context.Assets?.Refresh();
-                if (_context.Selection.Asset?.Path == entry.Path) _context.Selection.SelectAsset(null);
-                _context.Notify($"Deleted {entry.Name}");
+                    steps.Add((from, target, Path.GetFileNameWithoutExtension(entry.Path)));
+                }
+
+                foreach ((AssetEntry from, string to, string oldName) in steps)
+                {
+                    MoveFile(from, to);
+                    if (from.Kind == AssetKind.Script) RenameClass(to, oldName);
+                    renamed++;
+                }
             }
             catch (Exception exception)
             {
-                _context.Notify($"Couldn't delete {entry.Name}: {exception.Message}");
+                _context.Notify($"Couldn't rename them all: {exception.Message}");
+                return;
             }
+
+            _context.Notify($"Renamed {renamed} items");
+        }
+
+        /// <summary>A script's class is renamed with its file, so the two still match.</summary>
+        private static void RenameClass(string script, string oldName)
+        {
+            string newName = EditorContext.ClassName(Path.GetFileNameWithoutExtension(script));
+            string code = File.ReadAllText(script);
+            if (code.Contains($"class {oldName}")) File.WriteAllText(script, code.Replace($"class {oldName}", $"class {newName}"));
         }
 
         private void HandleKeys()
         {
-            if (_context.Selection.Asset is not { } selected) return;
-            bool control = InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
+            bool control = Control;
 
-            if (InputSystem.GetKeyDown(Key.F2)) BeginRename(selected);
-            if (InputSystem.GetKeyDown(Key.Delete)) AskDelete(selected);
-            if (control && InputSystem.GetKeyDown(Key.D) && selected.Kind != AssetKind.Folder)
+            // Ctrl+A: every tile shown.
+            if (control && InputSystem.GetKeyDown(Key.A))
+            {
+                InputSystem.Consume(Key.A);
+                _context.Selection.SelectAssets(_entries);
+                return;
+            }
+
+            if (_context.Selection.Asset is not { } selected) return;
+            List<AssetEntry> picked = [.. _context.Selection.Assets];
+
+            if (InputSystem.GetKeyDown(Key.F2))
+            {
+                if (picked.Count > 1) AskRenameMany(picked);
+                else BeginRename(selected);
+            }
+
+            if (InputSystem.GetKeyDown(Key.Delete)) AskDelete(picked);
+            if (control && InputSystem.GetKeyDown(Key.D) && picked.Any(p => p.Kind != AssetKind.Folder))
             {
                 InputSystem.Consume(Key.D);
-                Duplicate(selected);
+                DuplicateAll(picked);
             }
 
             if (InputSystem.GetKeyDown(Key.Enter))

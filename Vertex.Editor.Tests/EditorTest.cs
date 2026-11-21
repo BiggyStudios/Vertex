@@ -26,6 +26,7 @@ namespace Vertex.Editor.Tests
             Ui.FocusId = 0;
             Menu.Close();
             Popup.Close();
+            Dialog.Close();
             Thumbnails.Reset();
             Thumbnails.CacheFolder = Path.Combine(Path.GetTempPath(), "VertexEditorTests", "Thumbnails");
 

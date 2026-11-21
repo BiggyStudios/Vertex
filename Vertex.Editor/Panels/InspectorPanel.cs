@@ -116,6 +116,13 @@ namespace Vertex.Editor.Panels
             Ui.Text(new Rect(x, y, width, 18f), _context.Assets?.Relative(asset.Path) ?? asset.Path, Theme.TextFaint, size: Theme.SmallTextSize);
             y += 28f;
 
+            // Of several picked in the Assets panel, the last is shown here.
+            if (_context.Selection.Assets.Count > 1)
+            {
+                Ui.Text(new Rect(x, y - 6f, width, 18f), $"{_context.Selection.Assets.Count} files selected  ·  this one shown", Theme.TextFaint, size: Theme.SmallTextSize);
+                y += 22f;
+            }
+
             switch (asset.Kind)
             {
                 case AssetKind.Texture:
