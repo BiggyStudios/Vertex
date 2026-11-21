@@ -98,6 +98,53 @@ namespace Vertex.Editor.Tests
             Assert.True(Vector3.Distance(position, camera.Position) < 1e-3f);
         }
 
+        [Theory]
+        [InlineData(-30f)]
+        [InlineData(30f)]
+        public void Letting_go_of_a_look_mid_turn_doesnt_bob_the_camera(float pitch)
+        {
+            var camera = new EditorCamera(new Scene());
+            camera.Settle();
+            Vector3 position = camera.Position;
+
+            // A quick look up or down, let go before the turn has caught up.
+            camera.Look(0f, pitch);
+            camera.Update(1f / 60f);
+            camera.EndLook();
+
+            float furthest = 0f;
+            for (int i = 0; i < 120; i++)
+            {
+                camera.Update(1f / 60f);
+                furthest = MathF.Max(furthest, Vector3.Distance(position, camera.Position));
+            }
+
+            Assert.True(furthest < 1e-3f, $"the camera moved {furthest} m");
+            Assert.True(MathF.Abs(MathF.Asin(camera.Forward.Y) * 180f / MathF.PI - (-22f + pitch)) < 0.05f);
+
+            // Once it's settled, moves of its own work as before: zooming goes towards the pivot.
+            float distance = camera.Distance;
+            camera.Zoom(2f);
+            for (int i = 0; i < 120; i++) camera.Update(1f / 60f);
+            Assert.True(camera.Distance < distance * 0.8f);
+        }
+
+        [Fact]
+        public void Zooming_straight_after_a_look_zooms_rather_than_staying_put()
+        {
+            var camera = new EditorCamera(new Scene());
+            camera.Settle();
+            Vector3 position = camera.Position;
+
+            camera.Look(0f, -30f);
+            camera.Update(1f / 60f);
+            camera.EndLook();
+            camera.Zoom(3f);
+            for (int i = 0; i < 120; i++) camera.Update(1f / 60f);
+
+            Assert.True(Vector3.Distance(position, camera.Position) > 1f);
+        }
+
         [Fact]
         public void Looking_along_an_axis_from_above_looks_straight_down()
         {

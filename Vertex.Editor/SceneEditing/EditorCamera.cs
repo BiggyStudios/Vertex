@@ -28,8 +28,11 @@ namespace Vertex.Editor.SceneEditing
         private View _target;
         private View _current;
 
-        // While looking around, the camera's own position stays put and the pivot swings round it instead.
+        // While looking around, the camera's own position stays put and the pivot swings round it instead. It stays put
+        // after the mouse is let go too, until the turn has eased to a stop: let go at once, the pivot and the turn would
+        // ease separately and the camera would bob up or down.
         private Vector3? _anchor;
+        private bool _lookEnded;
         private Vector3 _flyVelocity;
 
         public Camera Camera { get; }
@@ -86,7 +89,7 @@ namespace Vertex.Editor.SceneEditing
         public void Set2D(bool on)
         {
             if (on == Is2D) return;
-            EndLook();
+            Release();
             Is2D = on;
 
             if (on)
@@ -112,21 +115,40 @@ namespace Vertex.Editor.SceneEditing
         {
             if (Is2D) return;
             _anchor ??= Camera.Transform.Position;
+            _lookEnded = false;
             _target.Yaw += yaw;
             _target.Pitch = Math.Clamp(_target.Pitch + pitch, -89f, 89f);
         }
 
-        /// <summary>Stops looking around: the pivot stays where it's swung to.</summary>
+        /// <summary>
+        /// Stops looking around: the pivot stays where it's swung to. The camera stays where it stands while it finishes
+        /// turning.
+        /// </summary>
         public void EndLook()
         {
-            _anchor = null;
             _flyVelocity = Vector3.Zero;
+            if (_anchor != null) _lookEnded = true;
+        }
+
+        /// <summary>Stops looking around at once, for a move of its own (framing, orbiting...) to take over.</summary>
+        private void Release()
+        {
+            _anchor = null;
+            _lookEnded = false;
+            _flyVelocity = Vector3.Zero;
+        }
+
+        // A move of its own after looking around: what's left of the turn is the move's now.
+        private void TakeOver()
+        {
+            if (_lookEnded) Release();
         }
 
         /// <summary>Swings the camera round the pivot, by degrees. Not in 2D.</summary>
         public void Orbit(float yaw, float pitch)
         {
             if (Is2D) return;
+            TakeOver();
             _target.Yaw += yaw;
             _target.Pitch = Math.Clamp(_target.Pitch + pitch, -89f, 89f);
         }
@@ -135,6 +157,7 @@ namespace Vertex.Editor.SceneEditing
         public void Pan(Vector2 drag, float viewHeight)
         {
             if (viewHeight <= 0f) return;
+            TakeOver();
 
             float metresPerUnit = 2f * _current.Distance * MathF.Tan(Camera.FieldOfView * MathF.PI / 360f) / viewHeight;
             Vector3 forward = Direction(_target.Yaw, _target.Pitch);
@@ -153,6 +176,7 @@ namespace Vertex.Editor.SceneEditing
         /// </summary>
         public void Zoom(float notches)
         {
+            TakeOver();
             float distance = _target.Distance * MathF.Pow(0.82f, notches);
 
             // In 2D, nearer only shows less, so it stops at a close look rather than pushing on.
@@ -177,6 +201,7 @@ namespace Vertex.Editor.SceneEditing
         {
             if (Is2D) return;
             _anchor ??= Camera.Transform.Position;
+            _lookEnded = false;
 
             Vector3 forward = Direction(_target.Yaw, _target.Pitch);
             Vector3 right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
@@ -192,7 +217,7 @@ namespace Vertex.Editor.SceneEditing
         /// <summary>Flies to look at a sphere round <paramref name="centre"/> from the same angle, near enough that it fills the view.</summary>
         public void Frame(Vector3 centre, float radius)
         {
-            EndLook();
+            Release();
             _target.Pivot = Is2D ? centre with { Z = 0f } : centre;
             float fit = MathF.Max(radius, 0.25f) / MathF.Sin(Camera.FieldOfView * MathF.PI / 360f);
             _target.Distance = Math.Clamp(fit * 1.1f, 0.5f, 4000f);
@@ -202,7 +227,7 @@ namespace Vertex.Editor.SceneEditing
         public void LookAlong(Vector3 direction)
         {
             if (Is2D) return;
-            EndLook();
+            Release();
             direction = Vector3.Normalize(direction);
             float pitch = MathF.Asin(Math.Clamp(direction.Y, -1f, 1f)) * 180f / MathF.PI;
             float yaw = MathF.Abs(direction.Y) > 0.999f ? _target.Yaw : MathF.Atan2(-direction.X, -direction.Z) * 180f / MathF.PI;
@@ -235,6 +260,9 @@ namespace Vertex.Editor.SceneEditing
             if (_anchor is Vector3 fixedAt)
             {
                 _current.Pivot = fixedAt + Direction(_current.Yaw, _current.Pitch) * _current.Distance;
+
+                // Let go once it's turned all the way: where it's got to is then where it's headed, so nothing moves.
+                if (_lookEnded && MathF.Abs(_target.Yaw - _current.Yaw) < 0.01f && MathF.Abs(_target.Pitch - _current.Pitch) < 0.01f) Release();
             }
             else
             {
@@ -249,14 +277,14 @@ namespace Vertex.Editor.SceneEditing
 
         public Placement Remember()
         {
-            EndLook();
+            Release();
             return new Placement(_target.Pivot, _target.Yaw, _target.Pitch, _target.Distance, Is2D);
         }
 
         /// <summary>Puts the camera straight back where it was when <paramref name="placement"/> was remembered.</summary>
         public void Restore(Placement placement)
         {
-            EndLook();
+            Release();
             if (placement.Is2D != Is2D) Set2D(placement.Is2D);
             _target = new View { Pivot = placement.Pivot, Yaw = placement.Yaw, Pitch = placement.Pitch, Distance = placement.Distance };
             _current = _target;
@@ -268,6 +296,7 @@ namespace Vertex.Editor.SceneEditing
         public void Settle()
         {
             if (_anchor is Vector3 anchor) _target.Pivot = anchor + Direction(_target.Yaw, _target.Pitch) * _target.Distance;
+            if (_lookEnded) Release();
             _current = _target;
             Apply();
         }
