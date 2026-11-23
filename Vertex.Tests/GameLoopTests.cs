@@ -51,16 +51,23 @@ namespace Vertex.Tests
             loop.Load();
             Recorder recorder = new GameObject().AddComponent<Recorder>();
             RunFrames(loop, 1, deltaTime: 0.001);
-            float gameStart = Time.TotalTime, realStart = Time.UnscaledTotalTime;
+            // Kept to more places than TotalTime, which earlier tests have run up to where a float is coarse.
+            double gameStart = Time.PreciseTotalTime;
 
             // A tenth of a second at a quarter speed is a fortieth of a second of game: one physics step, not five.
             Time.Scale = 0.25f;
-            RunFrames(loop, 10, deltaTime: 0.01);
+            float real = 0f;
+            for (int i = 0; i < 10; i++)
+            {
+                RunFrames(loop, 1, deltaTime: 0.01);
+                real += Time.UnscaledDeltaTime;
+            }
+
             Assert.Equal(1, recorder.FixedUpdates);
             Assert.Equal(0.0025f, Time.DeltaTime, 0.0001f);
             Assert.Equal(0.01f, Time.UnscaledDeltaTime, 0.0001f);
-            Assert.Equal(0.025f, Time.TotalTime - gameStart, 0.0005f);
-            Assert.Equal(0.1f, Time.UnscaledTotalTime - realStart, 0.0005f);
+            Assert.Equal(0.025, Time.PreciseTotalTime - gameStart, 0.0001);
+            Assert.Equal(0.1f, real, 0.0001f);
 
             // Stopped, nothing moves on; nonsense is taken as normal speed.
             Time.Scale = 0f;
