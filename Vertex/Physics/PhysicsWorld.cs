@@ -126,6 +126,24 @@ namespace Vertex.Physics
             return true;
         }
 
+        /// <summary>
+        /// Finds the closest solid collider along a ray that <paramref name="accept"/> says yes to: the rest are seen
+        /// through, as if they weren't there (a game's shots going past its own hit boxes to find the wall behind).
+        /// Triggers are ignored as always.
+        /// </summary>
+        public bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit hit, Func<Collider, bool> accept)
+        {
+            _raycastBodies.Accept = id => !_bodiesById.TryGetValue(id, out PhysicsObject? body) || accept(body.Collider);
+            try
+            {
+                return Raycast(origin, direction, maxDistance, out hit);
+            }
+            finally
+            {
+                _raycastBodies.Accept = null;
+            }
+        }
+
         // The ball SphereCast moves, kept while casts ask for the same size.
         private SphereShape? _castSphere;
         private readonly List<ShapeCastResult> _castResults = new();
@@ -1340,7 +1358,10 @@ namespace Vertex.Physics
             public BodyID Ignored;
             public bool SkipTriggers;
 
-            protected override bool ShouldCollide(BodyID bodyID) => bodyID.ID != Ignored.ID;
+            /// <summary>When set, a body is looked at only if this says yes to its id.</summary>
+            public Func<uint, bool>? Accept;
+
+            protected override bool ShouldCollide(BodyID bodyID) => bodyID.ID != Ignored.ID && (Accept == null || Accept(bodyID.ID));
             protected override bool ShouldCollideLocked(JoltPhysicsSharp.Body body) => body.ID.ID != Ignored.ID && !(SkipTriggers && body.IsSensor);
         }
 

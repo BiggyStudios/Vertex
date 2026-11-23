@@ -44,6 +44,29 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void A_ray_sees_through_colliders_it_is_told_to_skip()
+        {
+            GameObject ground = Ground();
+            var crate = new GameObject("Crate");
+            crate.Transform.Position = new Vector3(0f, 1f, 0f);
+            crate.AddComponent<BoxCollider>();
+            var loop = new GameLoop(new EmptyGame());
+            loop.Load();
+            RunFrames(loop, 3);
+
+            Assert.True(Scene.Active.Physics.Raycast(new Vector3(0f, 5f, 0f), -Vector3.UnitY, 100f, out RaycastHit hit));
+            Assert.Same(crate, hit.GameObject);
+
+            Assert.True(Scene.Active.Physics.Raycast(new Vector3(0f, 5f, 0f), -Vector3.UnitY, 100f, out hit, c => c.GameObject != crate));
+            Assert.Same(ground, hit.GameObject);
+            Assert.Equal(5f, hit.Distance, 0.01f);
+
+            // Rays after it are as before.
+            Assert.True(Scene.Active.Physics.Raycast(new Vector3(0f, 5f, 0f), -Vector3.UnitY, 100f, out hit));
+            Assert.Same(crate, hit.GameObject);
+        }
+
+        [Fact]
         public void A_rigidbody_falls_and_comes_to_rest_on_the_ground()
         {
             Ground();
