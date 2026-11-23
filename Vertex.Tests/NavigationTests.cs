@@ -136,6 +136,26 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void A_way_from_right_on_the_edge_between_rectangles_goes_straight_and_never_back()
+        {
+            Box("Field", new Vector3(0f, -0.5f, 0f), new Vector3(60f, 1f, 60f));
+            NavMesh navMesh = Build();
+            var path = new NavMeshPath();
+
+            // Across the field, from every cell's edge in turn: some are the edges between rectangles.
+            for (float x = -20f; x <= 20f; x += navMesh.CellSize * 0.5f)
+            {
+                Assert.True(navMesh.FindPath(new Vector3(x, 0f, -25f), new Vector3(x, 0f, 25f), path));
+                for (int i = 1; i < path.Corners.Count; i++)
+                {
+                    Assert.True(path.Corners[i].Z >= path.Corners[i - 1].Z - 0.01f, $"From x {x}, the way goes back: {string.Join(" ", path.Corners)}");
+                }
+
+                Assert.InRange(path.Length, 49.9f, 50.3f);
+            }
+        }
+
+        [Fact]
         public void A_search_stops_at_its_limit_and_goes_as_near_as_it_got()
         {
             Field();

@@ -246,6 +246,17 @@ namespace Vertex.AI
             return new Vector3(at.X, Heights[cell], at.Y);
         }
 
+        /// <summary>
+        /// The same, but a hair inside the cell: a way that starts or ends exactly on the edge between two rectangles
+        /// (along that edge) confuses the pulling tight, which can then send it back along the edge first.
+        /// </summary>
+        private Vector3 OnCellInside(int cell, Vector2 point)
+        {
+            Vector2 min = CellMin(cell), inset = new(CellSize * 0.02f);
+            Vector2 at = Vector2.Clamp(point, min + inset, min + new Vector2(CellSize) - inset);
+            return new Vector3(at.X, Heights[cell], at.Y);
+        }
+
         // ---------------------------------------------------------------- Asking it things
 
         /// <summary>
@@ -451,7 +462,7 @@ namespace Vertex.AI
             lock (_searching)
             {
                 int startArea = CellArea[start];
-                Vector3 begin = OnCell(start, new Vector2(from.X, from.Z));
+                Vector3 begin = OnCellInside(start, new Vector2(from.X, from.Z));
                 Vector2 goal = new(to.X, to.Z);
                 int goalArea = end >= 0 && Areas[CellArea[end]].Island == Areas[startArea].Island ? CellArea[end] : -1;
 
@@ -664,6 +675,15 @@ namespace Vertex.AI
             }
 
             if (_pulled.Count > 1) corners.Add(finish);
+
+            // Corners it needn't turn at: where it can walk straight from the one before to the one after. Pulling tight
+            // only straightens the way within the rectangles the search went through, which aren't always the ones the
+            // straight line crosses.
+            for (int i = 1; i < corners.Count - 1;)
+            {
+                if (!Raycast(corners[i - 1], corners[i + 1], out _)) corners.RemoveAt(i);
+                else i++;
+            }
         }
 
         /// <summary>The height of the ground at a corner (on the edge between cells), on the floor nearest <paramref name="nearY"/>.</summary>

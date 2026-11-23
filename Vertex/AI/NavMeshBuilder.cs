@@ -465,47 +465,65 @@ namespace Vertex.AI
             var row = new List<int>();
             var rows = new List<int[]>();
 
-            for (int cell = 0; cell < cells; cell++)
+            // Square by square of the grid, each rectangle kept within its square. Over the whole grid at once, a
+            // diagonal edge (a road, the foot of a slope) staggers where each column's rectangle starts, and the stagger
+            // runs on across the map as rectangles one cell wide: thousands of them, and crooked ways through them.
+            for (int bz = 0; bz < navMesh.Depth; bz += biggest)
             {
-                if (area[cell] >= 0) continue;
-
-                // As far along x as it goes...
-                row.Clear();
-                row.Add(cell);
-                for (int at = cell; row.Count < biggest;)
+                for (int bx = 0; bx < navMesh.Width; bx += biggest)
                 {
-                    int next = navMesh.Link(at, NavMesh.Right);
-                    if (next < 0 || area[next] >= 0) break;
-                    row.Add(next);
-                    at = next;
-                }
-
-                // ...then as far along z as whole rows go, each joined across.
-                rows.Clear();
-                rows.Add(row.ToArray());
-                while (rows.Count < biggest)
-                {
-                    int[] last = rows[^1];
-                    var next = new int[last.Length];
-                    bool fits = true;
-                    for (int i = 0; i < last.Length && fits; i++)
+                    int xEnd = Math.Min(bx + biggest, navMesh.Width), zEnd = Math.Min(bz + biggest, navMesh.Depth);
+                    for (int z = bz; z < zEnd; z++)
                     {
-                        next[i] = navMesh.Link(last[i], NavMesh.Forward);
-                        fits = next[i] >= 0 && area[next[i]] < 0 && (i == 0 || navMesh.Link(next[i - 1], NavMesh.Right) == next[i]);
+                        for (int x = bx; x < xEnd; x++)
+                        {
+                            int column = x + z * navMesh.Width;
+                            for (int cell = navMesh.ColumnStart[column]; cell < navMesh.ColumnStart[column + 1]; cell++)
+                            {
+                                if (area[cell] >= 0) continue;
+
+                                // As far along x as it goes in the square...
+                                row.Clear();
+                                row.Add(cell);
+                                for (int at = cell; ;)
+                                {
+                                    int next = navMesh.Link(at, NavMesh.Right);
+                                    if (next < 0 || area[next] >= 0 || navMesh.CellX(next) >= xEnd) break;
+                                    row.Add(next);
+                                    at = next;
+                                }
+
+                                // ...then as far along z as whole rows go, each joined across.
+                                rows.Clear();
+                                rows.Add(row.ToArray());
+                                while (true)
+                                {
+                                    int[] last = rows[^1];
+                                    var next = new int[last.Length];
+                                    bool fits = true;
+                                    for (int i = 0; i < last.Length && fits; i++)
+                                    {
+                                        next[i] = navMesh.Link(last[i], NavMesh.Forward);
+                                        fits = next[i] >= 0 && area[next[i]] < 0 && navMesh.CellZ(next[i]) < zEnd
+                                               && (i == 0 || navMesh.Link(next[i - 1], NavMesh.Right) == next[i]);
+                                    }
+
+                                    if (!fits) break;
+                                    rows.Add(next);
+                                }
+
+                                int index = areas.Count;
+                                foreach (int[] cellsInRow in rows)
+                                {
+                                    foreach (int member in cellsInRow) area[member] = index;
+                                }
+
+                                int cx = navMesh.CellX(cell), cz = navMesh.CellZ(cell);
+                                areas.Add(new NavMesh.Area { X0 = cx, Z0 = cz, X1 = cx + row.Count, Z1 = cz + rows.Count });
+                            }
+                        }
                     }
-
-                    if (!fits) break;
-                    rows.Add(next);
                 }
-
-                int index = areas.Count;
-                foreach (int[] cellsInRow in rows)
-                {
-                    foreach (int member in cellsInRow) area[member] = index;
-                }
-
-                int x = navMesh.CellX(cell), z = navMesh.CellZ(cell);
-                areas.Add(new NavMesh.Area { X0 = x, Z0 = z, X1 = x + row.Count, Z1 = z + rows.Count });
             }
 
             navMesh.CellArea = area;
