@@ -22,6 +22,9 @@ namespace Vertex.Editor
 
         /// <summary>Starts moving the window with the mouse, until the button is let go.</summary>
         void BeginMove();
+
+        /// <summary>Covers the whole screen the window is on (true), or puts it back as it was (false): for Fullscreen on Play.</summary>
+        void SetFullscreen(bool fullscreen) { }
     }
 
     /// <summary>
@@ -176,6 +179,9 @@ namespace Vertex.Editor
             // The editor's own size; a game's UI in the game view sizes itself (see Canvas.BeginView).
             Canvas.FixedScale = InterfaceScale;
 
+            // Ctrl+P and F11 are the editor's while playing, even with the game holding the keys.
+            PlayKeys();
+
             // While the game has the keyboard and mouse, the editor's controls don't see them (see PlayMode).
             _sceneView.RouteInput();
             InputSystem.Muted = Context.Play.GameFocused || InputBlocked;
@@ -204,10 +210,25 @@ namespace Vertex.Editor
             var screen = new Rect(0f, 0f, Canvas.Width, Canvas.Height);
             Ui.Rect(screen, Theme.Background);
 
-            Rect body = screen.CutTop(_titleBarHeight).Shrink(Theme.Gap).CutTop(0f);
-            if (body.Width > 100f && body.Height > 100f) DrawBody(body, preferences);
+            // Fullscreen on Play: the window covers the screen, and the game's picture covers the window.
+            bool fullscreen = Context.Play.Playing && Context.Play.Fullscreen;
+            if (fullscreen != _fullscreen)
+            {
+                _fullscreen = fullscreen;
+                _window?.SetFullscreen(fullscreen);
+            }
 
-            DrawTitleBar(screen.TakeTop(_titleBarHeight));
+            if (fullscreen)
+            {
+                _sceneView.Draw(screen, gameOnly: true);
+            }
+            else
+            {
+                Rect body = screen.CutTop(_titleBarHeight).Shrink(Theme.Gap).CutTop(0f);
+                if (body.Width > 100f && body.Height > 100f) DrawBody(body, preferences);
+
+                DrawTitleBar(screen.TakeTop(_titleBarHeight));
+            }
 
             HandleShortcuts();
             DrawNotes(screen);
@@ -224,6 +245,35 @@ namespace Vertex.Editor
             if (CursorOverride is { } cursor) Ui.Cursor = cursor;
             Ui.EndFrame();
             InputSystem.Muted = false;
+        }
+
+        private bool _fullscreen;
+
+        /// <summary>Whether the game fills the whole screen now (Fullscreen on Play).</summary>
+        public bool ShowingFullscreen => _fullscreen;
+
+        /// <summary>
+        /// While playing, Ctrl+P stops and F11 switches between the game filling the screen and the editor, even while the
+        /// game has the keyboard (otherwise a game filling the screen couldn't be stopped). The game doesn't see them.
+        /// </summary>
+        private void PlayKeys()
+        {
+            PlayMode play = Context.Play;
+            if (!play.Playing) return;
+
+            if (InputSystem.GetKeyDown(Key.F11))
+            {
+                play.Fullscreen = !play.Fullscreen;
+                InputSystem.Consume(Key.F11);
+            }
+
+            bool ctrl = InputSystem.GetKey(Key.ControlLeft) || InputSystem.GetKey(Key.ControlRight);
+            bool shift = InputSystem.GetKey(Key.ShiftLeft) || InputSystem.GetKey(Key.ShiftRight);
+            if (play.GameFocused && ctrl && !shift && InputSystem.GetKeyDown(Key.P))
+            {
+                InputSystem.Consume(Key.P);
+                play.Stop();
+            }
         }
 
         private const int ShadowResolutionDefault = 2048;
@@ -376,6 +426,16 @@ namespace Vertex.Editor
             if (Widgets.IconButton(Ui.Id("play.pause"), pauseButton, Icons.Pause, "Pause (Ctrl+Shift+P)", selected: play.Paused) && play.Playing) play.Paused = !play.Paused;
             if (Widgets.IconButton(Ui.Id("play.stop"), stopButton, Icons.Stop, "Stop") && play.Playing) play.Stop();
             Ui.Opacity = 1f;
+
+            // Beside them, whether playing fills the screen.
+            Preferences preferences = Context.Preferences;
+            var fullscreenButton = new Rect(pill.Right + 6f, pill.Y + 3f, pill.Height - 6f, pill.Height - 6f);
+            if (Widgets.IconButton(Ui.Id("play.fullscreen"), fullscreenButton, Icons.Maximize,
+                    preferences.FullscreenOnPlay ? "Fullscreen on Play: on (F11 switches while playing)" : "Fullscreen on Play: off", selected: preferences.FullscreenOnPlay))
+            {
+                preferences.FullscreenOnPlay = !preferences.FullscreenOnPlay;
+                if (play.Playing) play.Fullscreen = preferences.FullscreenOnPlay;
+            }
         }
 
         private void TogglePlay()

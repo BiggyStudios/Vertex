@@ -155,7 +155,9 @@ namespace Vertex.Editor.Panels
             }
         }
 
-        public void Draw(Rect rect)
+        /// <param name="rect">Where it goes.</param>
+        /// <param name="gameOnly">Just the game's picture, filling <paramref name="rect"/>, with no tabs or frame: for Fullscreen on Play.</param>
+        public void Draw(Rect rect, bool gameOnly = false)
         {
             PlayMode play = _context.Play;
 
@@ -174,6 +176,16 @@ namespace Vertex.Editor.Panels
                 if (_graphBeforePlay != null && _graphs.Contains(_graphBeforePlay)) _graph = _graphBeforePlay;
             }
             _wasPlaying = play.Playing;
+
+            if (gameOnly)
+            {
+                _graph = null;
+                _gameTab = true;
+                Ui.Rect(rect, Color.Black);
+                DrawGame(rect);
+                if (_context.Busy is { } working) DrawBusy(rect, working);
+                return;
+            }
 
             FollowPrefab();
             Ui.Rect(rect, Theme.Panel, Theme.PanelRadius);

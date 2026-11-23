@@ -74,6 +74,9 @@ namespace Vertex.Editor.Editing
         [Tooltip("Empties the Console each time play starts, so it only has what this run of the game wrote")]
         public bool ClearConsoleOnPlay { get; set; } = true;
 
+        [Tooltip("Playing fills the whole screen with the game, with none of the editor showing. F11 switches while playing; Ctrl+P stops")]
+        public bool FullscreenOnPlay { get; set; }
+
         private static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vertex", "editor.json");
 
         private static readonly JsonSerializerOptions _options = new() { WriteIndented = true };

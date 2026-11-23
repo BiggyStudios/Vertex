@@ -157,6 +157,66 @@ namespace Vertex.Editor.Tests
             Assert.True(app.SceneView.ShowingGame);
         }
 
+        /// <summary>Notes what the editor asked of its window.</summary>
+        private sealed class FakeWindow : IWindowControls
+        {
+            public List<bool> Fullscreen { get; } = new();
+            public bool Maximized => false;
+            public void Minimize() { }
+            public void ToggleMaximize() { }
+            public void Close() { }
+            public void BeginMove() { }
+            public void SetFullscreen(bool fullscreen) => Fullscreen.Add(fullscreen);
+        }
+
+        [Fact]
+        public void Fullscreen_on_play_fills_the_screen_with_the_game_until_F11_or_stopping()
+        {
+            var window = new FakeWindow();
+            var app = new EditorApp(window: window);
+            Frame(app);
+
+            // Off: playing stays in the editor.
+            app.Context.Play.Start();
+            Frame(app);
+            Assert.False(app.ShowingFullscreen);
+            Assert.Empty(window.Fullscreen);
+            app.Context.Play.Stop();
+            Frame(app);
+
+            // On: the window covers the screen, and the game's picture all of it.
+            app.Context.Preferences.FullscreenOnPlay = true;
+            app.Context.Play.Start();
+            Frame(app);
+            Assert.True(app.ShowingFullscreen);
+            Assert.Equal([true], window.Fullscreen);
+            Assert.Equal(new Rect(0f, 0f, ScreenWidth, ScreenHeight), app.SceneView.GameRect);
+
+            // F11 brings the editor back while the game plays on, and again fills the screen.
+            Press(Key.F11);
+            Frame(app);
+            ReleaseAll();
+            Frame(app);
+            Assert.True(app.Context.Play.Playing);
+            Assert.False(app.ShowingFullscreen);
+            Assert.True(app.SceneView.GameRect.Y > 0f);
+            Press(Key.F11);
+            Frame(app);
+            ReleaseAll();
+            Frame(app);
+            Assert.True(app.ShowingFullscreen);
+
+            // Ctrl+P stops, even with the game holding the keys, and the window goes back.
+            Assert.True(app.Context.Play.GameFocused);
+            Press(Key.P, Key.ControlLeft);
+            Frame(app);
+            ReleaseAll();
+            Frame(app);
+            Assert.False(app.Context.Play.Playing);
+            Assert.False(app.ShowingFullscreen);
+            Assert.Equal([true, false, true, false], window.Fullscreen);
+        }
+
         /// <summary>Adds up the mouse movement the game sees, and the frames it sees the left button down.</summary>
         public sealed class MouseWatcher : Component
         {

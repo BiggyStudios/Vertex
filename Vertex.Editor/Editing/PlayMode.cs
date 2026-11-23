@@ -34,6 +34,12 @@ namespace Vertex.Editor.Editing
         /// <summary>Whether the game has the keyboard and mouse, rather than the editor.</summary>
         public bool GameFocused { get; set; }
 
+        /// <summary>
+        /// The game fills the whole screen, with none of the editor showing: from <see cref="Preferences.FullscreenOnPlay"/>
+        /// as play starts, and F11 while playing. Stopping puts the editor back.
+        /// </summary>
+        public bool Fullscreen { get; set; }
+
         public PlayMode(EditorContext context)
         {
             _context = context;
@@ -92,7 +98,8 @@ namespace Vertex.Editor.Editing
             Application.QuitRequested += Stop;
             Paused = false;
             GameFocused = true;
-            _context.Notify("Playing: Shift+F1 frees the mouse");
+            Fullscreen = _context.Preferences.FullscreenOnPlay;
+            _context.Notify(Fullscreen ? "Playing fullscreen: F11 shows the editor, Ctrl+P stops" : "Playing: Shift+F1 frees the mouse");
         }
 
         /// <summary>
@@ -168,6 +175,7 @@ namespace Vertex.Editor.Editing
             InputSystem.Muted = false;
             GameFocused = false;
             Paused = false;
+            Fullscreen = false;
             Time.FixedDeltaTime = 1f / 60f;
             // A game stopped in the middle of a slow-motion moment mustn't leave the next play slowed.
             Time.Scale = 1f;

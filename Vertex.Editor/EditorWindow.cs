@@ -152,6 +152,32 @@ namespace Vertex.Editor
             else Maximize();
         }
 
+        // How the window was before covering the screen for Fullscreen on Play.
+        private (WindowState State, Vector2D<int> Position, Vector2D<int> Size)? _beforeFullscreen;
+
+        public void SetFullscreen(bool fullscreen)
+        {
+            if (fullscreen == (_beforeFullscreen != null)) return;
+
+            if (fullscreen)
+            {
+                if (_window.Monitor is not { } monitor) return;
+                _beforeFullscreen = (_window.WindowState, _window.Position, _window.Size);
+                if (_window.WindowState != WindowState.Normal) _window.WindowState = WindowState.Normal;
+
+                // The whole screen, taskbar and all; a pixel taller, as Screen does, so window capture still sees it.
+                _window.Size = (monitor.VideoMode.Resolution ?? monitor.Bounds.Size) + new Vector2D<int>(0, 1);
+                _window.Position = Screen.MonitorOrigin(monitor);
+                return;
+            }
+
+            (WindowState state, Vector2D<int> position, Vector2D<int> size) = _beforeFullscreen!.Value;
+            _beforeFullscreen = null;
+            _window.Size = size;
+            _window.Position = position;
+            if (state == WindowState.Maximized) _window.WindowState = WindowState.Maximized;
+        }
+
         public void Close()
         {
             _closeConfirmed = true;
@@ -277,7 +303,7 @@ namespace Vertex.Editor
         /// <summary>Which edges the cursor is on: 1 left, 2 right, 4 top, 8 bottom. None while maximised.</summary>
         private int EdgesUnderCursor()
         {
-            if (Maximized) return 0;
+            if (Maximized || _beforeFullscreen != null) return 0;
             Vector2 mouse = InputSystem.MousePosition;
             Vector2D<int> size = _window.Size;
             int edges = 0;

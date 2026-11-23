@@ -74,7 +74,7 @@ namespace Vertex
         /// The monitor's top-left corner on the desktop. Silk only gives the free area's corner, which is off by the
         /// taskbar when that's along the top or left, so this asks GLFW (which Silk's windows run on) directly.
         /// </summary>
-        private static unsafe Vector2D<int> MonitorOrigin(IMonitor monitor)
+        internal static unsafe Vector2D<int> MonitorOrigin(IMonitor monitor)
         {
             Glfw glfw = Glfw.GetApi();
             Monitor** monitors = glfw.GetMonitors(out int count);
