@@ -7,7 +7,7 @@ namespace Vertex.Rendering
     /// </summary>
     public class Camera : Component
     {
-        private static Camera? _main;
+        private static Camera? _main, _found;
 
         /// <summary>
         /// The camera that draws to the screen. Defaults to the first camera in the active scene without a
@@ -19,11 +19,18 @@ namespace Vertex.Rendering
             {
                 if (_main != null && !_main.GameObject.IsDestroyed && _main.GameObject.Scene == Scene.Active) return _main;
 
+                // The one found last time, while it's still there and still draws to the screen: looking through the scene
+                // for it costs, and many things ask every frame.
+                if (_found != null && !_found.GameObject.IsDestroyed && _found.GameObject.Scene == Scene.Active && _found.Target == null && _found.Enabled && _found.GameObject.ActiveInHierarchy) return _found;
+
                 foreach (Camera camera in Scene.Active.FindComponents<Camera>())
                 {
-                    if (camera.Target == null) return camera;
+                    if (camera.Target != null) continue;
+                    _found = camera;
+                    return camera;
                 }
 
+                _found = null;
                 return null;
             }
             set => _main = value;

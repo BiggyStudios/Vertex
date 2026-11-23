@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Silk.NET.Windowing;
 
@@ -52,18 +53,45 @@ namespace Vertex.Rendering
         private CpuParticlePool? _cpuParticlePool;
         private CpuParticlePool? _cpuParticles;
 
-        // Any order that keeps draws with the same surface shader (or none) next to each other, as switching shaders costs
-        // the most; within that the same material, and within that the same mesh.
-        private static readonly Comparison<DrawCall> _byMaterialThenMesh = (a, b) =>
-        {
-            int shader = RuntimeHelpers.GetHashCode(a.Material.Shader).CompareTo(RuntimeHelpers.GetHashCode(b.Material.Shader));
-            if (shader != 0) return shader;
-            int material = RuntimeHelpers.GetHashCode(a.Material).CompareTo(RuntimeHelpers.GetHashCode(b.Material));
-            return material != 0 ? material : RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
-        };
+        // Each draw's place in the order, worked out once: sorting by a number is much quicker than calling a comparison
+        // that looks at three objects each time, with thousands of draws.
+        private long[] _sortKeys = [];
 
-        private static readonly Comparison<DrawCall> _byMesh = (a, b) =>
-            RuntimeHelpers.GetHashCode(a.Mesh).CompareTo(RuntimeHelpers.GetHashCode(b.Mesh));
+        /// <summary>
+        /// Puts draws with the same surface shader (or none) next to each other, as switching shaders costs the most;
+        /// within that the same material, and within that the same mesh. (Any order that keeps them together will do: two
+        /// whose numbers happen to match only cost a little switching.)
+        /// </summary>
+        private void SortByMaterial(List<DrawCall> draws)
+        {
+            Span<DrawCall> items = CollectionsMarshal.AsSpan(draws);
+            Span<long> keys = Keys(items.Length);
+            for (int i = 0; i < items.Length; i++)
+            {
+                DrawCall draw = items[i];
+                keys[i] = ((long)(RuntimeHelpers.GetHashCode(draw.Material.Shader) & 0x1FFFFF) << 42)
+                          | ((long)(RuntimeHelpers.GetHashCode(draw.Material) & 0x1FFFFF) << 21)
+                          | (long)(RuntimeHelpers.GetHashCode(draw.Mesh) & 0x1FFFFF);
+            }
+
+            keys.Sort(items);
+        }
+
+        /// <summary>Shadow maps only need each mesh set up once: the same mesh's draws together.</summary>
+        private void SortByMesh(List<DrawCall> draws)
+        {
+            Span<DrawCall> items = CollectionsMarshal.AsSpan(draws);
+            Span<long> keys = Keys(items.Length);
+            for (int i = 0; i < items.Length; i++) keys[i] = RuntimeHelpers.GetHashCode(items[i].Mesh);
+            keys.Sort(items);
+        }
+
+        private Span<long> Keys(int count)
+        {
+            if (_sortKeys.Length < count) _sortKeys = new long[Math.Max(count, _sortKeys.Length * 2)];
+            return _sortKeys.AsSpan(0, count);
+        }
+
 
         private readonly System.Diagnostics.Stopwatch _cpuTime = new();
 
@@ -440,8 +468,8 @@ namespace Vertex.Rendering
             }
 
             // And within each, the same material and mesh together, so the backend sets each up once for all its draws.
-            _frame.DrawCallList.Sort(_byMaterialThenMesh);
-            _unlitDraws.Sort(_byMaterialThenMesh);
+            SortByMaterial(_frame.DrawCallList);
+            SortByMaterial(_unlitDraws);
             _frame.DrawCallList.AddRange(_unlitDraws);
             _unlitDraws.Clear();
             Stats.DrawCalls += _frame.DrawCallList.Count;
@@ -449,7 +477,7 @@ namespace Vertex.Rendering
             // Shadow maps only need each mesh set up once.
             foreach (List<DrawCall> list in casters)
             {
-                list.Sort(_byMesh);
+                SortByMesh(list);
                 Stats.ShadowDrawCalls += list.Count;
             }
 
