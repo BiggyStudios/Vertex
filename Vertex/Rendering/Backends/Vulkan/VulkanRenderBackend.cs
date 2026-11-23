@@ -120,6 +120,7 @@ namespace Vertex.Rendering.Vulkan
         {
             public int Version;
             public ShaderModule? Module;
+            public ShaderModule? VertexModule;
             public Pipeline? Pipeline;
         }
 
@@ -270,7 +271,8 @@ namespace Vertex.Rendering.Vulkan
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment));
             _materialSetLayout = VkDescriptors.CreateLayout(_context,
-                (DescriptorType.UniformBuffer, fragment),
+                // Read by surface shaders' vertex functions too (see Shader.MovesVertices).
+                (DescriptorType.UniformBuffer, vertexAndFragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 (DescriptorType.CombinedImageSampler, fragment),
                 // A surface shader's textures.
@@ -1633,11 +1635,12 @@ namespace Vertex.Rendering.Vulkan
                 if (built != null)
                 {
                     Pipeline? oldPipeline = built.Pipeline;
-                    ShaderModule? oldModule = built.Module;
+                    ShaderModule? oldModule = built.Module, oldVertex = built.VertexModule;
                     _frame.DeleteLater(() =>
                     {
                         if (oldPipeline is { } p) _context.Vk.DestroyPipeline(_context.Device, p, null);
                         if (oldModule is { } m) _context.Vk.DestroyShaderModule(_context.Device, m, null);
+                        if (oldVertex is { } v) _context.Vk.DestroyShaderModule(_context.Device, v, null);
                     });
                 }
 
@@ -1648,7 +1651,14 @@ namespace Vertex.Rendering.Vulkan
                     string source = lit ? ShaderLibrary.LitFragmentWith(surface) : ShaderLibrary.UnlitFragmentWith(surface);
                     ShaderModule module = _compiler.Create(surface.Name, ShaderKind.FragmentShader, ShaderLibrary.Build(ShaderTarget.Vulkan, source));
                     built.Module = module;
-                    built.Pipeline = VkPipelines.CreateGraphics(_context, _sceneDescription(module));
+                    VkPipelineDescription description = _sceneDescription(module);
+                    if (surface.MovesVertices)
+                    {
+                        built.VertexModule = _compiler.Create(surface.Name, ShaderKind.VertexShader, ShaderLibrary.Build(ShaderTarget.Vulkan, ShaderLibrary.MeshVertexWith(surface)));
+                        description.Vertex = built.VertexModule.Value;
+                    }
+
+                    built.Pipeline = VkPipelines.CreateGraphics(_context, description);
                 }
                 catch (InvalidOperationException exception)
                 {

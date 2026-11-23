@@ -57,6 +57,7 @@ namespace Vertex.Rendering
 
         private static readonly Regex _effect = new(@"\bvec4\s+effect\s*\(", RegexOptions.Compiled);
         private static readonly Regex _surface = new(@"\bvoid\s+surface\s*\(\s*inout\s+Surface\b", RegexOptions.Compiled);
+        private static readonly Regex _vertex = new(@"\bvoid\s+vertex\s*\(", RegexOptions.Compiled);
 
         private List<ShaderProperty> _properties = new();
         private List<string> _problems = new();
@@ -171,6 +172,52 @@ namespace Vertex.Rendering
 
         /// <summary>Whether it's a surface shader, for a material: it defines <c>void surface(inout Surface s)</c>.</summary>
         public bool IsSurface => Purpose == ShaderPurpose.Surface;
+
+        /// <summary>
+        /// Whether it moves the mesh's corners as well: a surface shader that also defines
+        /// <c>void vertex(inout vec3 position, vec3 normal, vec2 uv)</c>, given each corner's place in the world (to move),
+        /// its normal and its texture coordinates. It can read <c>time</c>, <c>objectPosition</c> and its settings, and
+        /// must stand alone: other functions of the shader aren't there to call. Grass and leaves in the wind, water's
+        /// waves. Shadows are still cast from where the mesh is, unmoved.
+        /// </summary>
+        public bool MovesVertices => IsSurface && VertexCode != null;
+
+        /// <summary>
+        /// The vertex function, with the settings' names before it, for the mesh's vertex shader (numbered as in the
+        /// file); null if there's none.
+        /// </summary>
+        internal string? VertexCode
+        {
+            get
+            {
+                string body = Body;
+                Match match = _vertex.Match(body);
+                if (!match.Success) return null;
+                int open = body.IndexOf('{', match.Index);
+                if (open < 0) return null;
+                int depth = 0, end = -1;
+                for (int i = open; i < body.Length; i++)
+                {
+                    if (body[i] == '{') depth++;
+                    else if (body[i] == '}' && --depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
+                }
+
+                if (end < 0) return null;
+                var code = new StringBuilder();
+                foreach (string line in body.Split('\n'))
+                {
+                    if (line.TrimStart().StartsWith("#define", StringComparison.Ordinal)) code.Append(line).Append('\n');
+                }
+
+                int firstLine = body.AsSpan(0, match.Index).Count('\n') + 1;
+                code.Append("#line ").Append(firstLine).Append('\n').Append(body, match.Index, end + 1 - match.Index).Append('\n');
+                return code.ToString();
+            }
+        }
 
         /// <summary>The setting called <paramref name="name"/>, or null.</summary>
         public ShaderProperty? Property(string name) => Properties.FirstOrDefault(p => p.Name == name);
@@ -557,7 +604,23 @@ namespace Vertex.Rendering
                 if (saved.Name == name && saved.Texture != null) return saved.Texture;
             }
 
-            return shader?.Property(name) is { DefaultTexture: { } file } && Assets.FindFile(file) is { } path ? Assets.LoadTexture(path) : null;
+            return shader?.Property(name) is { DefaultTexture: { } file } && Find(file) is { } path ? Assets.LoadTexture(path) : null;
+        }
+
+        // Where each default texture's file was found: looked for once (and, while it's missing, again every couple of
+        // seconds, in case it's added), not on every draw of every frame.
+        // Kept with the project's folders it was looked for in, so another project's look again.
+        private static readonly Dictionary<string, (string? Path, long CheckedAt, string Root)> _found = new();
+
+        private static string? Find(string file)
+        {
+            long now = Environment.TickCount64;
+            string[] folders = Application.AssetFolders;
+            string root = folders.Length > 0 ? folders[0] : "";
+            if (_found.TryGetValue(file, out var known) && known.Root == root && (known.Path != null || now - known.CheckedAt < 2000)) return known.Path;
+            string? path = Assets.FindFile(file);
+            _found[file] = (path, now, root);
+            return path;
         }
     }
 

@@ -292,7 +292,7 @@ namespace Vertex.Rendering.OpenGL
                 built = (surface.Version, null);
                 try
                 {
-                    built.Program = SceneShader(ShaderLibrary.MeshVertex, lit ? ShaderLibrary.LitFragmentWith(surface) : ShaderLibrary.UnlitFragmentWith(surface));
+                    built.Program = SceneShader(ShaderLibrary.MeshVertexWith(surface), lit ? ShaderLibrary.LitFragmentWith(surface) : ShaderLibrary.UnlitFragmentWith(surface));
                 }
                 catch (Exception exception)
                 {

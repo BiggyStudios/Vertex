@@ -714,7 +714,35 @@ namespace Vertex.Rendering.Shaders
 
             """;
 
-        public const string MeshVertex = Frame + DrawConstants + """
+        public const string MeshVertex = Frame + DrawConstants + MeshVertexMain;
+
+        // What a surface shader that moves corners (see Shader.MovesVertices) can read in its vertex function: its settings,
+        // the time and where the object is.
+        private const string SurfaceVertexHeader = """
+            UNIFORM_BLOCK(1, 0) MaterialData
+            {
+                vec4 color;
+                vec4 emission;
+                vec4 surface;
+                vec4 uvTransform;
+                vec4 normalParams;
+                vec4 values[16];
+            } material;
+            #define shaderValues material.values
+            float time;
+            vec3 objectPosition;
+
+            """;
+
+        /// <summary>
+        /// The mesh vertex shader for a material: with its surface shader's vertex function in (see
+        /// <see cref="Rendering.Shader.MovesVertices"/>), or the standard one.
+        /// </summary>
+        public static string MeshVertexWith(Rendering.Shader? surface) => surface?.MovesVertices == true
+            ? "#define CUSTOM_VERTEX 1\n" + Frame + DrawConstants + SurfaceVertexHeader + surface.VertexCode + MeshVertexMain
+            : MeshVertex;
+
+        private const string MeshVertexMain = """
             layout (location = 0) in vec3 aPosition;
             layout (location = 1) in vec3 aNormal;
             layout (location = 2) in vec2 aUV;
@@ -732,13 +760,22 @@ namespace Vertex.Rendering.Shaders
             void main()
             {
                 vec4 worldPosition = draw.model * vec4(aPosition, 1.0);
-                vWorldPosition = worldPosition.xyz;
 
                 // Normals turn with the object but stay square to its surface however it's stretched: by the cofactors of
                 // its rotation and scale (the inverse transposed, but for size, which doesn't matter as it's normalised).
                 mat3 m = mat3(draw.model);
                 mat3 cofactors = mat3(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1]));
                 vNormal = cofactors * aNormal * sign(dot(m[0], cross(m[1], m[2])));
+
+            #ifdef CUSTOM_VERTEX
+                // The surface shader's own move of the corner.
+                time = frame.cameraPosition.w;
+                objectPosition = draw.model[3].xyz;
+                vec3 moved = worldPosition.xyz;
+                vertex(moved, normalize(vNormal), aUV);
+                worldPosition = vec4(moved, 1.0);
+            #endif
+                vWorldPosition = worldPosition.xyz;
 
                 vLightmapUV = aLightmapUV;
                 vUV = aUV;

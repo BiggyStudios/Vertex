@@ -119,6 +119,58 @@ namespace Vertex.Tests
             Assert.Contains("Broken.glsl:3:", error.Message);
         }
 
+        private const string Grass = """
+            property float Sway = 0.2 [0, 1];  // How far the tips move in the wind
+            property color Tip = #c8e070;
+
+            float gust(vec3 at) { return sin(at.x * 0.3 + time * 2.0); }
+
+            void vertex(inout vec3 position, vec3 normal, vec2 uv)
+            {
+                float height = uv.y;
+                position.x += sin(position.x * 0.3 + time * 2.0) * Sway * height;
+            }
+
+            void surface(inout Surface s)
+            {
+                s.color = mix(s.color, Tip.rgb, uv.y * gust(worldPosition));
+            }
+            """;
+
+        [Fact]
+        public void A_surface_shader_can_move_the_corners_of_its_mesh_in_a_vertex_function_of_its_own()
+        {
+            Shader grass = Shader.FromCode(Grass, "Grass.glsl");
+            Assert.Null(grass.Problem);
+            Assert.True(grass.IsSurface);
+            Assert.True(grass.MovesVertices);
+
+            // Only the vertex function goes in the vertex shader, with the settings' names, numbered as in the file.
+            string vertex = ShaderLibrary.MeshVertexWith(grass);
+            Assert.Contains("void vertex(inout vec3 position", vertex);
+            Assert.Contains("#define Sway", vertex);
+            Assert.Contains("#line 6", vertex);
+            Assert.DoesNotContain("void surface(", vertex);
+            Assert.NotEmpty(CompileVertexForVulkan(grass.Name, vertex));
+            Assert.NotEmpty(CompileForVulkan(grass.Name, ShaderLibrary.LitFragmentWith(grass)));
+
+            // A mistake in it names its line in the file.
+            Shader broken = Shader.FromCode(Grass.Replace("float height = uv.y;", "float height = uv.z;"), "Broken.glsl");
+            var error = Assert.Throws<InvalidOperationException>(() => CompileVertexForVulkan(broken.Name, ShaderLibrary.MeshVertexWith(broken)));
+            Assert.Contains("Broken.glsl:8:", error.Message);
+
+            // Without one, meshes are drawn with the standard vertex shader.
+            Shader lava = Shader.FromCode(Lava, "Lava.glsl");
+            Assert.False(lava.MovesVertices);
+            Assert.Equal(ShaderLibrary.MeshVertex, ShaderLibrary.MeshVertexWith(lava));
+        }
+
+        private static byte[] CompileVertexForVulkan(string name, string vertex)
+        {
+            using var compiler = new VkShaderCompiler(null!);
+            return compiler.CompileNow(name, ShaderKind.VertexShader, ShaderLibrary.Build(ShaderTarget.Vulkan, vertex));
+        }
+
         [Fact]
         public void A_materials_shader_settings_are_handed_over_with_colours_made_linear_and_textures_as_set_or_the_shaders_own()
         {
