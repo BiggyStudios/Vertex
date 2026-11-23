@@ -47,6 +47,7 @@ namespace Vertex.AI
         private float _fall;
         private bool _registered;
         private bool _toldNoNavMesh;
+        private float _repathAt;
 
         // Every agent moving, to keep apart: those of scenes not being run drop out, and join again when they move.
         private static readonly List<NavMeshAgent> _agents = new();
@@ -225,10 +226,12 @@ namespace Vertex.AI
             // On past corners it's reached (or nearly: it needn't touch each one).
             while (_corner < corners.Count - 1 && Flat(corners[_corner] - at).Length() < MathF.Max(0.15f, Speed * 0.05f)) _corner++;
 
-            // Pushed well off its way: a new one from here.
+            // Pushed well off its way: a new one from here. Not more than twice a second, though: in a packed crowd they
+            // push each other off all the time, and on its way back it heads for the corner it was going to anyway.
             Vector3 from = corners[Math.Max(_corner - 1, 0)], target = corners[_corner];
-            if (DistanceToSegment(Flat(at), Flat(from), Flat(target)) > 1f && navMesh.FindPath(at, Destination, _path))
+            if (Time.TotalTime >= _repathAt && DistanceToSegment(Flat(at), Flat(from), Flat(target)) > 1f && navMesh.FindPath(at, Destination, _path))
             {
+                _repathAt = Time.TotalTime + 0.5f;
                 _corner = Math.Min(1, corners.Count - 1);
                 target = corners[_corner];
             }
@@ -251,46 +254,88 @@ namespace Vertex.AI
 
         /// <summary>
         /// <paramref name="wanted"/>, turned to step round other agents ahead of it (each keeps to its own right, so two
-        /// meeting pass), and pushed away from any it's nearer than both their radii, harder the nearer.
+        /// meeting pass), and pushed away from any it's nearer than both their radii, harder the nearer. Only agents in
+        /// the squares round it are looked at (see <see cref="Regrid"/>), so a crowd of hundreds costs little more each.
         /// </summary>
         private Vector3 KeepApart(Vector3 at, Vector3 wanted)
         {
+            Scene scene = GameObject.Scene;
+            if (_gridTime != Time.UnscaledTotalTime || _gridScene != scene) Regrid(scene);
+
             float speed = wanted.Length();
             Vector3 heading = speed > 1e-4f ? wanted / speed : Vector3.Zero;
             var right = new Vector3(-heading.Z, 0f, heading.X);
             Vector3 push = Vector3.Zero, aside = Vector3.Zero;
-            for (int i = _agents.Count - 1; i >= 0; i--)
+
+            // Far enough to find any it could steer round (the biggest agents are about a unit across).
+            float lookAhead = Radius + 1.2f + MathF.Max(speed, 0.5f) * 1.2f + 0.4f;
+            int reach = (int)MathF.Ceiling(lookAhead / GridSquare);
+            int cx = (int)MathF.Floor(at.X / GridSquare), cz = (int)MathF.Floor(at.Z / GridSquare);
+            for (int x = cx - reach; x <= cx + reach; x++)
             {
-                NavMeshAgent other = _agents[i];
-                if (other == this) continue;
-                if (other.GameObject == null || other.GameObject.IsDestroyed || other.GameObject.Scene != GameObject.Scene)
+                for (int z = cz - reach; z <= cz + reach; z++)
                 {
-                    _agents.RemoveAt(i);
-                    other._registered = false;
-                    continue;
+                    if (!_grid.TryGetValue((x, z), out List<NavMeshAgent>? near)) continue;
+                    foreach (NavMeshAgent other in near)
+                    {
+                        if (other == this) continue;
+                        Vector3 away = Flat(at - other.Transform.WorldPosition);
+                        float apart = away.Length(), room = Radius + other.Radius + 0.2f;
+                        if (apart < 1e-4f) away = new Vector3(MathF.Cos(GetHashCode()), 0f, MathF.Sin(GetHashCode()));
+                        else away /= apart;
+
+                        // Ahead and coming near (within a second or so): steer to the side it isn't on.
+                        float ahead = -Vector3.Dot(away, heading);
+                        float within = room + MathF.Max(speed, 0.5f) * 1.2f;
+                        if (speed > 1e-4f && ahead > 0.2f && apart < within)
+                        {
+                            float side = Vector3.Dot(away, right);
+                            float sign = MathF.Abs(side) < 0.15f ? 1f : MathF.Sign(side);
+                            aside += right * sign * ahead * (1f - apart / within);
+                        }
+
+                        if (apart < room) push += away * (1f - apart / room) * MathF.Max(Speed, 1f);
+                    }
                 }
-
-                if (!other.Enabled || !other.GameObject.ActiveInHierarchy) continue;
-                Vector3 away = Flat(at - other.Transform.WorldPosition);
-                float apart = away.Length(), room = Radius + other.Radius + 0.2f;
-                if (apart < 1e-4f) away = new Vector3(MathF.Cos(GetHashCode()), 0f, MathF.Sin(GetHashCode()));
-                else away /= apart;
-
-                // Ahead and coming near (within a second or so): steer to the side it isn't on.
-                float lookAhead = room + MathF.Max(speed, 0.5f) * 1.2f;
-                float ahead = -Vector3.Dot(away, heading);
-                if (speed > 1e-4f && ahead > 0.2f && apart < lookAhead)
-                {
-                    float side = Vector3.Dot(away, right);
-                    float sign = MathF.Abs(side) < 0.15f ? 1f : MathF.Sign(side);
-                    aside += right * sign * ahead * (1f - apart / lookAhead);
-                }
-
-                if (apart < room) push += away * (1f - apart / room) * MathF.Max(Speed, 1f);
             }
 
             if (aside != Vector3.Zero) wanted = Vector3.Normalize(heading + aside * 1.5f) * speed;
             return wanted + push;
+        }
+
+        // The moving agents of the scene running, by square, made again once a frame.
+        private const float GridSquare = 2.5f;
+        private static readonly Dictionary<(int, int), List<NavMeshAgent>> _grid = new();
+        private static float _gridTime = float.NaN;
+        private static Scene? _gridScene;
+
+        /// <summary>Puts every moving agent of <paramref name="scene"/> into its square, and lets go of those that are gone.</summary>
+        private static void Regrid(Scene scene)
+        {
+            _gridTime = Time.UnscaledTotalTime;
+            _gridScene = scene;
+            foreach (List<NavMeshAgent> square in _grid.Values) square.Clear();
+            for (int i = _agents.Count - 1; i >= 0; i--)
+            {
+                NavMeshAgent agent = _agents[i];
+                if (agent.GameObject == null || agent.GameObject.IsDestroyed)
+                {
+                    _agents.RemoveAt(i);
+                    agent._registered = false;
+                    continue;
+                }
+
+                if (agent.GameObject.Scene != scene || !agent.Enabled || !agent.GameObject.ActiveInHierarchy) continue;
+                Vector3 at = agent.Transform.WorldPosition;
+                var key = ((int)MathF.Floor(at.X / GridSquare), (int)MathF.Floor(at.Z / GridSquare));
+                if (!_grid.TryGetValue(key, out List<NavMeshAgent>? square))
+                {
+                    square = new List<NavMeshAgent>();
+                    _grid[key] = square;
+                }
+
+                square.Add(agent);
+            }
         }
 
         private void Turn(float deltaTime)

@@ -123,6 +123,16 @@ namespace Vertex.AI
         public bool IsEmpty => Heights.Length == 0;
 
         /// <summary>
+        /// The most rectangles one search for a path looks at. Past that, the way found goes only as near as it got (a
+        /// <see cref="NavMeshPathStatus.Partial"/> path), and the agent finds the rest once it's nearer. It keeps a crowd
+        /// on a huge map from each searching all of it. Most levels never reach it.
+        /// </summary>
+        public int SearchLimit { get; set; } = 3000;
+
+        /// <summary>How many rectangles the last search looked at: for tests.</summary>
+        internal int LastSearched { get; private set; }
+
+        /// <summary>
         /// Makes the navmesh of <paramref name="scene"/> as it is now, for the size of character in
         /// <paramref name="settings"/> (the scene's own <see cref="Scene.Navigation"/> if null). For a level built as the
         /// game runs: give it to the scene (<c>scene.Navigation.NavMesh = NavMesh.Build(scene)</c>) for its agents to use.
@@ -189,11 +199,12 @@ namespace Vertex.AI
         /// The cell nearest <paramref name="point"/>: no further away along the ground than <paramref name="radius"/>,
         /// and up or down by no more than <paramref name="maxVertical"/>. -1 if there's none.
         /// </summary>
-        internal int NearestCell(Vector3 point, float radius, float maxVertical)
+        /// <param name="island">Only cells of this island of connected ground, or any if -1.</param>
+        internal int NearestCell(Vector3 point, float radius, float maxVertical, int island = -1)
         {
             if (IsEmpty) return -1;
             int direct = CellAt(point, MathF.Min(maxVertical, AgentHeight));
-            if (direct >= 0) return direct;
+            if (direct >= 0 && (island < 0 || Areas[CellArea[direct]].Island == island)) return direct;
 
             int reach = (int)MathF.Ceiling(radius / CellSize);
             int cx = (int)MathF.Floor((point.X - Origin.X) / CellSize), cz = (int)MathF.Floor((point.Z - Origin.Y) / CellSize);
@@ -208,6 +219,7 @@ namespace Vertex.AI
                     {
                         float up = MathF.Abs(Heights[cell] - point.Y);
                         if (up > maxVertical) continue;
+                        if (island >= 0 && Areas[CellArea[cell]].Island != island) continue;
                         Vector2 along = ClosestOnCell(cell, new Vector2(point.X, point.Z)) - new Vector2(point.X, point.Z);
                         float flat = along.Length();
                         if (flat > radius) continue;
@@ -420,7 +432,22 @@ namespace Vertex.AI
             int start = NearestCell(from, 2f, AgentHeight);
             if (start < 0) return false;
 
+            int startIsland = Areas[CellArea[start]].Island;
             int end = NearestCell(to, 4f, AgentHeight * 2f);
+
+            // A goal on ground that can't be walked to from here (on a car roof, over a fence) is gone to from beside it,
+            // if there's ground of this island near: otherwise the search would go through the whole island looking.
+            bool besideGoal = false;
+            if (end < 0 || Areas[CellArea[end]].Island != startIsland)
+            {
+                int beside = NearestCell(to, 6f, AgentHeight * 4f, startIsland);
+                if (beside >= 0)
+                {
+                    end = beside;
+                    besideGoal = true;
+                }
+            }
+
             lock (_searching)
             {
                 int startArea = CellArea[start];
@@ -433,7 +460,7 @@ namespace Vertex.AI
                 if (reached == goalArea && end >= 0)
                 {
                     finish = OnCell(end, goal);
-                    path.Status = NavMeshPathStatus.Complete;
+                    path.Status = besideGoal ? NavMeshPathStatus.Partial : NavMeshPathStatus.Complete;
                 }
                 else
                 {
@@ -485,10 +512,16 @@ namespace Vertex.AI
 
             int nearest = start;
             float nearestLeft = DistanceTo(start, goalPoint);
+            int looked = 0;
+            LastSearched = 0;
             while (_open.TryDequeue(out int area, out float priority))
             {
                 if (area == goal) return goal;
                 if (priority > _cost[area] + Vector2.Distance(_entered[area], goalPoint) + 1e-3f) continue;
+
+                // Too far to look this time: the way goes as near as it's got, and on from there next time.
+                if (++looked > SearchLimit) break;
+                LastSearched = looked;
 
                 float left = DistanceTo(area, goalPoint);
                 if (left < nearestLeft)

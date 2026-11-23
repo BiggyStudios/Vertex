@@ -105,6 +105,54 @@ namespace Vertex.Tests
             Assert.True(path.Corners[^1].Y < 0.2f, "It stays on the ground, as near the ledge as it gets");
         }
 
+        /// <summary>A floor 60 across with pillars all over it, so its navmesh is many rectangles.</summary>
+        private static void Field()
+        {
+            Box("Field", new Vector3(0f, -0.5f, 0f), new Vector3(60f, 1f, 60f));
+            var random = new Random(3);
+            for (int i = 0; i < 70; i++)
+            {
+                var at = new Vector3(random.Next(-27, 28) + 0.5f, 1f, random.Next(-27, 28) + 0.5f);
+                if (MathF.Abs(at.X) < 4f && MathF.Abs(at.Z) < 4f) continue;
+                Box("Pillar", at, new Vector3(1f, 2f, 1f));
+            }
+        }
+
+        [Fact]
+        public void A_goal_up_where_it_cant_be_walked_is_gone_to_from_beside_it_without_searching_everywhere()
+        {
+            Field();
+            Box("Ledge", new Vector3(0f, 0.75f, 8f), new Vector3(3f, 1.5f, 3f));
+            NavMesh navMesh = Build();
+            var path = new NavMeshPath();
+
+            Assert.True(navMesh.FindPath(new Vector3(0f, 0f, 0f), new Vector3(0f, 1.5f, 8f), path));
+            Assert.Equal(NavMeshPathStatus.Partial, path.Status);
+            Assert.True(path.Corners[^1].Y < 0.2f, "It stays on the ground");
+            Assert.InRange(Vector2.Distance(new Vector2(path.Corners[^1].X, path.Corners[^1].Z), new Vector2(0f, 8f)), 1f, 3f);
+
+            // Only the way there was looked at, not the whole field for somewhere nearer.
+            Assert.True(navMesh.LastSearched < navMesh.AreaCount / 4, $"{navMesh.LastSearched} of {navMesh.AreaCount} rectangles searched");
+        }
+
+        [Fact]
+        public void A_search_stops_at_its_limit_and_goes_as_near_as_it_got()
+        {
+            Field();
+            NavMesh navMesh = Build();
+            var path = new NavMeshPath();
+            Vector3 from = new(-26f, 0f, -26f), to = new(26f, 0f, 26f);
+
+            Assert.True(navMesh.FindPath(from, to, path));
+            Assert.Equal(NavMeshPathStatus.Complete, path.Status);
+
+            navMesh.SearchLimit = 6;
+            Assert.True(navMesh.FindPath(from, to, path));
+            Assert.Equal(NavMeshPathStatus.Partial, path.Status);
+            Assert.True(navMesh.LastSearched <= 7);
+            Assert.True(Vector3.Distance(path.Corners[^1], to) < Vector3.Distance(from, to) - 2f, "It should get some of the way");
+        }
+
         [Fact]
         public void A_step_can_be_walked_up_but_a_wall_as_high_as_a_knee_cant()
         {
