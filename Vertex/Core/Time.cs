@@ -2,11 +2,30 @@ namespace Vertex
 {
     public static class Time
     {
-        /// <summary>Seconds since the last frame.</summary>
+        /// <summary>Seconds since the last frame, sped up or slowed down by <see cref="Scale"/>.</summary>
         public static float DeltaTime { get; private set; }
 
-        /// <summary>Seconds since the game started.</summary>
+        /// <summary>Seconds since the last frame as they really passed, whatever <see cref="Scale"/> is: for menus and the like.</summary>
+        public static float UnscaledDeltaTime { get; private set; }
+
+        /// <summary>Game seconds since the game started: they go slower while <see cref="Scale"/> is below 1.</summary>
         public static float TotalTime { get; private set; }
+
+        /// <summary>Seconds since the game started as they really passed, whatever <see cref="Scale"/> has been.</summary>
+        public static float UnscaledTotalTime { get; private set; }
+
+        /// <summary>
+        /// How fast the game's time goes: 1 is normal, 0.5 half speed, 0 stopped. Physics, <see cref="DeltaTime"/> and
+        /// <see cref="TotalTime"/> all follow it. A moment of almost nothing as a big hit lands (a hit-stop) makes it feel
+        /// heavier.
+        /// </summary>
+        public static float Scale
+        {
+            get => _scale;
+            set => _scale = float.IsFinite(value) ? Math.Max(value, 0f) : 1f;
+        }
+
+        private static float _scale = 1f;
 
         /// <summary>Seconds per physics step. FixedUpdate and the physics simulation always run at this rate.</summary>
         public static float FixedDeltaTime { get; set; } = 1f / 60f;
@@ -24,8 +43,15 @@ namespace Vertex
         /// </summary>
         internal static double PreciseTotalTime { get; private set; }
 
+        private static double _unscaledTotal;
+
         internal static void Advance(double deltaTime)
         {
+            UnscaledDeltaTime = (float)deltaTime;
+            _unscaledTotal += deltaTime;
+            UnscaledTotalTime = (float)_unscaledTotal;
+
+            deltaTime *= _scale;
             DeltaTime = (float)deltaTime;
             PreciseTotalTime += deltaTime;
             TotalTime = (float)PreciseTotalTime;

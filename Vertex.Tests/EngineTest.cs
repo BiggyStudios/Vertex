@@ -15,6 +15,7 @@ namespace Vertex.Tests
             Camera.Main = null;
             InputSystem.Reset();
             Time.FixedDeltaTime = 1f / 60f;
+            Time.Scale = 1f;
         }
 
         /// <summary>Runs <paramref name="frames"/> frames of <paramref name="game"/>, each <paramref name="deltaTime"/> seconds long.</summary>
@@ -32,6 +33,7 @@ namespace Vertex.Tests
             Camera.Main = null;
             InputSystem.Reset();
             Time.FixedDeltaTime = 1f / 60f;
+            Time.Scale = 1f;
         }
     }
 

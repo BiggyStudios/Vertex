@@ -352,6 +352,8 @@ osu.Framework.NativeLibs/scripts/ffmpeg/*.tar.gz
 /VertexSampleGame/
 # The horror game is its own repository too (BiggyStudios/AnarchyTest), cloned in here the same way.
 /AnarchyTest/
+# Deadnight, the zombie game, is its own private repository, cloned in here the same way.
+/Deadnight/
 
 # Notes for AI coding assistants: kept local for now.
 /CLAUDE.md

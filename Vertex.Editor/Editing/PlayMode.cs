@@ -169,6 +169,8 @@ namespace Vertex.Editor.Editing
             GameFocused = false;
             Paused = false;
             Time.FixedDeltaTime = 1f / 60f;
+            // A game stopped in the middle of a slow-motion moment mustn't leave the next play slowed.
+            Time.Scale = 1f;
 
             if (_rebuild)
             {

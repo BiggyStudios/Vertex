@@ -44,6 +44,33 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void Time_scale_slows_the_game_and_its_physics_but_not_real_time()
+        {
+            Time.FixedDeltaTime = 1f / 50f;
+            var loop = new GameLoop(new EmptyGame());
+            loop.Load();
+            Recorder recorder = new GameObject().AddComponent<Recorder>();
+            RunFrames(loop, 1, deltaTime: 0.001);
+            float gameStart = Time.TotalTime, realStart = Time.UnscaledTotalTime;
+
+            // A tenth of a second at a quarter speed is a fortieth of a second of game: one physics step, not five.
+            Time.Scale = 0.25f;
+            RunFrames(loop, 10, deltaTime: 0.01);
+            Assert.Equal(1, recorder.FixedUpdates);
+            Assert.Equal(0.0025f, Time.DeltaTime, 0.0001f);
+            Assert.Equal(0.01f, Time.UnscaledDeltaTime, 0.0001f);
+            Assert.Equal(0.025f, Time.TotalTime - gameStart, 0.0005f);
+            Assert.Equal(0.1f, Time.UnscaledTotalTime - realStart, 0.0005f);
+
+            // Stopped, nothing moves on; nonsense is taken as normal speed.
+            Time.Scale = 0f;
+            RunFrames(loop, 10, deltaTime: 0.05);
+            Assert.Equal(1, recorder.FixedUpdates);
+            Time.Scale = float.NaN;
+            Assert.Equal(1f, Time.Scale);
+        }
+
+        [Fact]
         public void The_game_can_switch_scenes_in_its_own_update()
         {
             var level = new Scene();
