@@ -119,20 +119,16 @@ namespace Vertex.UI
         }
 
         /// <summary>Works out where every piece of the scene's UI goes on the screen, without drawing it.</summary>
+        private static readonly List<UICanvas> _canvases = new();
+
         internal static void Layout(Scene scene)
         {
             _elements.Clear();
             ScreenSize = Canvas.Size;
 
-            var canvases = new List<UICanvas>();
-            foreach (GameObject gameObject in scene.GameObjects)
-            {
-                if (!gameObject.ActiveInHierarchy) continue;
-                foreach (Component component in gameObject.Components)
-                {
-                    if (component is UICanvas { Enabled: true } canvas) canvases.Add(canvas);
-                }
-            }
+            _canvases.Clear();
+            _canvases.AddRange(scene.FindComponents<UICanvas>());
+            List<UICanvas> canvases = _canvases;
 
             // Highest order last, so on top; a canvas inside another is laid out with it, not again.
             canvases.Sort((a, b) => a.Order.CompareTo(b.Order));

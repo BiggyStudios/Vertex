@@ -109,17 +109,16 @@ namespace Vertex
         /// <summary>All enabled components of type T on active objects.</summary>
         public IEnumerable<T> FindComponents<T>() where T : Component
         {
-            // Indexed, not foreach: this runs several times a frame over every object, and enumerating each object's
-            // components through an interface would allocate thousands of enumerators a frame for the GC to collect.
-            for (int i = 0; i < _objects.Count; i++)
+            // Only the lists of the types that are T, not every object in the scene: this runs many times a frame (every
+            // renderer, light, collider, animator...) and a big scene has thousands of objects that are none of them.
+            List<Component>[] lists = ListsFor(typeof(T));
+            for (int l = 0; l < lists.Length; l++)
             {
-                GameObject gameObject = _objects[i];
-                if (!gameObject.ActiveInHierarchy) continue;
-
-                List<Component> components = gameObject.ComponentList;
-                for (int c = 0; c < components.Count; c++)
+                List<Component> list = lists[l];
+                for (int i = 0; i < list.Count; i++)
                 {
-                    if (components[c] is T match && match.Enabled) yield return match;
+                    Component component = list[i];
+                    if (component.Tracked && component.Enabled && component.GameObject.ActiveInHierarchy) yield return (T)component;
                 }
             }
         }
@@ -129,7 +128,7 @@ namespace Vertex
         /// <summary>Runs FixedUpdate on every started object, then steps the physics simulation.</summary>
         internal void FixedUpdate(float deltaTime)
         {
-            foreach (GameObject gameObject in _objects)
+            foreach (GameObject gameObject in Live())
             {
                 if (!gameObject.Started || gameObject.IsDestroyed || !gameObject.ActiveInHierarchy) continue;
 
@@ -164,6 +163,8 @@ namespace Vertex
         /// </summary>
         public void Unload()
         {
+            ForgetComponents();
+
             // OnDestroy may create new objects (an effect where something was), which would land back in here, so
             // keep going until nothing's left, but not forever.
             for (int pass = 0; pass < 8 && (_objects.Count > 0 || _toAdd.Count > 0); pass++)
@@ -192,6 +193,7 @@ namespace Vertex
         /// </summary>
         internal void Discard()
         {
+            ForgetComponents();
             _objects.Clear();
             _toAdd.Clear();
             _toDestroy.Clear();
@@ -205,8 +207,7 @@ namespace Vertex
         /// </summary>
         internal void ApplyChanges()
         {
-            _objects.AddRange(_toAdd);
-            _toAdd.Clear();
+            JoinNew();
             DestroyPending();
         }
 
@@ -219,7 +220,11 @@ namespace Vertex
         {
             ApplyChanges();
             int index = _objects.IndexOf(gameObject);
-            foreach (GameObject member in Subtree(gameObject)) _objects.Remove(member);
+            foreach (GameObject member in Subtree(gameObject))
+            {
+                if (_objects.Remove(member)) Left(member);
+            }
+
             return index;
         }
 
@@ -229,6 +234,7 @@ namespace Vertex
             ApplyChanges();
             List<GameObject> members = Subtree(gameObject).Where(member => !_objects.Contains(member)).ToList();
             _objects.InsertRange(Math.Clamp(index, 0, _objects.Count), members);
+            foreach (GameObject member in members) Joined(member);
         }
 
         /// <summary>Where a top-level object comes among the scene's top-level objects. See <see cref="Transform.SiblingIndex"/>.</summary>
@@ -249,6 +255,7 @@ namespace Vertex
         {
             ApplyChanges();
             if (!_objects.Remove(gameObject)) return;
+            _liveChanged = true;
 
             int roots = 0;
             for (int i = 0; i < _objects.Count; i++)
@@ -277,14 +284,14 @@ namespace Vertex
 
         internal void Update()
         {
-            _objects.AddRange(_toAdd);
-            _toAdd.Clear();
+            JoinNew();
 
             // Objects created during this loop are picked up next frame.
-            int count = _objects.Count;
+            List<GameObject> live = Live();
+            int count = live.Count;
             for (int i = 0; i < count; i++)
             {
-                GameObject gameObject = _objects[i];
+                GameObject gameObject = live[i];
                 if (gameObject.IsDestroyed || !gameObject.ActiveInHierarchy) continue;
 
                 if (!gameObject.Started)
@@ -315,7 +322,7 @@ namespace Vertex
 
             for (int i = 0; i < count; i++)
             {
-                GameObject gameObject = _objects[i];
+                GameObject gameObject = live[i];
                 if (gameObject.IsDestroyed || !gameObject.ActiveInHierarchy) continue;
 
                 List<Component> components = gameObject.ComponentList;
@@ -329,6 +336,15 @@ namespace Vertex
             DestroyPending();
         }
 
+        /// <summary>Brings the objects made since the last update into the scene.</summary>
+        private void JoinNew()
+        {
+            if (_toAdd.Count == 0) return;
+            _objects.AddRange(_toAdd);
+            foreach (GameObject gameObject in _toAdd) Joined(gameObject);
+            _toAdd.Clear();
+        }
+
         private void DestroyPending()
         {
             if (_toDestroy.Count == 0) return;
@@ -338,9 +354,193 @@ namespace Vertex
                 gameObject.DestroyImmediate();
             }
 
-            _objects.RemoveAll(o => o.IsDestroyed);
+            _objects.RemoveAll(o =>
+            {
+                if (!o.IsDestroyed) return false;
+                Left(o);
+                return true;
+            });
             _toAdd.RemoveAll(o => o.IsDestroyed);
             _toDestroy.Clear();
+            TidyLists();
+        }
+
+        // ---------------------------------------------------------------- Finding components quickly
+
+        // Every component on an object in the scene, by its exact type, in the order they came into the scene.
+        private readonly Dictionary<Type, List<Component>> _byType = new();
+
+        // For each type asked for, the lists of the types that are it (a Collider search reads the box, sphere and mesh
+        // collider lists). Worked out again when a type the scene hasn't had before turns up.
+        private readonly Dictionary<Type, List<Component>[]> _listsFor = new();
+
+        // How many components have been taken off since the lists were last tidied.
+        private int _untracked;
+
+        // The objects with code to run each frame (Start, Update, LateUpdate, FixedUpdate), in the scene's order: most of a
+        // big scene is scenery that has none, and needn't be gone through. Remade when objects or components come or go.
+        private List<GameObject> _live = new();
+        private bool _liveChanged = true;
+
+        private List<Component>[] ListsFor(Type type)
+        {
+            if (_listsFor.TryGetValue(type, out List<Component>[]? lists)) return lists;
+
+            lists = _byType.Where(pair => type.IsAssignableFrom(pair.Key)).Select(pair => pair.Value).ToArray();
+            _listsFor[type] = lists;
+            return lists;
+        }
+
+        /// <summary>An object came into the scene's list of objects: its components can be found from now on.</summary>
+        private void Joined(GameObject gameObject)
+        {
+            if (gameObject.Joined) return;
+            gameObject.Joined = true;
+            _liveChanged = true;
+
+            // A plain object with nothing to start has, in effect, started.
+            if (gameObject.GetType() == typeof(GameObject)) gameObject.Started = true;
+            List<Component> components = gameObject.ComponentList;
+            for (int i = 0; i < components.Count; i++) Track(components[i]);
+        }
+
+        /// <summary>An object left the scene's list of objects (destroyed, or taken out by an editor).</summary>
+        private void Left(GameObject gameObject)
+        {
+            if (!gameObject.Joined) return;
+            gameObject.Joined = false;
+            _liveChanged = true;
+            List<Component> components = gameObject.ComponentList;
+            for (int i = 0; i < components.Count; i++) Untrack(components[i]);
+        }
+
+        internal void ComponentAdded(Component component)
+        {
+            if (!component.GameObject.Joined) return;
+            _liveChanged = true;
+            Track(component);
+        }
+
+        internal void ComponentRemoved(Component component)
+        {
+            if (!component.GameObject.Joined) return;
+            _liveChanged = true;
+            Untrack(component);
+        }
+
+        private void Track(Component component)
+        {
+            // One with no code to start has, in effect, started (what Animators and IK check before working).
+            if (!Hooks.Has(component.GetType())) component.Started = true;
+
+            if (component.Tracked) return;
+            component.Tracked = true;
+            if (component.Listed) return;
+            component.Listed = true;
+
+            Type type = component.GetType();
+            if (!_byType.TryGetValue(type, out List<Component>? list))
+            {
+                list = new List<Component>();
+                _byType[type] = list;
+                _listsFor.Clear();
+            }
+
+            list.Add(component);
+        }
+
+        private void Untrack(Component component)
+        {
+            if (!component.Tracked) return;
+            component.Tracked = false;
+            _untracked++;
+        }
+
+        /// <summary>
+        /// Takes components no longer in the scene out of the lists, once enough have gone that skipping them costs more
+        /// than a tidy: at the end of a frame, when nothing's going through the lists.
+        /// </summary>
+        private void TidyLists()
+        {
+            if (_untracked < 256) return;
+            _untracked = 0;
+            foreach (List<Component> list in _byType.Values)
+            {
+                list.RemoveAll(component =>
+                {
+                    if (component.Tracked) return false;
+                    component.Listed = false;
+                    return true;
+                });
+            }
+        }
+
+        private void ForgetComponents()
+        {
+            foreach (List<Component> list in _byType.Values)
+            {
+                foreach (Component component in list)
+                {
+                    component.Tracked = false;
+                    component.Listed = false;
+                }
+            }
+
+            _byType.Clear();
+            _listsFor.Clear();
+            _untracked = 0;
+            foreach (GameObject gameObject in _objects) gameObject.Joined = false;
+            _live = new List<GameObject>();
+            _liveChanged = true;
+        }
+
+        /// <summary>The objects with code to run each frame, in the scene's order (see <c>_live</c>).</summary>
+        private List<GameObject> Live()
+        {
+            if (!_liveChanged) return _live;
+            _liveChanged = false;
+
+            // A new list rather than refilling the old: a loop going through the old one carries on unbothered.
+            var live = new List<GameObject>(_live.Count);
+            for (int i = 0; i < _objects.Count; i++)
+            {
+                GameObject gameObject = _objects[i];
+                if (gameObject.GetType() != typeof(GameObject))
+                {
+                    live.Add(gameObject);
+                    continue;
+                }
+
+                List<Component> components = gameObject.ComponentList;
+                for (int c = 0; c < components.Count; c++)
+                {
+                    if (!Hooks.Has(components[c].GetType())) continue;
+                    live.Add(gameObject);
+                    break;
+                }
+            }
+
+            _live = live;
+            return live;
+        }
+
+        /// <summary>Which component types have code of their own to run each frame or step.</summary>
+        private static class Hooks
+        {
+            private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, bool> _has = new();
+
+            private static readonly string[] _names = ["Start", "Update", "LateUpdate", "FixedUpdate"];
+
+            public static bool Has(Type type) => _has.GetOrAdd(type, static type =>
+            {
+                const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                foreach (string name in _names)
+                {
+                    if (type.GetMethod(name, flags, Type.EmptyTypes)?.DeclaringType != typeof(Component)) return true;
+                }
+
+                return false;
+            });
         }
     }
 }

@@ -27,6 +27,7 @@ namespace Vertex.Physics
         private readonly BroadPhaseLayerInterfaceTable _broadPhaseLayers;
         private readonly ObjectVsBroadPhaseLayerFilterTable _objectVsBroadPhase;
         private readonly PhysicsSystem _system;
+        private readonly BodyInterface _bodyInterface;
         private readonly JobSystemThreadPool _jobSystem;
 
         // What character movement collides with: everything except the moving character's own body.
@@ -94,6 +95,9 @@ namespace Vertex.Physics
                 BroadPhaseLayerInterface = _broadPhaseLayers,
                 ObjectVsBroadPhaseLayerFilter = _objectVsBroadPhase
             });
+
+            // Asked of Jolt once: each ask goes into native code, and it's wanted for every body every step.
+            _bodyInterface = _system.BodyInterface;
 
             _system.OnContactAdded += OnContactAdded;
             _system.OnContactPersisted += OnContactPersisted;
@@ -333,7 +337,7 @@ namespace Vertex.Physics
         /// <summary>Sends changes made by game code (moved Transforms, velocities, forces) to Jolt.</summary>
         private void PushToJolt(Body body, float deltaTime)
         {
-            BodyInterface bodies = _system.BodyInterface;
+            BodyInterface bodies = _bodyInterface;
             Transform transform = body.Collider.Transform;
             Vector3 position = transform.WorldPosition;
             Quaternion rotation = transform.WorldRotation;
@@ -382,7 +386,7 @@ namespace Vertex.Physics
         /// <summary>Copies the simulated positions and velocities back to the Transforms and Rigidbodies.</summary>
         private void ReadBack()
         {
-            BodyInterface bodies = _system.BodyInterface;
+            BodyInterface bodies = _bodyInterface;
 
             foreach (Body body in _bodies.Values)
             {
@@ -463,7 +467,7 @@ namespace Vertex.Physics
                 rigidbody.AngularVelocityChanged = false;
             }
 
-            BodyID id = _system.BodyInterface.CreateAndAddBody(settings,
+            BodyID id = _bodyInterface.CreateAndAddBody(settings,
                 motion == MotionType.Static ? Activation.DontActivate : Activation.Activate);
 
             var body = new Body(collider, rigidbody, id, motion, shapes, scale);
@@ -601,7 +605,7 @@ namespace Vertex.Physics
         {
             // Jolt mustn't be left with a joint holding a body that's gone.
             RemoveJointsOn(body.Id);
-            _system.BodyInterface.RemoveAndDestroyBody(body.Id);
+            _bodyInterface.RemoveAndDestroyBody(body.Id);
             body.DisposeShapes();
 
             _bodies.Remove(body.Collider);
@@ -628,7 +632,7 @@ namespace Vertex.Physics
             _endedKeys.Clear();
         }
 
-        private bool IsAwake(PhysicsObject body) => body.Motion != MotionType.Static && _system.BodyInterface.IsActive(body.Id);
+        private bool IsAwake(PhysicsObject body) => body.Motion != MotionType.Static && _bodyInterface.IsActive(body.Id);
 
         private static Collider? FirstEnabledCollider(GameObject gameObject)
         {
@@ -663,7 +667,7 @@ namespace Vertex.Physics
 
             _worldAnchorShape = new SphereShape(0.01f);
             using var settings = new BodyCreationSettings(_worldAnchorShape, Vector3.Zero, Quaternion.Identity, MotionType.Static, _anchorLayer) { IsSensor = true };
-            BodyID id = _system.BodyInterface.CreateAndAddBody(settings, Activation.DontActivate);
+            BodyID id = _bodyInterface.CreateAndAddBody(settings, Activation.DontActivate);
             _worldAnchor = id;
             return id;
         }
@@ -935,14 +939,14 @@ namespace Vertex.Physics
         /// <summary>Wakes a body that can move; static ones (the world anchor, a collider with no rigidbody) never sleep.</summary>
         private void Wake(BodyID id)
         {
-            BodyInterface bodies = _system.BodyInterface;
+            BodyInterface bodies = _bodyInterface;
             if (bodies.GetMotionType(id) != MotionType.Static && !bodies.IsActive(id)) bodies.ActivateBody(id);
         }
 
         /// <summary>A motor only turns what's awake: Jolt lets resting bodies sleep, motor or not.</summary>
         private void KeepAwake(JointRecord record)
         {
-            BodyInterface bodies = _system.BodyInterface;
+            BodyInterface bodies = _bodyInterface;
             if (!bodies.IsActive(record.Body2)) bodies.ActivateBody(record.Body2);
         }
 
@@ -1095,7 +1099,7 @@ namespace Vertex.Physics
             }
 
             // The body follows during the next physics step, pushing rigidbodies out of the way like any kinematic body.
-            _system.BodyInterface.MoveKinematic(character.Id, jolt.Position, Quaternion.Identity, deltaTime);
+            _bodyInterface.MoveKinematic(character.Id, jolt.Position, Quaternion.Identity, deltaTime);
 
             // Remove any part of the velocity that went into something it actually hit (Quake's ClipVelocity), measured
             // against how fast that thing moves, so standing on something rising or sinking rides along with it.
@@ -1134,7 +1138,7 @@ namespace Vertex.Physics
             Vector3 position = character.Controller.Transform.WorldPosition;
             character.Jolt.Position = position;
             // Jump the body too, rather than sweeping it across the world and knocking everything in between.
-            _system.BodyInterface.SetPositionAndRotation(character.Id, position, Quaternion.Identity, Activation.Activate);
+            _bodyInterface.SetPositionAndRotation(character.Id, position, Quaternion.Identity, Activation.Activate);
             character.Teleported(position);
         }
 
@@ -1163,7 +1167,7 @@ namespace Vertex.Physics
             // A kinematic body that follows the character, so rigidbodies (thrown balls, falling crates), triggers and
             // other characters notice it. Jolt can make one itself, but doesn't remove it when the character goes away.
             using var bodySettings = new BodyCreationSettings(shape, position, Quaternion.Identity, MotionType.Kinematic, _movingLayer);
-            BodyID bodyId = _system.BodyInterface.CreateAndAddBody(bodySettings, Activation.Activate);
+            BodyID bodyId = _bodyInterface.CreateAndAddBody(bodySettings, Activation.Activate);
 
             var character = new Character(controller, jolt, bodyId, capsule, shape);
             character.Teleported(position);
@@ -1175,7 +1179,7 @@ namespace Vertex.Physics
         private void RemoveCharacter(Character character)
         {
             EndContacts(character);
-            _system.BodyInterface.RemoveAndDestroyBody(character.Id);
+            _bodyInterface.RemoveAndDestroyBody(character.Id);
             character.Jolt.Dispose();
             character.DisposeShapes();
             _characters.Remove(character.Controller);
@@ -1318,19 +1322,19 @@ namespace Vertex.Physics
         {
             // Joints first: they hold on to bodies.
             foreach (JointRecord record in _joints.Values.ToList()) RemoveJoint(record);
-            if (_worldAnchor is { } anchor) _system.BodyInterface.RemoveAndDestroyBody(anchor);
+            if (_worldAnchor is { } anchor) _bodyInterface.RemoveAndDestroyBody(anchor);
             _worldAnchorShape?.Dispose();
 
             foreach (Character character in _characters.Values)
             {
-                _system.BodyInterface.RemoveAndDestroyBody(character.Id);
+                _bodyInterface.RemoveAndDestroyBody(character.Id);
                 character.Jolt.Dispose();
                 character.DisposeShapes();
             }
 
             foreach (Body body in _bodies.Values)
             {
-                _system.BodyInterface.RemoveAndDestroyBody(body.Id);
+                _bodyInterface.RemoveAndDestroyBody(body.Id);
                 body.DisposeShapes();
             }
 

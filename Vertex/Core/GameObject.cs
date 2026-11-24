@@ -15,7 +15,19 @@ namespace Vertex
         private readonly List<Component> _components = new();
 
         public string Name { get; set; }
-        public bool Active { get; set; } = true;
+        /// <summary>Whether the object takes part in the scene. Its children only do while it does (see <see cref="ActiveInHierarchy"/>).</summary>
+        public bool Active
+        {
+            get => _active;
+            set
+            {
+                if (_active == value) return;
+                _active = value;
+                HierarchyVersion++;
+            }
+        }
+
+        private bool _active = true;
         public Transform Transform { get; }
         public Scene Scene { get; }
         public IReadOnlyList<Component> Components => _components;
@@ -36,7 +48,33 @@ namespace Vertex
 
         internal bool Started;
 
-        public bool ActiveInHierarchy => Active && (Transform.Parent?.GameObject.ActiveInHierarchy ?? true);
+        /// <summary>
+        /// Goes up by one whenever any object anywhere is switched on or off or moved to another parent, so each object's
+        /// <see cref="ActiveInHierarchy"/> is worked out again only after something that could change it.
+        /// </summary>
+        internal static int HierarchyVersion;
+
+        private int _activeAt = -1;
+        private bool _activeInHierarchy;
+
+        /// <summary>Whether it and everything above it are <see cref="Active"/>: whether it takes part in the scene now.</summary>
+        public bool ActiveInHierarchy
+        {
+            get
+            {
+                int version = HierarchyVersion;
+                if (_activeAt == version) return _activeInHierarchy;
+
+                // Asked of thousands of objects many times a frame (each search for components asks it), so it's remembered.
+                bool active = _active && (Transform.Parent?.GameObject.ActiveInHierarchy ?? true);
+                _activeInHierarchy = active;
+                _activeAt = version;
+                return active;
+            }
+        }
+
+        /// <summary>In its scene's list of objects (not still waiting to join it, or gone).</summary>
+        internal bool Joined;
 
         /// <summary>Creates an object in <see cref="Scene.Active"/>.</summary>
         public GameObject(string name = "GameObject") : this(name, Scene.Active) {}
@@ -81,6 +119,7 @@ namespace Vertex
         {
             T component = new T { GameObject = this };
             _components.Add(component);
+            Scene.ComponentAdded(component);
             return component;
         }
 
@@ -169,7 +208,9 @@ namespace Vertex
 
         public void RemoveComponent(Component component)
         {
-            if (_components.Remove(component)) component.OnDestroy();
+            if (!_components.Remove(component)) return;
+            Scene.ComponentRemoved(component);
+            component.OnDestroy();
         }
 
         /// <summary>
@@ -180,13 +221,19 @@ namespace Vertex
         {
             component.GameObject = this;
             _components.Insert(Math.Clamp(index, 0, _components.Count), component);
+            Scene.ComponentAdded(component);
         }
 
         /// <summary>Takes a component off without destroying it, so <see cref="AttachComponent"/> can put it back. Returns where it was.</summary>
         internal int DetachComponent(Component component)
         {
             int index = _components.IndexOf(component);
-            if (index >= 0) _components.RemoveAt(index);
+            if (index >= 0)
+            {
+                _components.RemoveAt(index);
+                Scene.ComponentRemoved(component);
+            }
+
             return index;
         }
 

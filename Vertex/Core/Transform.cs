@@ -13,9 +13,102 @@ namespace Vertex
 
         public GameObject GameObject { get; }
 
-        public Vector3 Position { get; set; } = Vector3.Zero;
-        public Quaternion Rotation { get; set; } = Quaternion.Identity;
-        public Vector3 Scale { get; set; } = Vector3.One;
+        private Vector3 _position;
+        private Quaternion _rotation = Quaternion.Identity;
+        private Vector3 _scale = Vector3.One;
+
+        public Vector3 Position
+        {
+            get => _position;
+            set
+            {
+                if (_position == value) return;
+                _position = value;
+                Moved();
+            }
+        }
+
+        public Quaternion Rotation
+        {
+            get => _rotation;
+            set
+            {
+                if (_rotation == value) return;
+                _rotation = value;
+                Moved();
+            }
+        }
+
+        public Vector3 Scale
+        {
+            get => _scale;
+            set
+            {
+                if (_scale == value) return;
+                _scale = value;
+                Moved();
+            }
+        }
+
+        // What it all comes to, worked out when first asked for after a change and kept until the next: a big scene has
+        // thousands of things that never move, and their places are asked for every frame (drawing, physics, sound).
+        private Matrix4x4 _localMatrix, _worldMatrix;
+        private Quaternion _worldRotation;
+        private Vector3 _worldScale;
+        private bool _localDirty = true, _worldDirty = true;
+        private int _version;
+
+        /// <summary>
+        /// Goes up when this or anything above it moves (turns, scales or changes parent), so something that kept where it was
+        /// can tell cheaply whether it's still right. Reading it works out the world matrix.
+        /// </summary>
+        internal int Version
+        {
+            get
+            {
+                if (_worldDirty) UpdateWorld();
+                return _version;
+            }
+        }
+
+        private void Moved()
+        {
+            _localDirty = true;
+            WorldMoved();
+        }
+
+        // Everything under a transform that hasn't been worked out since is already marked, so this stops there.
+        private void WorldMoved()
+        {
+            if (_worldDirty) return;
+            _worldDirty = true;
+            _version++;
+            for (int i = 0; i < _children.Count; i++) _children[i].WorldMoved();
+        }
+
+        private void UpdateWorld()
+        {
+            if (_localDirty)
+            {
+                _localMatrix = Matrix4x4.CreateScale(_scale) * Matrix4x4.CreateFromQuaternion(_rotation) * Matrix4x4.CreateTranslation(_position);
+                _localDirty = false;
+            }
+
+            if (_parent == null)
+            {
+                _worldMatrix = _localMatrix;
+                _worldRotation = _rotation;
+                _worldScale = _scale;
+            }
+            else
+            {
+                _worldMatrix = _localMatrix * _parent.WorldMatrix;
+                _worldRotation = Quaternion.Concatenate(_rotation, _parent.WorldRotation);
+                _worldScale = _scale * _parent.WorldScale;
+            }
+
+            _worldDirty = false;
+        }
 
         public IReadOnlyList<Transform> Children => _children;
 
@@ -42,6 +135,11 @@ namespace Vertex
                 _parent?._children.Remove(this);
                 _parent = value;
                 _parent?._children.Add(this);
+                GameObject.HierarchyVersion++;
+
+                // Under something else now: wherever it is in the world has to be worked out again.
+                _worldDirty = false;
+                WorldMoved();
             }
         }
 
@@ -77,10 +175,23 @@ namespace Vertex
             set => Rotation = FromEuler(value);
         }
 
-        public Matrix4x4 LocalMatrix =>
-            Matrix4x4.CreateScale(Scale) * Matrix4x4.CreateFromQuaternion(Rotation) * Matrix4x4.CreateTranslation(Position);
+        public Matrix4x4 LocalMatrix
+        {
+            get
+            {
+                if (_localDirty) UpdateWorld();
+                return _localMatrix;
+            }
+        }
 
-        public Matrix4x4 WorldMatrix => _parent == null ? LocalMatrix : LocalMatrix * _parent.WorldMatrix;
+        public Matrix4x4 WorldMatrix
+        {
+            get
+            {
+                if (_worldDirty) UpdateWorld();
+                return _worldMatrix;
+            }
+        }
 
         public Vector3 WorldPosition
         {
@@ -100,7 +211,11 @@ namespace Vertex
 
         public Quaternion WorldRotation
         {
-            get => _parent == null ? Rotation : Quaternion.Concatenate(Rotation, _parent.WorldRotation);
+            get
+            {
+                if (_worldDirty) UpdateWorld();
+                return _worldRotation;
+            }
             set => Rotation = _parent == null ? value : Quaternion.Concatenate(value, Quaternion.Inverse(_parent.WorldRotation));
         }
 
@@ -108,7 +223,14 @@ namespace Vertex
         /// Scale relative to the world. Approximate when a parent is both rotated and non-uniformly scaled,
         /// since that combination can skew the object, which a scale alone can't describe.
         /// </summary>
-        public Vector3 WorldScale => _parent == null ? Scale : Scale * _parent.WorldScale;
+        public Vector3 WorldScale
+        {
+            get
+            {
+                if (_worldDirty) UpdateWorld();
+                return _worldScale;
+            }
+        }
 
         public Vector3 Forward => Vector3.Transform(-Vector3.UnitZ, WorldRotation);
         public Vector3 Right => Vector3.Transform(Vector3.UnitX, WorldRotation);

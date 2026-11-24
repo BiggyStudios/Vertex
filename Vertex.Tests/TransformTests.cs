@@ -57,5 +57,43 @@ namespace Vertex.Tests
 
             Assert.Throws<InvalidOperationException>(() => here.Transform.Parent = elsewhere.Transform);
         }
+
+        [Fact]
+        public void A_childs_place_in_the_world_follows_every_change_above_it()
+        {
+            var root = new GameObject("Root");
+            var middle = new GameObject("Middle");
+            var leaf = new GameObject("Leaf");
+            middle.Transform.Parent = root.Transform;
+            leaf.Transform.Parent = middle.Transform;
+            leaf.Transform.Position = new Vector3(1f, 0f, 0f);
+            AssertClose(new Vector3(1f, 0f, 0f), leaf.Transform.WorldPosition);
+            int version = leaf.Transform.Version;
+
+            // Read, then something above moves: read again, it's moved too.
+            root.Transform.Position = new Vector3(0f, 5f, 0f);
+            AssertClose(new Vector3(1f, 5f, 0f), leaf.Transform.WorldPosition);
+            Assert.NotEqual(version, leaf.Transform.Version);
+
+            middle.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2f);
+            AssertClose(new Vector3(0f, 5f, -1f), leaf.Transform.WorldPosition);
+            middle.Transform.Scale = new Vector3(2f);
+            AssertClose(new Vector3(0f, 5f, -2f), leaf.Transform.WorldPosition);
+            AssertClose(new Vector3(2f), leaf.Transform.WorldScale);
+
+            // Moved under another parent, it's where that one puts it.
+            var other = new GameObject("Other");
+            other.Transform.Position = new Vector3(10f, 0f, 0f);
+            version = leaf.Transform.Version;
+            leaf.Transform.Parent = other.Transform;
+            AssertClose(new Vector3(11f, 0f, 0f), leaf.Transform.WorldPosition);
+            Assert.NotEqual(version, leaf.Transform.Version);
+
+            // Nothing moving, nothing changes.
+            version = leaf.Transform.Version;
+            _ = leaf.Transform.WorldMatrix;
+            leaf.Transform.Position = leaf.Transform.Position;
+            Assert.Equal(version, leaf.Transform.Version);
+        }
     }
 }

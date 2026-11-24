@@ -90,5 +90,81 @@ namespace Vertex.Tests
             Assert.Equal(["OnDestroy"], first.Calls);
             Assert.Equal(["Start", "Update"], second.Calls);
         }
+
+        [Fact]
+        public void Finding_components_sees_what_joins_and_leaves_the_scene_and_what_is_switched_off()
+        {
+            var parent = new GameObject("Parent");
+            var child = new GameObject("Child");
+            child.Transform.Parent = parent.Transform;
+            Rendering.Light light = child.AddComponent<Rendering.Light>();
+
+            // Made this frame: found from the next.
+            Assert.Empty(Scene.Active.FindComponents<Rendering.Light>());
+            Scene.Active.Update();
+            Assert.Same(light, Scene.Active.FindComponent<Rendering.Light>());
+
+            // Added to an object already in the scene, a subclass is found as its base type straight away.
+            Physics.BoxCollider box = parent.AddComponent<Physics.BoxCollider>();
+            Assert.Same(box, Scene.Active.FindComponent<Physics.Collider>());
+
+            // Off, or under something off, it isn't found; on again, it is.
+            light.Enabled = false;
+            Assert.Empty(Scene.Active.FindComponents<Rendering.Light>());
+            light.Enabled = true;
+            parent.Active = false;
+            Assert.Empty(Scene.Active.FindComponents<Rendering.Light>());
+            parent.Active = true;
+            Assert.Same(light, Scene.Active.FindComponent<Rendering.Light>());
+
+            // Moved out from under the switched-off parent, it's found again.
+            parent.Active = false;
+            child.Transform.Parent = null;
+            Assert.Same(light, Scene.Active.FindComponent<Rendering.Light>());
+
+            // Taken off, or its object destroyed, it's gone.
+            parent.RemoveComponent(box);
+            Assert.Empty(Scene.Active.FindComponents<Physics.Collider>());
+            child.Destroy();
+            Scene.Active.Update();
+            Assert.Empty(Scene.Active.FindComponents<Rendering.Light>());
+        }
+
+        [Fact]
+        public void Components_found_stay_right_after_hundreds_come_and_go()
+        {
+            var kept = new List<Rendering.Light>();
+            for (int round = 0; round < 4; round++)
+            {
+                var made = new List<GameObject>();
+                for (int i = 0; i < 200; i++)
+                {
+                    var gameObject = new GameObject($"Light {round} {i}");
+                    Rendering.Light light = gameObject.AddComponent<Rendering.Light>();
+                    if (i % 10 == 0) kept.Add(light);
+                    else made.Add(gameObject);
+                }
+
+                Scene.Active.Update();
+                foreach (GameObject gameObject in made) gameObject.Destroy();
+                Scene.Active.Update();
+            }
+
+            // Hundreds gone (enough to tidy the lists), and only the kept ones found, in the order they came.
+            Assert.Equal(kept, Scene.Active.FindComponents<Rendering.Light>());
+        }
+
+        [Fact]
+        public void Objects_with_nothing_to_run_are_skipped_but_ones_given_code_later_run_it()
+        {
+            var scenery = new GameObject("Scenery");
+            scenery.AddComponent<Rendering.MeshRenderer>();
+            Scene.Active.Update();
+
+            // A component with code of its own, added to scenery already in the scene, starts and updates.
+            Recorder recorder = scenery.AddComponent<Recorder>();
+            Scene.Active.Update();
+            Assert.Equal(["Start", "Update"], recorder.Calls);
+        }
     }
 }

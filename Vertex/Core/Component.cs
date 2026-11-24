@@ -13,6 +13,12 @@ namespace Vertex
 
         internal bool Started;
 
+        /// <summary>Found by its scene's searches (<see cref="Scene.FindComponents"/>): on an object in the scene, and not taken off.</summary>
+        internal bool Tracked;
+
+        /// <summary>In its scene's list for its type, perhaps no longer <see cref="Tracked"/> (it's taken out of the list later, in a batch).</summary>
+        internal bool Listed;
+
         /// <summary>Called once, right before the first Update this component receives.</summary>
         protected internal virtual void Start() {}
 
