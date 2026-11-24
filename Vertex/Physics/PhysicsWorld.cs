@@ -1074,7 +1074,13 @@ namespace Vertex.Physics
             if (!character.TransformUnchanged()) Teleport(character);
 
             Vector3 velocity = controller.Velocity;
-            jolt.LinearVelocity = velocity;
+
+            // On walkable ground, a push down into it (what games do to keep a character on the ground) would be slid
+            // along the slope by the solver, and the character would creep downhill standing still. The ground holds it
+            // up, so the push is dropped; sticking to the floor still follows the ground down.
+            Vector3 moving = velocity;
+            if (jolt.GroundState == GroundState.OnGround) moving.Y = MathF.Max(moving.Y, MathF.Min(jolt.GroundVelocity.Y, 0f));
+            jolt.LinearVelocity = moving;
 
             // The character mustn't bump into its own body.
             _characterBodies.Ignored = character.Id;
@@ -1103,12 +1109,22 @@ namespace Vertex.Physics
 
             // Remove any part of the velocity that went into something it actually hit (Quake's ClipVelocity), measured
             // against how fast that thing moves, so standing on something rising or sinking rides along with it.
+            float walkable = MathF.Cos(MathHelper.ToRadians(controller.MaxSlopeAngle));
             foreach (CharacterContact contact in jolt.GetActiveContacts())
             {
                 if (!contact.HadCollision || contact.IsSensorB) continue;
 
                 float into = Vector3.Dot(velocity - contact.LinearVelocity, contact.ContactNormal);
                 if (into >= 0f) continue;
+
+                if (contact.ContactNormal.Y >= walkable)
+                {
+                    // Ground it can stand on only stops the fall. Clipping against it as against a wall took the speed
+                    // walking up a slope (and the push down that keeps it on the ground) out of the velocity every step,
+                    // so a game that keeps its speed from step to step could hardly climb a hill.
+                    velocity.Y = MathF.Max(velocity.Y, contact.LinearVelocity.Y);
+                    continue;
+                }
 
                 if (contact.MotionTypeB == MotionType.Dynamic)
                 {
