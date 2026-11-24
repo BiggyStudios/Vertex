@@ -7,6 +7,12 @@ namespace Vertex.Rendering
     {
         /// <summary>The baked light it gets instead of the sky's: see <see cref="BakedLight"/>.</summary>
         public BakedLight Baked { get; init; }
+
+        /// <summary>
+        /// Which renderer it's from and how many times that has moved: the same stamp means the same place, so a shadow map
+        /// can tell its casters haven't moved without comparing their matrices. 0 for draws not from a renderer.
+        /// </summary>
+        internal long Stamp { get; init; }
     }
 
     /// <summary>
@@ -276,27 +282,13 @@ namespace Vertex.Rendering
         /// </summary>
         internal void WriteVertex(Span<float> into, in CanvasVertex corner)
         {
-            into[0] = corner.Position.X;
-            into[1] = corner.Position.Y;
-            into[2] = corner.TexCoord.X;
-            into[3] = corner.TexCoord.Y;
-            into[4] = corner.Color.X;
-            into[5] = corner.Color.Y;
-            into[6] = corner.Color.Z;
-            into[7] = corner.Color.W;
-            into[8] = Shape.X;
-            into[9] = Shape.Y;
-            into[10] = Shape.Z;
-            into[11] = Shape.W;
-            into[12] = ShapeStyle.X;
-            into[13] = ShapeStyle.Y;
-            into[14] = ShapeStyle.Z;
-            into[15] = ShapeStyle.W;
-            into[16] = Clip.X;
-            into[17] = Clip.Y;
-            into[18] = Clip.Z;
-            into[19] = Clip.W;
+            // In one go rather than twenty floats one by one: a screen of text is thousands of these a frame.
+            System.Runtime.InteropServices.MemoryMarshal.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(into),
+                new GpuVertex(corner.Position, corner.TexCoord, corner.Color, Shape, ShapeStyle, Clip));
         }
+
+        /// <summary>A corner as the canvas shaders take it: <see cref="FloatsPerVertex"/> floats.</summary>
+        private readonly record struct GpuVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color, Vector4 Shape, Vector4 ShapeStyle, Vector4 Clip);
     }
 
     /// <summary>

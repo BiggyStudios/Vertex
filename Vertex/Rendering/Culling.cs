@@ -19,7 +19,7 @@ namespace Vertex.Rendering
         }
 
         /// <summary>How far a box of half-size <paramref name="e"/> reaches along each axis once transformed by <paramref name="m"/>.</summary>
-        private static Vector3 Extend(Vector3 e, in Matrix4x4 m) => new(
+        internal static Vector3 Extend(Vector3 e, in Matrix4x4 m) => new(
             MathF.Abs(m.M11) * e.X + MathF.Abs(m.M21) * e.Y + MathF.Abs(m.M31) * e.Z,
             MathF.Abs(m.M12) * e.X + MathF.Abs(m.M22) * e.Y + MathF.Abs(m.M32) * e.Z,
             MathF.Abs(m.M13) * e.X + MathF.Abs(m.M23) * e.Y + MathF.Abs(m.M33) * e.Z);
@@ -28,6 +28,17 @@ namespace Vertex.Rendering
         /// Whether a world box overlaps what an orthographic <paramref name="lightSpace"/> matrix (like a shadow
         /// cascade's) sees: x and y from -1 to 1, depth from 0 to 1.
         /// </summary>
+        /// <summary>
+        /// <see cref="InOrthographic"/> for a box already turned into the sun's view (<paramref name="centre"/> and
+        /// <paramref name="extents"/> there), against a cascade that's that view scaled and moved along each axis.
+        /// </summary>
+        public static bool InCascade(Vector3 centre, Vector3 extents, Vector3 scale, Vector3 offset)
+        {
+            Vector3 c = centre * scale + offset;
+            Vector3 e = extents * Vector3.Abs(scale);
+            return MathF.Abs(c.X) - e.X <= 1f && MathF.Abs(c.Y) - e.Y <= 1f && c.Z + e.Z >= 0f && c.Z - e.Z <= 1f;
+        }
+
         public static bool InOrthographic(in Matrix4x4 lightSpace, Vector3 centre, Vector3 extents)
         {
             Vector3 c = Vector3.Transform(centre, lightSpace);

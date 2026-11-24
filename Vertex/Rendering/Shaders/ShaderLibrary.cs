@@ -706,10 +706,44 @@ namespace Vertex.Rendering.Shaders
             // Each draw's: where it is, and its baked light (lightmap.x is 1 for the lightmap, lightmap.y 1 for probes;
             // probe is the probes' light round it, for red, green and blue: see ProbeLight).
             #ifdef VERTEX_VULKAN
-            layout (push_constant) uniform DrawBlock { mat4 model; vec4 lightmap; vec4 probe[3]; } draw;
+            // Each copy's own, from the instance buffer: every copy of a mesh with the same material is one draw.
+            layout (location = 8) in vec4 iModel0;
+            layout (location = 9) in vec4 iModel1;
+            layout (location = 10) in vec4 iModel2;
+            layout (location = 11) in vec4 iModel3;
+            layout (location = 12) in vec4 iLightmap;
+            layout (location = 13) in vec4 iProbeRed;
+            layout (location = 14) in vec4 iProbeGreen;
+            layout (location = 15) in vec4 iProbeBlue;
+            #define DRAW_MODEL mat4(iModel0, iModel1, iModel2, iModel3)
+            // Handed on to the fragment shader (see FragmentDrawConstants).
+            VARYING(6) flat out vec4 vBaked;
+            VARYING(7) flat out vec4 vProbeRed;
+            VARYING(8) flat out vec4 vProbeGreen;
+            VARYING(9) flat out vec4 vProbeBlue;
             #else
             struct DrawBlock { mat4 model; vec4 lightmap; vec4 probe[3]; };
             uniform DrawBlock draw;
+            #define DRAW_MODEL draw.model
+            #endif
+
+            """;
+
+        // The draw's baked light, as the fragment shader reads it: from the vertex shader in Vulkan (where it comes with each
+        // copy), straight from the draw's constants in OpenGL.
+        private const string FragmentDrawConstants = """
+            #ifdef VERTEX_VULKAN
+            VARYING(6) flat in vec4 vBaked;
+            VARYING(7) flat in vec4 vProbeRed;
+            VARYING(8) flat in vec4 vProbeGreen;
+            VARYING(9) flat in vec4 vProbeBlue;
+            #else
+            struct DrawBlock { mat4 model; vec4 lightmap; vec4 probe[3]; };
+            uniform DrawBlock draw;
+            #define vBaked draw.lightmap
+            #define vProbeRed draw.probe[0]
+            #define vProbeGreen draw.probe[1]
+            #define vProbeBlue draw.probe[2]
             #endif
 
             """;
@@ -759,18 +793,25 @@ namespace Vertex.Rendering.Shaders
 
             void main()
             {
-                vec4 worldPosition = draw.model * vec4(aPosition, 1.0);
+                mat4 model = DRAW_MODEL;
+            #ifdef VERTEX_VULKAN
+                vBaked = iLightmap;
+                vProbeRed = iProbeRed;
+                vProbeGreen = iProbeGreen;
+                vProbeBlue = iProbeBlue;
+            #endif
+                vec4 worldPosition = model * vec4(aPosition, 1.0);
 
                 // Normals turn with the object but stay square to its surface however it's stretched: by the cofactors of
                 // its rotation and scale (the inverse transposed, but for size, which doesn't matter as it's normalised).
-                mat3 m = mat3(draw.model);
+                mat3 m = mat3(model);
                 mat3 cofactors = mat3(cross(m[1], m[2]), cross(m[2], m[0]), cross(m[0], m[1]));
                 vNormal = cofactors * aNormal * sign(dot(m[0], cross(m[1], m[2])));
 
             #ifdef CUSTOM_VERTEX
                 // The surface shader's own move of the corner.
                 time = frame.cameraPosition.w;
-                objectPosition = draw.model[3].xyz;
+                objectPosition = model[3].xyz;
                 vec3 moved = worldPosition.xyz;
                 vertex(moved, normalize(vNormal), aUV);
                 worldPosition = vec4(moved, 1.0);
@@ -780,7 +821,7 @@ namespace Vertex.Rendering.Shaders
                 vLightmapUV = aLightmapUV;
                 vUV = aUV;
                 vAffineUV = aUV;
-                vObjectPosition = draw.model[3].xyz;
+                vObjectPosition = model[3].xyz;
                 vec4 position = frame.projection * frame.view * worldPosition;
 
                 // Corners snapped to a coarse grid on the screen (Lighting.VertexSnapping), as the PlayStation's were to
@@ -804,11 +845,6 @@ namespace Vertex.Rendering.Shaders
             VARYING(3) noperspective in vec2 vAffineUV;
             VARYING(4) flat in vec3 vObjectPosition;
             VARYING(5) in vec2 vLightmapUV;
-            // The draw's baked light, read straight from its constants (see DrawConstants).
-            #define vBaked draw.lightmap
-            #define vProbeRed draw.probe[0]
-            #define vProbeGreen draw.probe[1]
-            #define vProbeBlue draw.probe[2]
 
             // One colour of the probes' light for a surface facing n: its average, brighter towards where the light comes
             // from. Not straight average + dot(change, n), which goes below nothing away from a bright light, but a curve
@@ -978,7 +1014,7 @@ namespace Vertex.Rendering.Shaders
         private static string SceneFragment(Rendering.Shader? surface, string shading, string main)
         {
             string custom = surface == null ? "" : SurfaceShaderHeader + "#line 1\n" + surface.Body + "\n";
-            return (surface == null ? "" : "#define CUSTOM_SURFACE 1\n") + Frame + DrawConstants + Material + SceneFragmentInputs + SurfaceCommon + custom + shading + main;
+            return (surface == null ? "" : "#define CUSTOM_SURFACE 1\n") + Frame + FragmentDrawConstants + Material + SceneFragmentInputs + SurfaceCommon + custom + shading + main;
         }
 
         public static readonly string LitFragment = LitFragmentWith(null);
@@ -1247,17 +1283,23 @@ namespace Vertex.Rendering.Shaders
         // Depth only, as seen from the sun. The light-space and model matrices come already multiplied.
         public const string ShadowVertex = """
             #ifdef VERTEX_VULKAN
-            layout (push_constant) uniform ShadowDraw { mat4 lightModel; } draw;
+            // Each copy's matrix comes with it, so every copy of a mesh is one draw.
+            layout (location = 12) in vec4 iLightModel0;
+            layout (location = 13) in vec4 iLightModel1;
+            layout (location = 14) in vec4 iLightModel2;
+            layout (location = 15) in vec4 iLightModel3;
+            #define LIGHT_MODEL mat4(iLightModel0, iLightModel1, iLightModel2, iLightModel3)
             #else
             struct ShadowDraw { mat4 lightModel; };
             uniform ShadowDraw draw;
+            #define LIGHT_MODEL draw.lightModel
             #endif
 
             layout (location = 0) in vec3 aPosition;
 
             void main()
             {
-                gl_Position = draw.lightModel * vec4(aPosition, 1.0);
+                gl_Position = LIGHT_MODEL * vec4(aPosition, 1.0);
             }
             """;
 

@@ -171,6 +171,21 @@ namespace Vertex.Rendering.Vulkan
         /// <inheritdoc/>
         public bool MeasureGpuTime { get; set; }
 
+        public bool VSync
+        {
+            get => _vsync;
+            set
+            {
+                if (_vsync == value) return;
+                _vsync = value;
+                if (_swapchain == null) return;
+                _swapchain.VSync = value;
+                _swapchainOutOfDate = true;
+            }
+        }
+
+        private bool _vsync = true;
+
         // The GPU's times for the latest frame it finished, and whether they're newer than what was last read.
         private readonly List<GpuPassTime> _gpuTimes = new();
         private bool _gpuTimesNew;
@@ -204,7 +219,8 @@ namespace Vertex.Rendering.Vulkan
             _compiler = new VkShaderCompiler(_context);
             _width = window.FramebufferSize.X;
             _height = window.FramebufferSize.Y;
-            _swapchain = new VkSwapchain(_context, _width, _height);
+            _swapchain = new VkSwapchain(_context, _width, _height) { VSync = _vsync };
+            if (!_vsync) _swapchainOutOfDate = true;
             for (int i = 0; i < _framesInFlight; i++) _frames[i] = new VkFrame(_context);
             _frame = _frames[0];
 
@@ -356,6 +372,12 @@ namespace Vertex.Rendering.Vulkan
                 Fragment = fragmentShader,
                 VertexStride = (uint)sizeof(MeshVertex),
                 Attributes = meshAttributes,
+                InstanceStride = (uint)sizeof(DrawConstants),
+                InstanceAttributes =
+                [
+                    (8, Format.R32G32B32A32Sfloat, 0), (9, Format.R32G32B32A32Sfloat, 16), (10, Format.R32G32B32A32Sfloat, 32), (11, Format.R32G32B32A32Sfloat, 48),
+                    (12, Format.R32G32B32A32Sfloat, 64), (13, Format.R32G32B32A32Sfloat, 80), (14, Format.R32G32B32A32Sfloat, 96), (15, Format.R32G32B32A32Sfloat, 112)
+                ],
                 Cull = CullModeFlags.BackBit,
                 DepthTest = true,
                 DepthWrite = true,
@@ -398,6 +420,8 @@ namespace Vertex.Rendering.Vulkan
                 Vertex = shadowVertex,
                 VertexStride = (uint)sizeof(MeshVertex),
                 Attributes = [(0, Format.R32G32B32Sfloat, 0)],
+                InstanceStride = (uint)sizeof(Matrix4x4),
+                InstanceAttributes = [(12, Format.R32G32B32A32Sfloat, 0), (13, Format.R32G32B32A32Sfloat, 16), (14, Format.R32G32B32A32Sfloat, 32), (15, Format.R32G32B32A32Sfloat, 48)],
                 Cull = CullModeFlags.FrontBit,
                 DepthTest = true,
                 DepthWrite = true,
@@ -586,6 +610,8 @@ namespace Vertex.Rendering.Vulkan
         /// </summary>
         private void WaitUntilShown()
         {
+            // Without vsync nothing waits for the screen: frames go as fast as they're drawn.
+            if (!_vsync) return;
             if (_context.PresentWait is not { } presentWait || MaxQueuedFrames < 0 ||
                 _lastPresentId < _firstPresentIdOnSwapchain + (ulong)MaxQueuedFrames) return;
 
@@ -1151,23 +1177,7 @@ namespace Vertex.Rendering.Vulkan
                 VkPipelines.SetViewport(_context, commands, size, size, flipped: true);
                 _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
 
-                Matrix4x4 lightSpace = frame.Cascades.Matrices[cascade];
-                Mesh? currentMesh = null;
-                for (int i = 0; i < draws.Count; i++)
-                {
-                    DrawCall draw = draws[i];
-                    Matrix4x4 lightModel = draw.WorldMatrix * lightSpace;
-                    _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
-
-                    VkMesh mesh = _meshes.TryGetValue(draw.Mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
-                    if (draw.Mesh != currentMesh)
-                    {
-                        BindMesh(commands, mesh);
-                        currentMesh = draw.Mesh;
-                    }
-
-                    _context.Vk.CmdDrawIndexed(commands, mesh.IndexCount, 1, 0, 0, 0);
-                }
+                DrawShadowCasters(commands, draws, 0, draws.Count, frame.Cascades.Matrices[cascade]);
 
                 _context.Vk.CmdEndRendering(commands);
             }
@@ -1186,26 +1196,39 @@ namespace Vertex.Rendering.Vulkan
                 VkPipelines.SetViewport(_context, commands, size, size, flipped: true);
                 _context.Vk.CmdBindPipeline(commands, PipelineBindPoint.Graphics, _shadow);
 
-                Mesh? currentMesh = null;
-                for (int i = layer.FirstCaster; i < layer.FirstCaster + layer.CasterCount; i++)
-                {
-                    DrawCall draw = frame.LocalShadowCasters[i];
-                    Matrix4x4 lightModel = draw.WorldMatrix * layer.ViewProjection;
-                    _context.Vk.CmdPushConstants(commands, _shadowLayout, ShaderStageFlags.VertexBit, 0, (uint)sizeof(Matrix4x4), &lightModel);
-                    VkMesh mesh = _meshes.TryGetValue(draw.Mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
-                    if (draw.Mesh != currentMesh)
-                    {
-                        BindMesh(commands, mesh);
-                        currentMesh = draw.Mesh;
-                    }
-
-                    _context.Vk.CmdDrawIndexed(commands, mesh.IndexCount, 1, 0, 0, 0);
-                }
+                DrawShadowCasters(commands, frame.LocalShadowCasters, layer.FirstCaster, layer.CasterCount, layer.ViewProjection);
 
                 _context.Vk.CmdEndRendering(commands);
             }
 
             _context.Transition(commands, _localShadowMaps.Array, ImageLayout.ShaderReadOnlyOptimal, Stage.DepthOutput, Stage.FragmentRead);
+        }
+
+        /// <summary>
+        /// Draws <paramref name="count"/> of <paramref name="draws"/> from <paramref name="first"/> into a shadow map seen through
+        /// <paramref name="viewProjection"/>: each one's matrix goes into this frame's uploads, and every run of the same mesh
+        /// (they come sorted by mesh) is one instanced draw. A horde's hundreds of arms and legs are a few dozen draws.
+        /// </summary>
+        private void DrawShadowCasters(CommandBuffer commands, IReadOnlyList<DrawCall> draws, int first, int count, Matrix4x4 viewProjection)
+        {
+            if (count == 0) return;
+            (VkBuffer instances, ulong offset, nint pointer) = _frame.Uploads.Allocate((ulong)(count * sizeof(Matrix4x4)));
+            var models = (Matrix4x4*)pointer;
+            for (int i = 0; i < count; i++) models[i] = draws[first + i].WorldMatrix * viewProjection;
+            _context.Vk.CmdBindVertexBuffers(commands, 1, 1, &instances, &offset);
+
+            int start = 0;
+            while (start < count)
+            {
+                Mesh mesh = draws[first + start].Mesh;
+                int end = start + 1;
+                while (end < count && draws[first + end].Mesh == mesh) end++;
+
+                VkMesh prepared = _meshes.TryGetValue(mesh, out VkMesh? found) ? found : throw new InvalidOperationException("Mesh wasn't prepared.");
+                BindMesh(commands, prepared);
+                _context.Vk.CmdDrawIndexed(commands, prepared.IndexCount, (uint)(end - start), 0, 0, (uint)start);
+                start = end;
+            }
         }
 
         private void BindMesh(CommandBuffer commands, VkMesh mesh)
@@ -1307,13 +1330,36 @@ namespace Vertex.Rendering.Vulkan
             VkPipelines.SetViewport(_context, commands, frame.Width, frame.Height, flipped: true);
             _context.Vk.CmdBindDescriptorSets(commands, PipelineBindPoint.Graphics, _sceneLayout, 0, 1, &frameSet, 0, null);
 
+            // Every draw's own constants (where it is, its baked light) go into this frame's uploads at once, as instance data:
+            // then every run of draws with the same material and mesh is one instanced draw.
+            IReadOnlyList<DrawCall> draws = frame.DrawCalls;
+            if (draws.Count > 0)
+            {
+                (VkBuffer instances, ulong instanceOffset, nint pointer) = _frame.Uploads.Allocate((ulong)(draws.Count * sizeof(DrawConstants)));
+                var constants = (DrawConstants*)pointer;
+                for (int i = 0; i < draws.Count; i++)
+                {
+                    DrawCall draw = draws[i];
+                    BakedLight baked = draw.Baked;
+                    constants[i] = new DrawConstants
+                    {
+                        Model = draw.WorldMatrix,
+                        Lightmap = new Vector4(baked.Lightmapped ? 1f : 0f, baked.FromProbes ? 1f : 0f, 0f, 0f),
+                        ProbeRed = baked.Probe.Red,
+                        ProbeGreen = baked.Probe.Green,
+                        ProbeBlue = baked.Probe.Blue
+                    };
+                }
+
+                _context.Vk.CmdBindVertexBuffers(commands, 1, 1, &instances, &instanceOffset);
+            }
+
             // The draws come grouped by shader, then material, then mesh (see Renderer), so each is only set up when it changes.
             Pipeline currentPipeline = default;
             Material? currentMaterial = null;
             Mesh? currentMesh = null;
             VkMesh? mesh = null;
-            IReadOnlyList<DrawCall> draws = frame.DrawCalls;
-            for (int i = 0; i < draws.Count; i++)
+            for (int i = 0; i < draws.Count;)
             {
                 DrawCall draw = draws[i];
                 Material material = draw.Material;
@@ -1339,17 +1385,11 @@ namespace Vertex.Rendering.Vulkan
                     currentMesh = draw.Mesh;
                 }
 
-                BakedLight baked = draw.Baked;
-                var constants = new DrawConstants
-                {
-                    Model = draw.WorldMatrix,
-                    Lightmap = new Vector4(baked.Lightmapped ? 1f : 0f, baked.FromProbes ? 1f : 0f, 0f, 0f),
-                    ProbeRed = baked.Probe.Red,
-                    ProbeGreen = baked.Probe.Green,
-                    ProbeBlue = baked.Probe.Blue
-                };
-                _context.Vk.CmdPushConstants(commands, _sceneLayout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(DrawConstants), &constants);
-                _context.Vk.CmdDrawIndexed(commands, mesh!.IndexCount, 1, 0, 0, 0);
+                // This one and every one after it with the same material and mesh, in one go.
+                int end = i + 1;
+                while (end < draws.Count && draws[end].Material == material && draws[end].Mesh == draw.Mesh) end++;
+                _context.Vk.CmdDrawIndexed(commands, mesh!.IndexCount, (uint)(end - i), 0, 0, (uint)i);
+                i = end;
             }
 
             // After the meshes, so it only fills what they left (see the sky pipeline).

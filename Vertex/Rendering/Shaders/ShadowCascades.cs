@@ -32,6 +32,16 @@ namespace Vertex.Rendering.Shaders
         /// <summary>World to each cascade's shadow-map space.</summary>
         public readonly Matrix4x4[] Matrices = new Matrix4x4[Count];
 
+        /// <summary>
+        /// The sun's turn, which every cascade shares: each cascade's matrix is this, then a scale and offset along each axis
+        /// (<see cref="LightScale"/>, <see cref="LightOffset"/>). So a box is turned into the sun's view once and then checked
+        /// against every cascade cheaply.
+        /// </summary>
+        public Matrix4x4 Rotation = Matrix4x4.Identity;
+
+        public readonly Vector3[] LightScale = new Vector3[Count];
+        public readonly Vector3[] LightOffset = new Vector3[Count];
+
         /// <summary>How far ahead of the camera each cascade reaches.</summary>
         public readonly float[] Splits = new float[Count];
 
@@ -55,6 +65,7 @@ namespace Vertex.Rendering.Shaders
             Vector3 up = MathF.Abs(lightDirection.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
             Matrix4x4 rotation = Matrix4x4.CreateLookAt(Vector3.Zero, lightDirection, up);
             Matrix4x4.Invert(rotation, out Matrix4x4 inverseRotation);
+            Rotation = rotation;
 
             float start = _near;
             for (int i = 0; i < Count; i++)
@@ -93,6 +104,9 @@ namespace Vertex.Rendering.Shaders
                 Matrix4x4 view = Matrix4x4.CreateLookAt(centre - lightDirection * (radius + _reach), centre, up);
                 Matrix4x4 orthographic = Matrix4x4.CreateOrthographic(radius * 2f, radius * 2f, 0f, radius * 2f + _reach);
                 Matrices[i] = view * orthographic;
+                Matrix4x4 rest = inverseRotation * Matrices[i];
+                LightScale[i] = new Vector3(rest.M11, rest.M22, rest.M33);
+                LightOffset[i] = rest.Translation;
 
                 start = end;
             }

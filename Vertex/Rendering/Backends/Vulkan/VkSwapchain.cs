@@ -102,6 +102,25 @@ namespace Vertex.Rendering.Vulkan
             return formats[0];
         }
 
+        /// <summary>Whether frames wait for the screen's refresh. Takes effect when the swapchain's next made.</summary>
+        public bool VSync { get; set; } = true;
+
+        /// <summary>How the swapchain presents now: FIFO with vsync, otherwise Mailbox or Immediate where the system has them.</summary>
+        public PresentModeKHR PresentMode { get; private set; } = PresentModeKHR.FifoKhr;
+
+        private PresentModeKHR PickPresentMode()
+        {
+            if (VSync) return PresentModeKHR.FifoKhr;
+
+            uint count = 0;
+            _context.KhrSurface.GetPhysicalDeviceSurfacePresentModes(_context.PhysicalDevice, _context.Surface, &count, null);
+            var modes = new PresentModeKHR[count];
+            fixed (PresentModeKHR* pointer = modes) _context.KhrSurface.GetPhysicalDeviceSurfacePresentModes(_context.PhysicalDevice, _context.Surface, &count, pointer);
+            if (modes.Contains(PresentModeKHR.MailboxKhr)) return PresentModeKHR.MailboxKhr;
+            if (modes.Contains(PresentModeKHR.ImmediateKhr)) return PresentModeKHR.ImmediateKhr;
+            return PresentModeKHR.FifoKhr;
+        }
+
         private void Create(int width, int height, SwapchainKHR old = default)
         {
             _context.KhrSurface.GetPhysicalDeviceSurfaceCapabilities(_context.PhysicalDevice, _context.Surface, out SurfaceCapabilitiesKHR capabilities);
@@ -114,7 +133,10 @@ namespace Vertex.Rendering.Vulkan
 
             // As few as the driver allows (two where it can): one on screen and one being drawn. Every extra image is
             // another finished frame that can queue up in front of the screen, a whole refresh of input lag each.
-            uint imageCount = Math.Max(capabilities.MinImageCount, 2);
+            // Without vsync, Mailbox replaces the waiting image with each newer one (no tearing, no waiting); it needs a third
+            // image to draw into while one's shown and one waits. Immediate (which can tear) if there's no Mailbox.
+            PresentModeKHR presentMode = PickPresentMode();
+            uint imageCount = Math.Max(capabilities.MinImageCount, presentMode == PresentModeKHR.MailboxKhr ? 3u : 2u);
             if (capabilities.MaxImageCount > 0) imageCount = Math.Min(imageCount, capabilities.MaxImageCount);
 
             CompositeAlphaFlagsKHR alpha = (capabilities.SupportedCompositeAlpha & CompositeAlphaFlagsKHR.OpaqueBitKhr) != 0
@@ -134,12 +156,13 @@ namespace Vertex.Rendering.Vulkan
                 ImageSharingMode = SharingMode.Exclusive,
                 PreTransform = capabilities.CurrentTransform,
                 CompositeAlpha = alpha,
-                PresentMode = PresentModeKHR.FifoKhr,
+                PresentMode = presentMode,
                 Clipped = true,
                 OldSwapchain = old
             };
 
             VkContext.Check(_context.KhrSwapchain.CreateSwapchain(_context.Device, &info, null, out _swapchain), "create the swapchain");
+            PresentMode = presentMode;
             RequestedWidth = width;
             RequestedHeight = height;
             Width = (int)extent.Width;

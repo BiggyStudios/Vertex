@@ -43,6 +43,78 @@ namespace Vertex.Rendering
         private readonly LocalShadows _localShadows = new();
         private readonly List<(DrawCall Draw, Vector3 Centre, Vector3 Extents)> _casters = new();
 
+        // The renderers to draw this frame and their meshes as drawn, then what each chunk of them gave (see Collect).
+        private readonly List<MeshRenderer> _renderers = new();
+        private readonly List<Mesh> _drawnMeshes = new();
+        private readonly List<CollectChunk> _chunks = new();
+
+        /// <summary>What a chunk of renderers gave: kept from frame to frame to reuse the lists.</summary>
+        private sealed class CollectChunk(int cascades)
+        {
+            public readonly List<DrawCall> Lit = new(), Unlit = new();
+            public readonly List<(DrawCall Draw, Vector3 Centre, Vector3 Extents)> Casters = new();
+            public readonly List<DrawCall>[] Cascades = Enumerable.Range(0, cascades).Select(_ => new List<DrawCall>()).ToArray();
+            public int Culled;
+        }
+
+        /// <summary>What every chunk needs to know: the view, and the sun's cascades.</summary>
+        private readonly record struct CollectJob(Frustum Frustum, bool MovingOnly, bool HasShadows, Matrix4x4 SunTurn, Vector3[] LightScales, Vector3[] LightOffsets);
+
+        /// <summary>
+        /// Renderers <paramref name="from"/> to <paramref name="to"/>: where each is, whether the camera sees it, and which of
+        /// the sun's cascades it shadows. Runs on any thread, touching only <paramref name="chunk"/>.
+        /// </summary>
+        private void CollectRange(CollectChunk chunk, int from, int to, CollectJob job)
+        {
+            chunk.Lit.Clear();
+            chunk.Unlit.Clear();
+            chunk.Casters.Clear();
+            foreach (List<DrawCall> list in chunk.Cascades) list.Clear();
+            chunk.Culled = 0;
+
+            for (int i = from; i < to; i++)
+            {
+                MeshRenderer meshRenderer = _renderers[i];
+                Mesh mesh = _drawnMeshes[i];
+                Material material = meshRenderer.Material;
+                bool lit = material.Shading == ShadingModel.Lit;
+                meshRenderer.WorldBounds(mesh, out Matrix4x4 world, out Vector3 centre, out Vector3 extents);
+
+                // Baked light: from the lightmap, drawn with the mesh made for it, or from the probes round it.
+                BakedLight bakedLight = default;
+                if (lit && _baked != null)
+                {
+                    if (mesh == meshRenderer.Mesh && _baked.MeshFor(meshRenderer) is { } lightmapped)
+                    {
+                        mesh = lightmapped;
+                        bakedLight = new BakedLight { Lightmapped = true };
+                    }
+                    else if (_baked.Probes is { } probes && probes.Sample(centre, out ProbeLight probe))
+                    {
+                        bakedLight = new BakedLight { FromProbes = true, Probe = probe };
+                    }
+                }
+
+                var draw = new DrawCall(mesh, material, world, meshRenderer.CastShadows && lit)
+                {
+                    Baked = bakedLight,
+                    Stamp = ((long)RuntimeHelpers.GetHashCode(meshRenderer) << 32) | (uint)meshRenderer.Transform.Version
+                };
+
+                if (job.Frustum.Intersects(centre, extents)) (lit ? chunk.Lit : chunk.Unlit).Add(draw);
+                else chunk.Culled++;
+
+                if (!draw.CastShadows) continue;
+                chunk.Casters.Add((draw, centre, extents));
+                if (!job.HasShadows || (job.MovingOnly && bakedLight.Lightmapped)) continue;
+                Vector3 lightCentre = Vector3.Transform(centre, job.SunTurn), lightExtents = Culling.Extend(extents, job.SunTurn);
+                for (int cascade = 0; cascade < chunk.Cascades.Length; cascade++)
+                {
+                    if (Culling.InCascade(lightCentre, lightExtents, job.LightScales[cascade], job.LightOffsets[cascade])) chunk.Cascades[cascade].Add(draw);
+                }
+            }
+        }
+
         // Cameras drawing into textures this frame; kept to reuse.
         private readonly List<Camera> _targetCameras = new();
 
@@ -74,7 +146,7 @@ namespace Vertex.Rendering
                           | (long)(RuntimeHelpers.GetHashCode(draw.Mesh) & 0x1FFFFF);
             }
 
-            keys.Sort(items);
+            SortByKeys(items, keys);
         }
 
         /// <summary>Shadow maps only need each mesh set up once: the same mesh's draws together.</summary>
@@ -83,7 +155,33 @@ namespace Vertex.Rendering
             Span<DrawCall> items = CollectionsMarshal.AsSpan(draws);
             Span<long> keys = Keys(items.Length);
             for (int i = 0; i < items.Length; i++) keys[i] = RuntimeHelpers.GetHashCode(items[i].Mesh);
-            keys.Sort(items);
+            SortByKeys(items, keys);
+        }
+
+        private int[] _sortOrder = [];
+        private DrawCall[] _sortScratch = [];
+
+        /// <summary>
+        /// Puts <paramref name="items"/> in the order of <paramref name="keys"/>. A draw is big (its matrix and baked light),
+        /// so the sort moves numbers saying where each goes, and then each draw is moved once.
+        /// </summary>
+        private void SortByKeys(Span<DrawCall> items, Span<long> keys)
+        {
+            int count = items.Length;
+            if (count < 2) return;
+            if (_sortOrder.Length < count)
+            {
+                _sortOrder = new int[Math.Max(count, _sortOrder.Length * 2)];
+                _sortScratch = new DrawCall[_sortOrder.Length];
+            }
+
+            Span<int> order = _sortOrder.AsSpan(0, count);
+            for (int i = 0; i < count; i++) order[i] = i;
+            keys.Sort(order);
+
+            Span<DrawCall> sorted = _sortScratch.AsSpan(0, count);
+            for (int i = 0; i < count; i++) sorted[i] = items[order[i]];
+            sorted.CopyTo(items);
         }
 
         private Span<long> Keys(int count)
@@ -108,6 +206,13 @@ namespace Vertex.Rendering
         {
             get => Backend.MeasureGpuTime;
             set => Backend.MeasureGpuTime = value;
+        }
+
+        /// <summary>Whether frames wait for the screen's refresh: see <see cref="Screen.VSync"/>, which a game's window follows.</summary>
+        public bool VSync
+        {
+            get => Backend.VSync;
+            set => Backend.VSync = value;
         }
 
         /// <summary>
@@ -428,43 +533,40 @@ namespace Vertex.Rendering
             CollectFogVolumes(scene, frustum);
             CollectPostEffects(effectsFrom ?? camera);
 
-            // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
-            // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
+            Matrix4x4 sunTurn = _frame.Cascades.Rotation;
+            Vector3[] lightScales = _frame.Cascades.LightScale, lightOffsets = _frame.Cascades.LightOffset;
+
+            // Each renderer's mesh first, here on this thread: a skinned one bends itself to its bones when asked.
+            _renderers.Clear();
+            _drawnMeshes.Clear();
             foreach (MeshRenderer meshRenderer in scene.FindComponents<MeshRenderer>())
             {
                 if (meshRenderer.DrawnMesh is not { } mesh) continue;
+                _renderers.Add(meshRenderer);
+                _drawnMeshes.Add(mesh);
+            }
 
-                bool lit = meshRenderer.Material.Shading == ShadingModel.Lit;
-                Matrix4x4 world = meshRenderer.Transform.WorldMatrix;
-                Culling.WorldBounds(mesh, world, out Vector3 centre, out Vector3 extents);
+            // Then where each is, whether it's seen, and which cascades it shadows: thousands of renderers in a big scene,
+            // each on its own, so in chunks on every core. The chunks are put together in order, so the lists come out the
+            // same as going through them one by one.
+            int count = _renderers.Count;
+            int chunks = Math.Clamp((count + 511) / 512, 1, Environment.ProcessorCount * 2);
+            while (_chunks.Count < chunks) _chunks.Add(new CollectChunk(casters.Length));
+            int chunkSize = (count + chunks - 1) / Math.Max(chunks, 1);
+            var job = new CollectJob(frustum, movingOnly, _frame.HasShadows, sunTurn, lightScales, lightOffsets);
+            if (chunks == 1) CollectRange(_chunks[0], 0, count, job);
+            else Parallel.For(0, chunks, c => CollectRange(_chunks[c], c * chunkSize, Math.Min(count, (c + 1) * chunkSize), job));
 
-                // Baked light: from the lightmap, drawn with the mesh made for it, or from the probes round it.
-                BakedLight bakedLight = default;
-                if (lit && _baked != null)
-                {
-                    if (mesh == meshRenderer.Mesh && _baked.MeshFor(meshRenderer) is { } lightmapped)
-                    {
-                        mesh = lightmapped;
-                        bakedLight = new BakedLight { Lightmapped = true };
-                    }
-                    else if (_baked.Probes is { } probes && probes.Sample(centre, out ProbeLight probe))
-                    {
-                        bakedLight = new BakedLight { FromProbes = true, Probe = probe };
-                    }
-                }
-
-                var draw = new DrawCall(mesh, meshRenderer.Material, world, meshRenderer.CastShadows && lit) { Baked = bakedLight };
-
-                if (frustum.Intersects(centre, extents)) (lit ? _frame.DrawCallList : _unlitDraws).Add(draw);
-                else Stats.CulledDrawCalls++;
-
-                if (!draw.CastShadows) continue;
-                _casters.Add((draw, centre, extents));
-                if (!_frame.HasShadows || (movingOnly && bakedLight.Lightmapped)) continue;
-                for (int cascade = 0; cascade < casters.Length; cascade++)
-                {
-                    if (Culling.InOrthographic(_frame.Cascades.Matrices[cascade], centre, extents)) casters[cascade].Add(draw);
-                }
+            // Lit draws first, then unlit: the backend sets up each shader once when it switches to it, which costs a
+            // lot more than a draw, so switching back and forth between them for every glowing strip adds up.
+            for (int c = 0; c < chunks; c++)
+            {
+                CollectChunk chunk = _chunks[c];
+                _frame.DrawCallList.AddRange(chunk.Lit);
+                _unlitDraws.AddRange(chunk.Unlit);
+                _casters.AddRange(chunk.Casters);
+                for (int cascade = 0; cascade < casters.Length; cascade++) casters[cascade].AddRange(chunk.Cascades[cascade]);
+                Stats.CulledDrawCalls += chunk.Culled;
             }
 
             // And within each, the same material and mesh together, so the backend sets each up once for all its draws.

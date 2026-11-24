@@ -137,6 +137,7 @@ namespace Vertex
 
         private void OnRender(double deltaTime)
         {
+            if (Renderer.VSync != Screen.VSync) Renderer.VSync = Screen.VSync;
             Renderer.Render(Scene.Active);
         }
 

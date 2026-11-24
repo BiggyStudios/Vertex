@@ -129,6 +129,13 @@ namespace Vertex.Rendering
                 {
                     hash = (hash ^ (uint)RuntimeHelpers.GetHashCode(draw.Mesh)) * 1099511628211UL;
                     Add(draw.Mesh.Version);
+                    if (draw.Stamp != 0)
+                    {
+                        // Which renderer and how often it's moved: the same as its matrix, for one number rather than twelve.
+                        hash = (hash ^ (ulong)draw.Stamp) * 1099511628211UL;
+                        continue;
+                    }
+
                     Matrix4x4 m = draw.WorldMatrix;
                     Add(m.M11); Add(m.M12); Add(m.M13); Add(m.M21); Add(m.M22); Add(m.M23); Add(m.M31); Add(m.M32); Add(m.M33); Add(m.M41); Add(m.M42); Add(m.M43);
                 }

@@ -20,6 +20,12 @@ namespace Vertex
         private static Vector2D<int> _windowedPosition;
         private static Vector2D<int> _windowedSize;
 
+        /// <summary>
+        /// Whether frames wait for the screen's refresh: on, there's no tearing and the frame rate is at most the refresh rate;
+        /// off, frames are drawn as fast as they can be (on Vulkan without tearing where the system allows it). On by default.
+        /// </summary>
+        public static bool VSync { get; set; } = true;
+
         /// <summary>Can be set before the window opens; it takes effect as soon as it does.</summary>
         public static bool Fullscreen
         {

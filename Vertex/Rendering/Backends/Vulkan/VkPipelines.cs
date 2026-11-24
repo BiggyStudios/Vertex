@@ -25,6 +25,10 @@ namespace Vertex.Rendering.Vulkan
         public uint VertexStride;
         public (uint Location, Format Format, uint Offset)[] Attributes = [];
 
+        /// <summary>Bytes per instance in a second vertex buffer (binding 1), 0 for none: what each copy of an instanced draw gets.</summary>
+        public uint InstanceStride;
+        public (uint Location, Format Format, uint Offset)[] InstanceAttributes = [];
+
         public CullModeFlags Cull = CullModeFlags.None;
         public bool DepthTest;
         public bool DepthWrite;
@@ -67,12 +71,21 @@ namespace Vertex.Rendering.Vulkan
                     stageCount = 2;
                 }
 
-                VertexInputBindingDescription binding = new(0, description.VertexStride, VertexInputRate.Vertex);
-                var attributes = new VertexInputAttributeDescription[description.Attributes.Length];
-                for (int i = 0; i < attributes.Length; i++)
+                VertexInputBindingDescription* bindings = stackalloc VertexInputBindingDescription[2];
+                bindings[0] = new VertexInputBindingDescription(0, description.VertexStride, VertexInputRate.Vertex);
+                bindings[1] = new VertexInputBindingDescription(1, description.InstanceStride, VertexInputRate.Instance);
+                uint bindingCount = description.VertexStride > 0 ? (description.InstanceStride > 0 ? 2u : 1u) : 0u;
+                var attributes = new VertexInputAttributeDescription[description.Attributes.Length + description.InstanceAttributes.Length];
+                for (int i = 0; i < description.Attributes.Length; i++)
                 {
                     (uint location, Format format, uint offset) = description.Attributes[i];
                     attributes[i] = new VertexInputAttributeDescription(location, 0, format, offset);
+                }
+
+                for (int i = 0; i < description.InstanceAttributes.Length; i++)
+                {
+                    (uint location, Format format, uint offset) = description.InstanceAttributes[i];
+                    attributes[description.Attributes.Length + i] = new VertexInputAttributeDescription(location, 1, format, offset);
                 }
 
                 fixed (VertexInputAttributeDescription* attributePointer = attributes)
@@ -81,8 +94,8 @@ namespace Vertex.Rendering.Vulkan
                     PipelineVertexInputStateCreateInfo vertexInput = new()
                     {
                         SType = StructureType.PipelineVertexInputStateCreateInfo,
-                        VertexBindingDescriptionCount = description.VertexStride > 0 ? 1u : 0u,
-                        PVertexBindingDescriptions = &binding,
+                        VertexBindingDescriptionCount = bindingCount,
+                        PVertexBindingDescriptions = bindings,
                         VertexAttributeDescriptionCount = (uint)attributes.Length,
                         PVertexAttributeDescriptions = attributePointer
                     };

@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Vertex.Rendering
 {
     /// <summary>
@@ -31,5 +33,29 @@ namespace Vertex.Rendering
 
         /// <summary>The mesh as it's drawn this frame: <see cref="Mesh"/>, or for a skinned mesh, it bent to its bones.</summary>
         internal virtual Mesh? DrawnMesh => Mesh;
+
+        // Where its mesh's box is in the world, kept until it moves or the mesh changes: worked out for every renderer
+        // every frame otherwise, for culling and shadows.
+        private Mesh? _boundsMesh;
+        private int _boundsVersion = -1;
+        private Vector3 _boundsOf, _boundsSize, _worldCentre, _worldExtents;
+
+        /// <summary>The box round <paramref name="mesh"/> (what's drawn for it) in the world, and its world matrix.</summary>
+        internal void WorldBounds(Mesh mesh, out Matrix4x4 world, out Vector3 centre, out Vector3 extents)
+        {
+            world = Transform.WorldMatrix;
+            int version = Transform.Version;
+            if (version != _boundsVersion || mesh != _boundsMesh || mesh.BoundsCentre != _boundsOf || mesh.BoundsExtents != _boundsSize)
+            {
+                Culling.WorldBounds(mesh, world, out _worldCentre, out _worldExtents);
+                _boundsVersion = version;
+                _boundsMesh = mesh;
+                _boundsOf = mesh.BoundsCentre;
+                _boundsSize = mesh.BoundsExtents;
+            }
+
+            centre = _worldCentre;
+            extents = _worldExtents;
+        }
     }
 }

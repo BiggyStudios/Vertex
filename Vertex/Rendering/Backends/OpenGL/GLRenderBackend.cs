@@ -102,8 +102,20 @@ namespace Vertex.Rendering.OpenGL
 
         public bool MeasureGpuTime { get; set; }
 
+        // Applied at the start of the next frame, with GLFW's own swap interval: setting the Silk window's VSync stops an
+        // OpenGL window showing anything at all (on Windows at least).
+        public bool VSync { get; set; } = true;
+
+        private bool _swapsWithVSync = true;
+
         public void BeginFrame()
         {
+            if (VSync != _swapsWithVSync)
+            {
+                _swapsWithVSync = VSync;
+                Silk.NET.GLFW.Glfw.GetApi().SwapInterval(VSync ? 1 : 0);
+            }
+
             _timer.Enabled = MeasureGpuTime;
             if (_timer.BeginFrame(_gpuTimes)) _gpuTimesNew = true;
             FinishReadBacks();

@@ -58,6 +58,12 @@ namespace Vertex.Rendering
         /// <summary>Finishes the frame: everything's been drawn, so show it.</summary>
         void EndFrame();
 
+        /// <summary>
+        /// Whether frames wait for the screen's refresh (no tearing, at most the refresh rate). Off, they're drawn as fast as
+        /// they can be, without tearing where the system allows it. Backends that can't choose leave it on.
+        /// </summary>
+        bool VSync { get => true; set { } }
+
         /// <summary>Whether to time each pass on the GPU. Backends that can't leave it off.</summary>
         bool MeasureGpuTime { get => false; set { } }
 
