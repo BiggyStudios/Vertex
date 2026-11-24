@@ -347,7 +347,11 @@ namespace Vertex.UI
             public override void Write(char value)
             {
                 original.Write(value);
+                Capture(value);
+            }
 
+            private void Capture(char value)
+            {
                 lock (_line)
                 {
                     if (value == '\n')
@@ -365,7 +369,17 @@ namespace Vertex.UI
             public override void Write(string? value)
             {
                 if (value == null) return;
-                foreach (char c in value) Write(c);
+
+                // Passed on whole: the console's own writer flushes after every write, and a write a character costs
+                // milliseconds a line (a stall in the game for every line logged).
+                original.Write(value);
+                foreach (char c in value) Capture(c);
+            }
+
+            public override void Write(char[] buffer, int index, int count)
+            {
+                original.Write(buffer, index, count);
+                for (int i = index; i < index + count; i++) Capture(buffer[i]);
             }
 
             public override void Flush() => original.Flush();
