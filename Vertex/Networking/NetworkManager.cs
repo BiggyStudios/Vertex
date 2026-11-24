@@ -107,6 +107,15 @@ namespace Vertex.Networking
         {
             if (Network.InSession) Status = $"In {Network.RoomName} ({Network.Peers.Count + 1} player{(Network.Peers.Count == 0 ? "" : "s")})";
 
+            // A list of the local network's rooms, found.
+            if (_roomSearch is { IsCompleted: true } found)
+            {
+                _roomSearch = null;
+                Searching = false;
+                Rooms = found.IsCompletedSuccessfully ? found.Result : [];
+                RoomsFound?.Invoke(Rooms);
+            }
+
             // A search of the local network, finished: join the first room with space, or host one.
             if (_localSearch is not { IsCompleted: true } search) return;
             _localSearch = null;
@@ -116,6 +125,83 @@ namespace Vertex.Networking
         }
 
         private static bool Joinable(RoomInfo room) => !room.IsFull && !room.HasPassword && room.IsSameVersion;
+
+        /// <summary>
+        /// This game's rooms the last <see cref="FindRooms"/> found, through Steam or on the local network as
+        /// <see cref="Service"/> says: for a list to pick from.
+        /// </summary>
+        public IReadOnlyList<RoomInfo> Rooms { get; private set; } = [];
+
+        /// <summary>Looking for rooms now (see <see cref="FindRooms"/>).</summary>
+        public bool Searching { get; private set; }
+
+        /// <summary>Raised when <see cref="FindRooms"/> has found what there is.</summary>
+        public event Action<IReadOnlyList<RoomInfo>>? RoomsFound;
+
+        private Task<IReadOnlyList<RoomInfo>>? _roomSearch;
+
+        /// <summary>
+        /// Looks for this game's rooms, without joining any: <see cref="Rooms"/> fills in (and <see cref="RoomsFound"/>
+        /// is raised) when they're found. For a list to join from (see <see cref="Join(RoomInfo, string)"/>).
+        /// </summary>
+        public void FindRooms()
+        {
+            Searching = true;
+            if (Service == NetworkService.LocalNetwork)
+            {
+                _roomSearch = UdpTransport.FindRoomsAsync(TimeSpan.FromSeconds(1.5));
+                return;
+            }
+
+            if (StartSteam() is not { } steam)
+            {
+                Searching = false;
+                Rooms = [];
+                RoomsFound?.Invoke(Rooms);
+                return;
+            }
+
+            steam.RoomsFound -= OnRoomList;
+            steam.RoomsFound += OnRoomList;
+            steam.FindRooms();
+        }
+
+        private void OnRoomList(IReadOnlyList<RoomInfo> rooms)
+        {
+            if (_steam != null) _steam.RoomsFound -= OnRoomList;
+            Searching = false;
+            Rooms = rooms;
+            RoomsFound?.Invoke(rooms);
+        }
+
+        /// <summary>Joins <paramref name="room"/>, one <see cref="FindRooms"/> found: a Steam lobby, or a game on the local network.</summary>
+        public void Join(RoomInfo room, string password = "")
+        {
+            Status = $"Joining {room.Name}...";
+            if (room.LobbyId != 0)
+            {
+                if (StartSteam() is { } steam) steam.JoinLobby(room.LobbyId, password);
+                return;
+            }
+
+            if (room.EndPoint is not { } endPoint) return;
+            try
+            {
+                Network.Start(UdpTransport.Join(endPoint.Address.ToString(), endPoint.Port, password));
+            }
+            catch (Exception exception)
+            {
+                Status = $"Couldn't join {room.Name}: {exception.Message}";
+                Log.Warning(Status);
+            }
+        }
+
+        /// <summary>Joins the Steam lobby <paramref name="lobbyId"/>: a friend's, from an invite or the command line.</summary>
+        public void JoinLobby(ulong lobbyId)
+        {
+            Status = "Joining a friend's game...";
+            if (StartSteam() is { } steam) steam.JoinLobby(lobbyId);
+        }
 
         /// <summary>Hosts a room for others to join.</summary>
         public void Host()
