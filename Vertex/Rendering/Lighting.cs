@@ -103,6 +103,13 @@ namespace Vertex.Rendering
         [Range(0f, 1f)]
         public float Outlines { get; set; }
 
+        /// <summary>
+        /// How thick the outlines are, in pixels on a 720-line screen (thicker on bigger ones): 1 is a fine line, 3 or 4 a
+        /// chunky cartoon one.
+        /// </summary>
+        [Range(1f, 6f)]
+        public float OutlineWidth { get; set; } = 1f;
+
         /// <summary>Draw the sky. Off, the screen is cleared to the camera's ClearColor, and fog fades into that instead.</summary>
         public bool DrawSky { get; set; } = true;
 

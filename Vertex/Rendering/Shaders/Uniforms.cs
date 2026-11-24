@@ -308,6 +308,13 @@ namespace Vertex.Rendering.Shaders
         /// <summary>How strongly the blurred bright parts go back over the picture, for <see cref="Lighting.Bloom"/>, shared across the bloom levels (each adds once).</summary>
         public static float BloomScale(float bloom, int levels) => bloom * 0.5f / levels;
 
+        /// <summary>
+        /// How far apart the outline's depth samples are, as a fraction of the picture: <paramref name="width"/> pixels at 720
+        /// lines, scaled up on bigger screens, and never under a pixel. A line comes out about that wide either side of an edge.
+        /// </summary>
+        public static Vector2 OutlineStepFor(int pictureWidth, int pictureHeight, float width) =>
+            new Vector2(1f / pictureWidth, 1f / pictureHeight) * MathF.Max(1f, MathF.Round(MathF.Max(width, 1f) * pictureHeight / 720f));
+
         /// <summary>Everything about <paramref name="frame"/> that stays the same through its post passes.</summary>
         public static PostUniforms ForView(RenderFrame frame)
         {
@@ -323,8 +330,7 @@ namespace Vertex.Rendering.Shaders
                 Vignette = environment.Vignette,
                 OcclusionRadius = environment.AmbientOcclusionRadius,
                 Time = frame.Time,
-                // One pixel wide at 720 lines, wider on bigger screens.
-                OutlineStep = new Vector2(1f / frame.Width, 1f / frame.Height) * MathF.Max(1f, MathF.Round(frame.Height / 720f))
+                OutlineStep = OutlineStepFor(frame.Width, frame.Height, environment.OutlineWidth)
             };
         }
     }

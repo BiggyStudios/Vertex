@@ -64,6 +64,24 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void Outlines_get_thicker_with_their_width_and_with_the_screen()
+        {
+            var lighting = new Lighting { Outlines = 1f, OutlineWidth = 3f };
+            var frame = new RenderFrame { Width = 1280, Height = 720, Environment = EnvironmentData.From(lighting) };
+            Vector2 step = PostUniforms.ForView(frame).OutlineStep;
+            Assert.Equal(3f / 1280f, step.X, 6);
+            Assert.Equal(3f / 720f, step.Y, 6);
+
+            // Twice the lines, twice as many pixels, so it looks the same.
+            Vector2 big = PostUniforms.OutlineStepFor(2560, 1440, 3f);
+            Assert.Equal(6f / 2560f, big.X, 6);
+
+            // The default is the fine line it always was, and nothing goes under a pixel.
+            Assert.Equal(1f / 720f, PostUniforms.OutlineStepFor(1280, 720, new Lighting().OutlineWidth).Y, 6);
+            Assert.Equal(1f / 360f, PostUniforms.OutlineStepFor(640, 360, 1f).Y, 6);
+        }
+
+        [Fact]
         public void A_flat_height_map_makes_a_normal_map_facing_straight_out()
         {
             var flat = new Texture(4, 4, Enumerable.Repeat((byte)128, 4 * 4 * 4).ToArray());

@@ -76,6 +76,7 @@ namespace Vertex.Rendering
         public bool DrawSky { get; init; }
         public float CelShading { get; init; }
         public float Outlines { get; init; }
+        public float OutlineWidth { get; init; }
         public float AmbientOcclusion { get; init; }
         public float AmbientOcclusionRadius { get; init; }
         public bool AntiAliasing { get; init; }
@@ -108,6 +109,7 @@ namespace Vertex.Rendering
             DrawSky = lighting.DrawSky,
             CelShading = Math.Clamp(lighting.CelShading, 0f, 1f),
             Outlines = Math.Clamp(lighting.Outlines, 0f, 1f),
+            OutlineWidth = Math.Clamp(lighting.OutlineWidth, 1f, 6f),
             AmbientOcclusion = Math.Clamp(lighting.AmbientOcclusion, 0f, 1f),
             AmbientOcclusionRadius = MathF.Max(lighting.AmbientOcclusionRadius, 0.01f),
             AntiAliasing = lighting.AntiAliasing,
