@@ -15,6 +15,13 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!-- Optimised in Debug builds too: games are usually run in Debug (dotnet run, the editor's Play), and the engine's
+         per-frame loops (drawing, physics, navmesh building) run two to three times slower unoptimised. Stepping
+         through engine code still works; some of its locals show as optimised away. -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <!-- The engine as a NuGet package, for games made in code without the engine's source (Tools/Release makes it,
          with the release's version). -->
     <PackageId>Vertex.Engine</PackageId>
