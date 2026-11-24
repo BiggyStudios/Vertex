@@ -220,7 +220,6 @@ namespace Vertex.AI
         // The solid spans of height in each column, as linked lists, each the next one up.
         private int[] _spanMin = [], _spanMax = [], _spanNext = [];
         private bool[] _spanWalkable = [];
-        private int _spans, _freeSpan = -1;
         private int[] _head = [];
 
         /// <summary>Makes the navmesh. Can go on any thread; <paramref name="cancel"/> stops it.</summary>
@@ -259,14 +258,8 @@ namespace Vertex.AI
             // 1. Fill the shapes into the columns.
             _head = new int[width * depth];
             Array.Fill(_head, -1);
-            _spans = 0;
-            _freeSpan = -1;
             int climb = (int)MathF.Floor(_step / ch);
-            for (int t = 0; t < _walkable.Count; t++)
-            {
-                if ((t & 1023) == 0) cancel.ThrowIfCancellationRequested();
-                Rasterize(_vertices[_indices[t * 3]], _vertices[_indices[t * 3 + 1]], _vertices[_indices[t * 3 + 2]], _walkable[t], min, cs, ch, width, depth, levels);
-            }
+            RasterizeAll(min, cs, ch, width, depth, levels, cancel);
 
             // 2. Low things a character steps over (kerbs, the edges of steps) can be walked on; what has too little room
             //    above it can't.
@@ -530,54 +523,196 @@ namespace Vertex.AI
             navMesh.Areas = areas.ToArray();
         }
 
-        // ---------------------------------------------------------------- Filling in a triangle
+        // ---------------------------------------------------------------- Filling in the triangles
 
-        private void Rasterize(Vector3 a, Vector3 b, Vector3 c, bool walkable, Vector3 min, float cs, float ch, int width, int depth, int levels)
+        /// <summary>
+        /// Fills every triangle into the columns, on all the CPU's cores: the grid is cut into bands of rows, each filled
+        /// by itself (a column is only ever in one band) with the triangles over it, in their usual order so each column
+        /// comes out as it would one triangle after another. Then the bands' spans are put together into one store.
+        /// </summary>
+        private void RasterizeAll(Vector3 min, float cs, float ch, int width, int depth, int levels, CancellationToken cancel)
         {
-            Vector3 low = Vector3.Min(a, Vector3.Min(b, c)), high = Vector3.Max(a, Vector3.Max(b, c));
-            int z0 = Math.Clamp((int)MathF.Floor((low.Z - min.Z) / cs), 0, depth - 1), z1 = Math.Clamp((int)MathF.Floor((high.Z - min.Z) / cs), 0, depth - 1);
+            int triangles = _walkable.Count;
+            int bandRows = Math.Max(8, (depth + Environment.ProcessorCount * 4 - 1) / (Environment.ProcessorCount * 4));
+            int bandCount = (depth + bandRows - 1) / bandRows;
 
-            Span<Vector3> triangle = [a, b, c];
-            Span<Vector3> rowA = stackalloc Vector3[12], rowB = stackalloc Vector3[12];
-            Span<Vector3> cellA = stackalloc Vector3[12], cellB = stackalloc Vector3[12];
-            for (int z = z0; z <= z1; z++)
+            // Which triangles each band has some of.
+            var bins = new List<int>[bandCount];
+            for (int b = 0; b < bandCount; b++) bins[b] = new List<int>();
+            for (int t = 0; t < triangles; t++)
             {
-                // The part of it in this row of columns...
-                float zMin = min.Z + z * cs;
-                int n = Clip(triangle, rowA, 2, zMin, keepAbove: true);
-                n = Clip(rowA[..n], rowB, 2, zMin + cs, keepAbove: false);
-                if (n < 3) continue;
-                Span<Vector3> inRow = rowB[..n];
+                float za = _vertices[_indices[t * 3]].Z, zb = _vertices[_indices[t * 3 + 1]].Z, zc = _vertices[_indices[t * 3 + 2]].Z;
+                float low = MathF.Min(za, MathF.Min(zb, zc)), high = MathF.Max(za, MathF.Max(zb, zc));
+                int z0 = Math.Clamp((int)MathF.Floor((low - min.Z) / cs), 0, depth - 1), z1 = Math.Clamp((int)MathF.Floor((high - min.Z) / cs), 0, depth - 1);
+                for (int b = z0 / bandRows; b <= z1 / bandRows; b++) bins[b].Add(t);
+            }
 
-                float xLow = float.MaxValue, xHigh = float.MinValue;
-                foreach (Vector3 v in inRow)
+            var bands = new SpanStore[bandCount];
+            Parallel.For(0, bandCount, new ParallelOptions { CancellationToken = cancel }, b =>
+            {
+                var store = new SpanStore(_head);
+                int firstRow = b * bandRows, lastRow = Math.Min(depth - 1, firstRow + bandRows - 1);
+                List<int> bin = bins[b];
+                for (int i = 0; i < bin.Count; i++)
                 {
-                    xLow = MathF.Min(xLow, v.X);
-                    xHigh = MathF.Max(xHigh, v.X);
+                    if ((i & 1023) == 0) cancel.ThrowIfCancellationRequested();
+                    int t = bin[i];
+                    store.Rasterize(_vertices[_indices[t * 3]], _vertices[_indices[t * 3 + 1]], _vertices[_indices[t * 3 + 2]], _walkable[t], min, cs, ch, width, firstRow, lastRow, levels);
                 }
 
-                int x0 = Math.Clamp((int)MathF.Floor((xLow - min.X) / cs), 0, width - 1), x1 = Math.Clamp((int)MathF.Floor((xHigh - min.X) / cs), 0, width - 1);
-                for (int x = x0; x <= x1; x++)
-                {
-                    // ...and in each column of it: the heights it covers there.
-                    float xMin = min.X + x * cs;
-                    int m = Clip(inRow, cellA, 0, xMin, keepAbove: true);
-                    m = Clip(cellA[..m], cellB, 0, xMin + cs, keepAbove: false);
-                    if (m < 3) continue;
+                bands[b] = store;
+            });
 
-                    float yLow = float.MaxValue, yHigh = float.MinValue;
-                    for (int i = 0; i < m; i++)
+            // One store: each band's spans after the last, their links and the heads of its columns moved along with them.
+            int total = 0;
+            foreach (SpanStore band in bands) total += band.Count;
+            _spanMin = new int[Math.Max(total, 1)];
+            _spanMax = new int[Math.Max(total, 1)];
+            _spanNext = new int[Math.Max(total, 1)];
+            _spanWalkable = new bool[Math.Max(total, 1)];
+            int offset = 0;
+            for (int b = 0; b < bandCount; b++)
+            {
+                SpanStore band = bands[b];
+                Array.Copy(band.Min, 0, _spanMin, offset, band.Count);
+                Array.Copy(band.Max, 0, _spanMax, offset, band.Count);
+                Array.Copy(band.Walkable, 0, _spanWalkable, offset, band.Count);
+                for (int s = 0; s < band.Count; s++) _spanNext[offset + s] = band.Next[s] >= 0 ? band.Next[s] + offset : -1;
+
+                int firstColumn = b * bandRows * width, endColumn = Math.Min(depth, (b + 1) * bandRows) * width;
+                for (int column = firstColumn; column < endColumn; column++)
+                {
+                    if (_head[column] >= 0) _head[column] += offset;
+                }
+
+                offset += band.Count;
+            }
+
+        }
+
+        /// <summary>The solid spans of one band of rows, as linked lists going up each column (heads in the shared array).</summary>
+        private sealed class SpanStore(int[] head)
+        {
+            public int[] Min = new int[1024], Max = new int[1024], Next = new int[1024];
+            public bool[] Walkable = new bool[1024];
+            public int Count;
+            private int _free = -1;
+
+            public void Rasterize(Vector3 a, Vector3 b, Vector3 c, bool walkable, Vector3 min, float cs, float ch, int width, int firstRow, int lastRow, int levels)
+            {
+                Vector3 low = Vector3.Min(a, Vector3.Min(b, c)), high = Vector3.Max(a, Vector3.Max(b, c));
+                int z0 = Math.Clamp((int)MathF.Floor((low.Z - min.Z) / cs), firstRow, lastRow), z1 = Math.Clamp((int)MathF.Floor((high.Z - min.Z) / cs), firstRow, lastRow);
+
+                Span<Vector3> triangle = [a, b, c];
+                Span<Vector3> rowA = stackalloc Vector3[12], rowB = stackalloc Vector3[12];
+                Span<Vector3> cellA = stackalloc Vector3[12], cellB = stackalloc Vector3[12];
+                for (int z = z0; z <= z1; z++)
+                {
+                    // The part of it in this row of columns...
+                    float zMin = min.Z + z * cs;
+                    int n = Clip(triangle, rowA, 2, zMin, keepAbove: true);
+                    n = Clip(rowA[..n], rowB, 2, zMin + cs, keepAbove: false);
+                    if (n < 3) continue;
+                    Span<Vector3> inRow = rowB[..n];
+
+                    float xLow = float.MaxValue, xHigh = float.MinValue;
+                    foreach (Vector3 v in inRow)
                     {
-                        yLow = MathF.Min(yLow, cellB[i].Y);
-                        yHigh = MathF.Max(yHigh, cellB[i].Y);
+                        xLow = MathF.Min(xLow, v.X);
+                        xHigh = MathF.Max(xHigh, v.X);
                     }
 
-                    // A little leeway, so a floor at a whole number of steps isn't rounded up a step; a flat piece is a
-                    // step thick below its top, so its top stays where it is.
-                    int top = Math.Clamp((int)MathF.Ceiling((yHigh - min.Y) / ch - 1e-3f), 1, levels);
-                    int bottom = Math.Clamp((int)MathF.Floor((yLow - min.Y) / ch + 1e-3f), 0, top - 1);
-                    AddSpan(x + z * width, bottom, top, walkable);
+                    int x0 = Math.Clamp((int)MathF.Floor((xLow - min.X) / cs), 0, width - 1), x1 = Math.Clamp((int)MathF.Floor((xHigh - min.X) / cs), 0, width - 1);
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        // ...and in each column of it: the heights it covers there.
+                        float xMin = min.X + x * cs;
+                        int m = Clip(inRow, cellA, 0, xMin, keepAbove: true);
+                        m = Clip(cellA[..m], cellB, 0, xMin + cs, keepAbove: false);
+                        if (m < 3) continue;
+
+                        float yLow = float.MaxValue, yHigh = float.MinValue;
+                        for (int i = 0; i < m; i++)
+                        {
+                            yLow = MathF.Min(yLow, cellB[i].Y);
+                            yHigh = MathF.Max(yHigh, cellB[i].Y);
+                        }
+
+                        // A little leeway, so a floor at a whole number of steps isn't rounded up a step; a flat piece is a
+                        // step thick below its top, so its top stays where it is.
+                        int top = Math.Clamp((int)MathF.Ceiling((yHigh - min.Y) / ch - 1e-3f), 1, levels);
+                        int bottom = Math.Clamp((int)MathF.Floor((yLow - min.Y) / ch + 1e-3f), 0, top - 1);
+                        AddSpan(x + z * width, bottom, top, walkable);
+                    }
                 }
+            }
+
+            /// <summary>
+            /// Adds a solid span to a column, joined with any it touches. Where two tops are near enough (a step's height of
+            /// each other) either being walkable makes the top walkable; otherwise the higher top says.
+            /// </summary>
+            private void AddSpan(int column, int bottom, int top, bool walkable)
+            {
+                int previous = -1, current = head[column];
+                while (current >= 0)
+                {
+                    if (Min[current] > top) break;
+                    if (Max[current] < bottom)
+                    {
+                        previous = current;
+                        current = Next[current];
+                        continue;
+                    }
+
+                    // Overlapping: one span of the two.
+                    if (Math.Abs(Max[current] - top) <= 1) walkable |= Walkable[current];
+                    else if (Max[current] > top) walkable = Walkable[current];
+                    bottom = Math.Min(bottom, Min[current]);
+                    top = Math.Max(top, Max[current]);
+
+                    int next = Next[current];
+                    Next[current] = _free;
+                    _free = current;
+                    if (previous >= 0) Next[previous] = next;
+                    else head[column] = next;
+                    current = next;
+                }
+
+                int span = NewSpan();
+                Min[span] = bottom;
+                Max[span] = top;
+                Walkable[span] = walkable;
+                if (previous >= 0)
+                {
+                    Next[span] = Next[previous];
+                    Next[previous] = span;
+                }
+                else
+                {
+                    Next[span] = head[column];
+                    head[column] = span;
+                }
+            }
+
+            private int NewSpan()
+            {
+                if (_free >= 0)
+                {
+                    int free = _free;
+                    _free = Next[free];
+                    return free;
+                }
+
+                if (Count == Min.Length)
+                {
+                    int size = Count * 2;
+                    Array.Resize(ref Min, size);
+                    Array.Resize(ref Max, size);
+                    Array.Resize(ref Next, size);
+                    Array.Resize(ref Walkable, size);
+                }
+
+                return Count++;
             }
         }
 
@@ -601,79 +736,6 @@ namespace Vertex.AI
             }
 
             return count;
-        }
-
-        /// <summary>
-        /// Adds a solid span to a column, joined with any it touches. Where two tops are near enough (a step's height of
-        /// each other) either being walkable makes the top walkable; otherwise the higher top says.
-        /// </summary>
-        private void AddSpan(int column, int bottom, int top, bool walkable)
-        {
-            int previous = -1, current = _head[column];
-            while (current >= 0)
-            {
-                if (_spanMin[current] > top) break;
-                if (_spanMax[current] < bottom)
-                {
-                    previous = current;
-                    current = _spanNext[current];
-                    continue;
-                }
-
-                // Overlapping: one span of the two.
-                if (Math.Abs(_spanMax[current] - top) <= 1) walkable |= _spanWalkable[current];
-                else if (_spanMax[current] > top) walkable = _spanWalkable[current];
-                bottom = Math.Min(bottom, _spanMin[current]);
-                top = Math.Max(top, _spanMax[current]);
-
-                int next = _spanNext[current];
-                FreeSpan(current);
-                if (previous >= 0) _spanNext[previous] = next;
-                else _head[column] = next;
-                current = next;
-            }
-
-            int span = NewSpan();
-            _spanMin[span] = bottom;
-            _spanMax[span] = top;
-            _spanWalkable[span] = walkable;
-            if (previous >= 0)
-            {
-                _spanNext[span] = _spanNext[previous];
-                _spanNext[previous] = span;
-            }
-            else
-            {
-                _spanNext[span] = _head[column];
-                _head[column] = span;
-            }
-        }
-
-        private int NewSpan()
-        {
-            if (_freeSpan >= 0)
-            {
-                int free = _freeSpan;
-                _freeSpan = _spanNext[free];
-                return free;
-            }
-
-            if (_spans == _spanMin.Length)
-            {
-                int size = Math.Max(1024, _spans * 2);
-                Array.Resize(ref _spanMin, size);
-                Array.Resize(ref _spanMax, size);
-                Array.Resize(ref _spanNext, size);
-                Array.Resize(ref _spanWalkable, size);
-            }
-
-            return _spans++;
-        }
-
-        private void FreeSpan(int span)
-        {
-            _spanNext[span] = _freeSpan;
-            _freeSpan = span;
         }
     }
 }
