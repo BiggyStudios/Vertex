@@ -54,6 +54,45 @@ namespace Vertex.Tests
             Assert.Throws<FileNotFoundException>(() => Scene.Load("Scenes/Missing.scene"));
         }
 
+        /// <summary>Asks for another scene from its Update, as a menu's button would.</summary>
+        public sealed class Switcher : Component
+        {
+            public static int Updates;
+
+            protected internal override void Update()
+            {
+                Updates++;
+                Scene.LoadSoon("Scenes/Arena.scene");
+            }
+        }
+
+        [Fact]
+        public void A_component_can_ask_for_another_scene_and_it_opens_at_the_start_of_the_next_frame()
+        {
+            SaveScene("Arena.scene", "Floor");
+            Switcher.Updates = 0;
+            var menu = new GameObject("Menu");
+            menu.AddComponent<Switcher>();
+            var after = new GameObject("After").AddComponent<Recorder>();
+            var loop = new GameLoop(new EmptyGame());
+            loop.Load();
+            Scene before = Scene.Active;
+
+            // The rest of the frame runs in the scene it asked in.
+            RunFrames(loop, 1);
+            Assert.Same(before, Scene.Active);
+            Assert.Contains("Update", after.Calls);
+            Assert.Equal("Scenes/Arena.scene", Scene.Pending);
+
+            // Then it's swapped.
+            RunFrames(loop, 1);
+            Assert.NotSame(before, Scene.Active);
+            Assert.Null(Scene.Pending);
+            Assert.NotNull(GameObject.Find("Floor"));
+            Assert.Contains("OnDestroy", after.Calls);
+            Assert.Equal(1, Switcher.Updates);
+        }
+
         [Fact]
         public void A_scene_file_can_be_added_to_a_world_built_in_code()
         {

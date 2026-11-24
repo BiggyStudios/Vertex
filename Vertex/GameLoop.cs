@@ -66,6 +66,9 @@ namespace Vertex
             // The console goes first, so while it's open it takes the keyboard before the game sees it.
             DevConsole.Update();
 
+            // A scene asked for last frame opens before anything else runs.
+            Scene.LoadPending();
+
             // Receive first, so this frame's game code sees the latest messages.
             Network.Update();
 

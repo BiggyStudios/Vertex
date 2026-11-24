@@ -179,6 +179,8 @@ namespace Vertex.Editor.Editing
             Time.FixedDeltaTime = 1f / 60f;
             // A game stopped in the middle of a slow-motion moment mustn't leave the next play slowed.
             Time.Scale = 1f;
+            // Nor a scene it asked for, as it stopped, open afterwards.
+            Scene.Pending = null;
 
             if (_rebuild)
             {

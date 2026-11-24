@@ -12,6 +12,7 @@ namespace Vertex.Tests
         protected EngineTest()
         {
             Scene.Active = new Scene();
+            Scene.Pending = null;
             Camera.Main = null;
             InputSystem.Reset();
             Time.FixedDeltaTime = 1f / 60f;

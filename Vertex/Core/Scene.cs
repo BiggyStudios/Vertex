@@ -39,6 +39,24 @@ namespace Vertex
         }
 
         /// <summary>
+        /// Opens a scene at the start of the next frame, in place of the active one: what a component's Update (a menu's Play
+        /// button, a door to the next level) should use, as <see cref="Load"/> there would pull the scene out from under the
+        /// rest of the frame. Asking again before then opens the last asked for.
+        /// </summary>
+        public static void LoadSoon(string path) => Pending = path;
+
+        /// <summary>The scene <see cref="LoadSoon"/> asked for, not yet opened: null to change its mind.</summary>
+        public static string? Pending { get; set; }
+
+        /// <summary>Opens the scene <see cref="LoadSoon"/> asked for, if any: at the start of a frame.</summary>
+        internal static void LoadPending()
+        {
+            if (Pending is not { } path) return;
+            Pending = null;
+            Load(path);
+        }
+
+        /// <summary>
         /// Adds the objects saved in a scene file to this scene, and returns them: a room made in the editor, put into a
         /// world built in code. The file's lighting replaces this scene's.
         /// </summary>
