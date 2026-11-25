@@ -214,7 +214,9 @@ namespace Vertex.AI
                 Transform.WorldPosition = new Vector3(to.X, y, to.Z);
             }
 
-            Turn(deltaTime);
+            // It turns to face where it walks; shoved by others while standing (a crowd round something fighting), it
+            // keeps facing as it was. Turning with the shove had big ones swinging round to face away mid-attack.
+            if (HasPath) Turn(deltaTime);
         }
 
         /// <summary>The velocity that takes it along its way: towards the next corner, slowing to stop at the last.</summary>

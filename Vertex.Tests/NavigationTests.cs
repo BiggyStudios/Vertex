@@ -348,6 +348,18 @@ namespace Vertex.Tests
             Assert.True(a.Transform.WorldPosition.X > 3f && b.Transform.WorldPosition.X < -3f, $"{a.Transform.WorldPosition} {b.Transform.WorldPosition}");
         }
 
+
+        [Fact]
+        public void An_agent_shoved_by_another_while_standing_keeps_facing_the_same_way()
+        {
+            Floor();
+            NavMeshAgent standing = Agent(new Vector3(0f, 0f, 0f)), shoving = Agent(new Vector3(0.05f, 0f, -0.3f));
+            var loop = new GameLoop(new EmptyGame());
+            RunFrames(loop, 30);
+
+            Assert.True(standing.Transform.WorldPosition.Z > 0.1f, $"It wasn't pushed back: {standing.Transform.WorldPosition}");
+            Assert.True(standing.Transform.Forward.Z < -0.99f, $"It turned to face {standing.Transform.Forward}");
+        }
         [Fact]
         public void An_agent_with_a_character_controller_moves_it()
         {
