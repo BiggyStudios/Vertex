@@ -4,7 +4,9 @@ namespace Vertex.Networking
 {
     /// <summary>
     /// Shows an object's moves on everyone's machine: its owner sends where it is several times a second, and everyone
-    /// else's copy glides there. Needs a <see cref="NetworkObject"/> (one's added if it hasn't).
+    /// else's copy glides there. Between updates a copy keeps going the way the last ones showed it going, so something
+    /// moving fast doesn't lurch forward and stop with each update. Needs a <see cref="NetworkObject"/> (one's added if
+    /// it hasn't).
     /// </summary>
     public sealed class NetworkTransform : Component
     {
@@ -15,10 +17,17 @@ namespace Vertex.Networking
         /// <summary>How quickly other players' copies catch up with where it's been sent to be: higher is snappier.</summary>
         public float Smoothing { get; set; } = 18f;
 
+        /// <summary>
+        /// Moving faster than this (metres a second) between two updates counts as a jump, not a move: the copy goes
+        /// straight there instead of racing across.
+        /// </summary>
+        public float TeleportSpeed { get; set; } = 50f;
+
         private NetworkObject? _networked;
         private float _sinceSent;
-        private Vector3 _position;
+        private Vector3 _position, _velocity;
         private Quaternion _rotation = Quaternion.Identity;
+        private float _sinceReceived;
         private bool _received;
 
         protected internal override void Start()
@@ -39,17 +48,40 @@ namespace Vertex.Networking
             }
             else if (_received)
             {
-                float t = 1f - MathF.Exp(-Smoothing * Time.DeltaTime);
-                Transform.WorldPosition = Vector3.Lerp(Transform.WorldPosition, _position, t);
-                Transform.WorldRotation = Quaternion.Slerp(Transform.WorldRotation, _rotation, t);
+                Follow(Time.DeltaTime);
             }
         }
 
-        /// <summary>Where the owner says it is now. The first time, it goes straight there.</summary>
+        /// <summary>
+        /// Glides the copy a step towards where it should be by now: where it was last sent to be, carried on at the speed
+        /// it was going, but no further than an update and a half's worth (it may have stopped).
+        /// </summary>
+        internal void Follow(float deltaTime)
+        {
+            _sinceReceived += deltaTime;
+            float guess = MathF.Min(_sinceReceived, 1.5f / MathF.Max(SendRate, 1f));
+            float t = 1f - MathF.Exp(-Smoothing * deltaTime);
+            Transform.WorldPosition = Vector3.Lerp(Transform.WorldPosition, _position + _velocity * guess, t);
+            Transform.WorldRotation = Quaternion.Slerp(Transform.WorldRotation, _rotation, t);
+        }
+
+        /// <summary>Where the owner says it is now. The first time, or after a jump, it goes straight there.</summary>
         internal void Receive(Vector3 position, Quaternion rotation)
         {
+            if (_received)
+            {
+                float gap = Math.Clamp(_sinceReceived, 1f / 120f, 0.5f);
+                _velocity = (position - _position) / gap;
+                if (_velocity.Length() > TeleportSpeed)
+                {
+                    _velocity = Vector3.Zero;
+                    Transform.WorldPosition = position;
+                }
+            }
+
             _position = position;
             _rotation = rotation;
+            _sinceReceived = 0f;
             if (_received) return;
 
             _received = true;
