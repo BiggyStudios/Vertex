@@ -423,7 +423,7 @@ namespace Vertex.Graphs
 
         public static Graph Load(string path)
         {
-            string json = File.ReadAllText(path);
+            string json = AssetFiles.ReadAllText(path);
             Graph graph = FromJson(json);
             graph.Source = Path.GetFullPath(path);
             graph.SavedJson = json;

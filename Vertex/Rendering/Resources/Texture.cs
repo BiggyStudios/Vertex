@@ -41,7 +41,7 @@ namespace Vertex.Rendering
         /// <summary>Loads a PNG, JPG, BMP, TGA, GIF or HDR file.</summary>
         public static Texture Load(string path)
         {
-            using FileStream stream = File.OpenRead(path);
+            using Stream stream = AssetFiles.OpenRead(path);
             ImageResult image = ImageResult.FromStream(stream, ColorComponents.RedGreenBlueAlpha);
             return new Texture(image.Width, image.Height, image.Data) { Source = Path.GetFullPath(path) };
         }

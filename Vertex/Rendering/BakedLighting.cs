@@ -78,7 +78,7 @@ namespace Vertex.Rendering
 
         public static BakedLighting Load(string path)
         {
-            using FileStream file = File.OpenRead(path);
+            using Stream file = AssetFiles.OpenRead(path);
             BakedLighting baked = Read(file);
             baked.Source = path;
             return baked;

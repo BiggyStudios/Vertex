@@ -49,7 +49,7 @@ namespace Vertex.Audio
         /// <summary>Loads an uncompressed WAV file (8 or 16-bit PCM, mono or stereo). Use mono for sounds placed in the world.</summary>
         public static AudioClip Load(string path)
         {
-            ReadOnlySpan<byte> file = File.ReadAllBytes(path);
+            ReadOnlySpan<byte> file = AssetFiles.ReadAllBytes(path);
             if (file.Length < 12 || Encoding.ASCII.GetString(file[..4]) != "RIFF" || Encoding.ASCII.GetString(file[8..12]) != "WAVE")
                 throw new InvalidDataException($"'{path}' isn't a WAV file.");
 

@@ -31,6 +31,7 @@ namespace Vertex.Tests
         public virtual void Dispose()
         {
             Scene.Active.Unload();
+            AssetFiles.UnmountAll();
             Camera.Main = null;
             InputSystem.Reset();
             Time.FixedDeltaTime = 1f / 60f;

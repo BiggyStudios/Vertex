@@ -99,7 +99,7 @@ namespace Vertex.Rendering
         private static unsafe void Read(string path, SceneUse use, bool requireComplete = false)
         {
             _assimp ??= Assimp.GetApi();
-            AssimpScene* scene = _assimp.ImportFile(path, (uint)_flags);
+            AssimpScene* scene = AssetFiles.Packed ? ModelFiles.Import(_assimp, path, (uint)_flags) : _assimp.ImportFile(path, (uint)_flags);
             if (scene == null || scene->MRootNode == null || (requireComplete && (scene->MFlags & Assimp.SceneFlagsIncomplete) != 0))
                 throw new Exception($"Failed to load model '{path}': {_assimp.GetErrorStringS()}");
 
@@ -412,7 +412,7 @@ namespace Vertex.Rendering
                 else
                 {
                     string fullPath = Path.Combine(_directory, path.Replace('\\', Path.DirectorySeparatorChar));
-                    if (System.IO.File.Exists(fullPath)) texture = Texture.Load(fullPath);
+                    if (AssetFiles.Exists(fullPath)) texture = Texture.Load(fullPath);
                     else Log.Warning($"Model texture not found: {fullPath}");
                 }
 

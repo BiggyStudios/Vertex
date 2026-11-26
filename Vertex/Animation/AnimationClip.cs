@@ -293,7 +293,7 @@ namespace Vertex.Animation
 
         public static AnimationClip Load(string path)
         {
-            string json = File.ReadAllText(path);
+            string json = AssetFiles.ReadAllText(path);
             var clip = new AnimationClip { Source = Path.GetFullPath(path), Name = System.IO.Path.GetFileNameWithoutExtension(path) };
             clip.ReadJson(json);
             clip.SavedJson = json;

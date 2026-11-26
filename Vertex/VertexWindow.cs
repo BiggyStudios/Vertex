@@ -109,7 +109,7 @@ namespace Vertex
         {
             if (string.IsNullOrEmpty(_icon)) return;
             string path = Application.AssetPath(_icon);
-            if (!File.Exists(path))
+            if (!AssetFiles.Exists(path))
             {
                 Log.Warning($"The game's icon isn't there: {path}");
                 return;
@@ -117,7 +117,7 @@ namespace Vertex
 
             try
             {
-                using FileStream stream = File.OpenRead(path);
+                using Stream stream = AssetFiles.OpenRead(path);
                 StbImageSharp.ImageResult image = StbImageSharp.ImageResult.FromStream(stream, StbImageSharp.ColorComponents.RedGreenBlueAlpha);
                 var icon = new Silk.NET.Core.RawImage(image.Width, image.Height, image.Data);
                 _window.SetWindowIcon(ref icon);

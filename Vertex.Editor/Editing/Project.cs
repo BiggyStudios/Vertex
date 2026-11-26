@@ -64,6 +64,12 @@ namespace Vertex.Editor.Editing
         /// <summary>Builds made for testing: the frame rate and times on F3, the console, and the game's code built for debugging.</summary>
         [HideInInspector] public bool DebugBuild { get; set; }
 
+        /// <summary>
+        /// The assets go in an Assets folder beside the game, for players to look through and change (for mods), rather
+        /// than packed into one file they can't easily take them out of (see <see cref="AssetPack"/>).
+        /// </summary>
+        [HideInInspector] public bool AssetsAsFolder { get; set; }
+
         /// <summary>What the built game reads when it starts (its game.json).</summary>
         public PlayerSettings ToPlayerSettings() => new()
         {

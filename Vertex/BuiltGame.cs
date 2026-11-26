@@ -88,6 +88,7 @@ namespace Vertex
             Application.BaseDirectory = AppContext.BaseDirectory;
             Directory.SetCurrentDirectory(AppContext.BaseDirectory);
             FindPackedLibraries();
+            OpenAssetPack(AppContext.BaseDirectory);
 
             string file = Path.Combine(AppContext.BaseDirectory, SettingsFile);
             PlayerSettings settings = File.Exists(file) ? PlayerSettings.FromJson(File.ReadAllText(file)) : new PlayerSettings();
@@ -112,6 +113,16 @@ namespace Vertex
             Application.Version = settings.Version;
             Application.IsDebugBuild = settings.DebugBuild;
             Time.FixedDeltaTime = 1f / Math.Clamp(settings.PhysicsRate, 10, 240);
+        }
+
+        /// <summary>
+        /// A game built with its assets packed (see <see cref="AssetPack"/>): its files are read from the pack, found where
+        /// they would have been in its Assets folder.
+        /// </summary>
+        internal static void OpenAssetPack(string folder)
+        {
+            string pack = Path.Combine(folder, AssetPack.FileName);
+            if (File.Exists(pack)) AssetFiles.Mount(AssetPack.Open(pack), Path.Combine(folder, "Assets"));
         }
 
         /// <summary>

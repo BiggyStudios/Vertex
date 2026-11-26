@@ -17,8 +17,9 @@ namespace Vertex.Editor.Editing
     /// <summary>
     /// Builds a project into a game that runs on its own (File › Build Game), for players without the editor or .NET:
     /// a small program that starts it (<see cref="BuiltGame"/>), the game's code, the engine and everything it uses for
-    /// that system, the Assets folder, and game.json with how it opens. The program is one file with all of that code (and
-    /// .NET) packed inside, so the folder is just it, Assets and game.json. On Windows the program is the game's .exe
+    /// that system, the assets (packed into one file, <see cref="AssetPack"/>, unless they're to be an Assets folder), and
+    /// game.json with how it opens. The program is one file with all of that code (and .NET) packed inside, so the folder
+    /// is just it, the assets and game.json. On Windows the program is the game's .exe
     /// (with its icon and details); on Linux it has its icon beside it; on macOS it all goes in a .app.
     /// <para>
     /// The program is made with <c>dotnet publish</c>, self-contained, so the .NET SDK has to be there to build (as it
@@ -115,8 +116,8 @@ namespace Vertex.Editor.Editing
             (int exitCode, string log) = GameCode.Run("dotnet", $"publish \"{Path.Combine(work, PlayerAssembly + ".csproj")}\" -c {Configuration(settings)} -o \"{published}\" -nologo -v:q -clp:NoSummary {engine}", work);
             if (exitCode != 0) return new Result(false, log, final, notes);
 
-            progress?.Invoke("Copying the assets…");
-            CopyAssets(project.AssetsDirectory, Path.Combine(published, "Assets"));
+            progress?.Invoke(settings.AssetsAsFolder ? "Copying the assets…" : "Packing the assets…");
+            PutAssets(project.AssetsDirectory, published, settings.AssetsAsFolder);
             File.WriteAllText(Path.Combine(published, BuiltGame.SettingsFile), settings.ToPlayerSettings().ToJson());
             Tidy(published, gameAssembly, platform, keepSymbols: settings.DebugBuild);
 
@@ -267,21 +268,47 @@ namespace Vertex.Editor.Editing
                 .ToList();
         }
 
+        /// <summary>
+        /// Puts the project's Assets in the game's folder: packed into one file (<see cref="AssetPack.FileName"/>) that
+        /// players can't easily take them out of, or, <paramref name="asFolder"/>, as an Assets folder they can look through.
+        /// </summary>
+        internal static void PutAssets(string from, string gameFolder, bool asFolder)
+        {
+            if (asFolder)
+            {
+                CopyAssets(from, Path.Combine(gameFolder, "Assets"));
+                return;
+            }
+
+            // The game's code may copy its assets beside itself (to run without the editor), and publishing brings them.
+            string loose = Path.Combine(gameFolder, "Assets");
+            if (Directory.Exists(loose)) Directory.Delete(loose, recursive: true);
+            AssetPack.Write(Path.Combine(gameFolder, AssetPack.FileName), GameAssets(from));
+        }
+
         /// <summary>The project's Assets, without what's only for making the game: its code, and a code editor's files.</summary>
         internal static void CopyAssets(string from, string to)
         {
             Directory.CreateDirectory(to);
-            if (!Directory.Exists(from)) return;
+            foreach ((string relative, string file) in GameAssets(from))
+            {
+                string target = Path.Combine(to, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target, overwrite: true);
+            }
+        }
+
+        /// <summary>The files in the project's Assets that the game uses (not its code, nor a code editor's files), each with its path inside the folder.</summary>
+        private static IEnumerable<(string Relative, string File)> GameAssets(string from)
+        {
+            if (!Directory.Exists(from)) yield break;
             foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
             {
                 string relative = Path.GetRelativePath(from, file);
                 string[] parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 if (parts.Any(p => p is "bin" or "obj" || p.StartsWith('.'))) continue;
                 if (Path.GetExtension(file).ToLowerInvariant() is ".cs" or ".csproj") continue;
-
-                string target = Path.Combine(to, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target, overwrite: true);
+                yield return (relative, file);
             }
         }
 

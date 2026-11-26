@@ -28,8 +28,8 @@ namespace Vertex.UI
         public static Font Load(string path, params string[] fallbackPaths)
         {
             var fonts = new FontSystem();
-            fonts.AddFont(File.ReadAllBytes(path));
-            foreach (string fallback in fallbackPaths) fonts.AddFont(File.ReadAllBytes(fallback));
+            fonts.AddFont(AssetFiles.ReadAllBytes(path));
+            foreach (string fallback in fallbackPaths) fonts.AddFont(AssetFiles.ReadAllBytes(fallback));
             return new Font(fonts) { Source = Path.GetFullPath(path) };
         }
 

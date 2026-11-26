@@ -624,7 +624,7 @@ namespace Vertex.Editor
         {
             if (Context.Project is not { } project) return;
 
-            Dialog.Show("Build Game", new Vector2(600f, 506f), rect =>
+            Dialog.Show("Build Game", new Vector2(600f, 542f), rect =>
             {
                 ProjectSettings settings = project.Settings;
                 float y = rect.Y;
@@ -687,6 +687,17 @@ namespace Vertex.Editor
                 if (Widgets.Checkbox(Ui.Id("build.debug"), new Rect(rect.X + 120f, y + 3f, 18f, 18f), ref debug, debugTip)) settings.DebugBuild = debug;
                 float after = rect.X + 146f + Ui.Text("Debug Build", new Vector2(rect.X + 146f, y + 3f), Theme.Text) + 14f;
                 Ui.Text(new Rect(after, y + 3f, rect.Right - after, 20f), debug ? "F3 frame times, the console, errors with lines" : "For players",
+                    Theme.TextFaint, size: Theme.SmallTextSize);
+                y += 36f;
+
+                // Packed, or a folder players can look through.
+                Ui.Text(new Rect(rect.X, y, 110f, 24f), "Assets", Theme.TextDim);
+                bool asFolder = settings.AssetsAsFolder;
+                const string folderTip = "Puts the assets in an Assets folder beside the game, for players to look through and change (for mods). "
+                    + "Left off, they're packed into one file, so they can't easily be opened or copied out";
+                if (Widgets.Checkbox(Ui.Id("build.assetsFolder"), new Rect(rect.X + 120f, y + 3f, 18f, 18f), ref asFolder, folderTip)) settings.AssetsAsFolder = asFolder;
+                after = rect.X + 146f + Ui.Text("As a Folder", new Vector2(rect.X + 146f, y + 3f), Theme.Text) + 14f;
+                Ui.Text(new Rect(after, y + 3f, rect.Right - after, 20f), asFolder ? "Anyone can open and copy them" : "Packed into one file, not easily taken out",
                     Theme.TextFaint, size: Theme.SmallTextSize);
                 y += 36f;
 

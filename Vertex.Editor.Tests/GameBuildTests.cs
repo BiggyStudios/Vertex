@@ -157,6 +157,36 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_builds_assets_are_packed_into_one_file_unless_theyre_to_be_a_folder()
+        {
+            string assets = Path.Combine(_folder, "Assets");
+            Directory.CreateDirectory(Path.Combine(assets, "Scripts"));
+            Directory.CreateDirectory(Path.Combine(assets, "Textures"));
+            File.WriteAllText(Path.Combine(assets, "Textures", "Brick.png"), "pretend picture");
+            File.WriteAllText(Path.Combine(assets, "Scripts", "Player.cs"), "class Player {}");
+            Assert.False(new ProjectSettings().AssetsAsFolder);
+
+            // Packed (as builds are, unless told otherwise): no Assets folder, and the game's code left out of the pack too.
+            string packed = Path.Combine(_folder, "Packed");
+            Directory.CreateDirectory(Path.Combine(packed, "Assets", "Textures"));
+            File.WriteAllText(Path.Combine(packed, "Assets", "Textures", "Brick.png"), "copied there by the game's code project");
+            GameBuilder.PutAssets(assets, packed, asFolder: false);
+            Assert.False(Directory.Exists(Path.Combine(packed, "Assets")));
+            using (AssetPack pack = AssetPack.Open(Path.Combine(packed, AssetPack.FileName)))
+            {
+                Assert.Equal(["Textures/Brick.png"], pack.Files);
+                Assert.Equal("pretend picture", System.Text.Encoding.UTF8.GetString(pack.Read("Textures/Brick.png")));
+            }
+
+            // As a folder: the files as they are.
+            string loose = Path.Combine(_folder, "Loose");
+            Directory.CreateDirectory(loose);
+            GameBuilder.PutAssets(assets, loose, asFolder: true);
+            Assert.False(File.Exists(Path.Combine(loose, AssetPack.FileName)));
+            Assert.Equal("pretend picture", File.ReadAllText(Path.Combine(loose, "Assets", "Textures", "Brick.png")));
+        }
+
+        [Fact]
         public void A_project_needs_somewhere_to_start_before_it_can_be_built()
         {
             Project project = Project.Create(Path.Combine(_folder, "Game.vertexproject"), "Game");

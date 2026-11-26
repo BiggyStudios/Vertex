@@ -61,12 +61,12 @@ namespace Vertex
         public static Material LoadMaterial(string path) => Load(_materials, path, full =>
         {
             var material = new Material { Source = full };
-            SceneFile.LoadMaterial(File.ReadAllText(full), material);
+            SceneFile.LoadMaterial(AssetFiles.ReadAllText(full), material);
             return material;
         });
 
         /// <summary>The prefab in a .prefab file, loaded the first time it's asked for. See <see cref="Prefab"/>.</summary>
-        public static Prefab LoadPrefab(string path) => Load(_prefabs, path, full => new Prefab(full, File.ReadAllText(full)));
+        public static Prefab LoadPrefab(string path) => Load(_prefabs, path, full => new Prefab(full, AssetFiles.ReadAllText(full)));
 
         /// <summary>The font in a .ttf or .otf file, loaded the first time it's asked for.</summary>
         public static Font LoadFont(string path) => Load(_fonts, path, full => Font.Load(full));
@@ -150,14 +150,14 @@ namespace Vertex
         public static string? FindFile(string saved)
         {
             if (saved.Length == 0) return null;
-            if (_found.TryGetValue(saved, out string? known) && known != null && File.Exists(known)) return known;
+            if (_found.TryGetValue(saved, out string? known) && known != null && AssetFiles.Exists(known)) return known;
 
-            string? found = Path.IsPathRooted(saved) ? (File.Exists(saved) ? saved : null) : null;
+            string? found = Path.IsPathRooted(saved) ? (AssetFiles.Exists(saved) ? saved : null) : null;
             foreach (string folder in Application.AssetFolders)
             {
                 if (found != null) break;
                 string candidate = Path.GetFullPath(Path.Combine(folder, saved));
-                if (File.Exists(candidate)) found = candidate;
+                if (AssetFiles.Exists(candidate)) found = candidate;
             }
 
             _found[saved] = found;

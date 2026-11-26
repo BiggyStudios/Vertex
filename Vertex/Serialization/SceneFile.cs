@@ -481,7 +481,7 @@ namespace Vertex.Serialization
 
         /// <summary>Adds the objects saved in a file to <paramref name="scene"/>, and sets its lighting as saved.</summary>
         public static List<GameObject> Load(string path, Scene scene, params string[] assetFolders) =>
-            LoadJson(File.ReadAllText(path), scene, assetFolders);
+            LoadJson(AssetFiles.ReadAllText(path), scene, assetFolders);
 
         /// <summary>
         /// Adds the objects saved in <paramref name="json"/> to <paramref name="scene"/> (and its lighting, if saved),
@@ -768,11 +768,11 @@ namespace Vertex.Serialization
 
             private string? FindAsset(string path)
             {
-                if (Path.IsPathRooted(path)) return File.Exists(path) ? path : null;
+                if (Path.IsPathRooted(path)) return AssetFiles.Exists(path) ? path : null;
                 foreach (string folder in assetFolders)
                 {
                     string full = Path.Combine(folder, path);
-                    if (File.Exists(full)) return full;
+                    if (AssetFiles.Exists(full)) return full;
                 }
 
                 return null;

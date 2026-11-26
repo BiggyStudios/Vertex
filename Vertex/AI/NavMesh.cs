@@ -908,7 +908,7 @@ namespace Vertex.AI
 
         public static NavMesh Load(string path)
         {
-            using FileStream file = File.OpenRead(path);
+            using Stream file = AssetFiles.OpenRead(path);
             NavMesh navMesh = Read(file);
             navMesh.Source = Path.GetFullPath(path);
             return navMesh;

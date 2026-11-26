@@ -89,7 +89,7 @@ namespace Vertex.Rendering
         public static Shader Load(string path)
         {
             if (Path.GetExtension(path).Equals(ShaderGraphs.ShaderNodes.Extension, StringComparison.OrdinalIgnoreCase)) return FromGraph(Graph.Load(path));
-            return new Shader(File.ReadAllText(path), Path.GetFileName(path)) { Source = Path.GetFullPath(path) };
+            return new Shader(AssetFiles.ReadAllText(path), Path.GetFileName(path)) { Source = Path.GetFullPath(path) };
         }
 
         /// <summary>The file it was loaded from; null if it was made in code.</summary>

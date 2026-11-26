@@ -105,16 +105,16 @@
     </ul>
 
     <h2>Building the game</h2>
-    <p><strong>File › Build Game</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) makes the game into something to give to players, who don't need the editor or .NET to play it. Choose the systems to build for and press <strong>Build</strong>. Each goes in a folder of its own in the project's <code>Builds</code> folder, holding just the game's program (with .NET and the engine inside it), its <code>Assets</code>, and <code>game.json</code> with how it opens:</p>
+    <p><strong>File › Build Game</strong> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>) makes the game into something to give to players, who don't need the editor or .NET to play it. Choose the systems to build for and press <strong>Build</strong>. Each goes in a folder of its own in the project's <code>Builds</code> folder, holding just the game's program (with .NET and the engine inside it), its assets packed into <code>Assets.pack</code>, and <code>game.json</code> with how it opens:</p>
     <pre><code>Builds/
   Windows/
     My Game.exe
-    Assets/
+    Assets.pack
     game.json
   Linux/
     My Game
     icon.png
-    Assets/
+    Assets.pack
     game.json
   macOS/
     My Game.app</code></pre>
@@ -127,6 +127,7 @@
     <ul>
         <li>The game starts in its Startup Scene, or for a game whose code has a <code>Game</code> class of its own, with that.</li>
         <li>Everything in the Assets folder goes with it, except the C# (that's built into the game). The open scene is saved first.</li>
+        <li>The assets are packed into one file, squeezed and scrambled, so players can't open a folder and copy the models, textures and sounds out. It stops them being taken casually, not by someone set on it (the game itself has to read them). Tick <strong>Assets: As a Folder</strong> to put them in an <code>Assets</code> folder beside the game instead, for players to look through and change, for mods. Game code reads them the same either way, as long as it checks for a file with <code>AssetFiles.Exists</code> rather than <code>File.Exists</code> (<code>AssetFiles</code> also reads files and lists a folder's).</li>
         <li>Building needs the .NET SDK, as building game code does. The first build for each system downloads that system's .NET runtime, so it takes a minute or two; after that a build takes seconds. A build is about 50 MB.</li>
         <li>The first time the game starts on a computer, it unpacks the libraries for its window, sound and physics into a cache folder of .NET's, and uses them from there after that.</li>
         <li>Files built on Windows lose the mark that says they're programs: on Linux and macOS, mark the game's program as one (<code>chmod +x</code>) if it doesn't start.</li>
