@@ -33,6 +33,29 @@ namespace Vertex.Tests
             Assert.Empty(Scene.Active.GameObjects);
         }
 
+        /// <summary>Destroys what it made when it's destroyed itself, as a component cleaning up after itself does.</summary>
+        private sealed class Owner : Component
+        {
+            public GameObject? Made { get; set; }
+
+            protected internal override void OnDestroy() => Made?.Destroy();
+        }
+
+        [Fact]
+        public void What_an_objects_OnDestroy_destroys_goes_too()
+        {
+            var owner = new GameObject("Owner");
+            var made = new GameObject("Made elsewhere");
+            owner.AddComponent<Owner>().Made = made;
+            Scene.Active.Update();
+
+            owner.Destroy();
+            Scene.Active.Update();
+
+            Assert.True(made.IsDestroyed);
+            Assert.Empty(Scene.Active.GameObjects);
+        }
+
         [Fact]
         public void Inactive_objects_do_not_update()
         {

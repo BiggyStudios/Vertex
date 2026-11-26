@@ -349,9 +349,12 @@ namespace Vertex
         {
             if (_toDestroy.Count == 0) return;
 
-            foreach (GameObject gameObject in _toDestroy.ToArray())
+            // Round again for anything an OnDestroy destroys (a component cleaning up what it made): those go now too.
+            while (_toDestroy.Count > 0)
             {
-                gameObject.DestroyImmediate();
+                GameObject[] batch = _toDestroy.ToArray();
+                _toDestroy.Clear();
+                foreach (GameObject gameObject in batch) gameObject.DestroyImmediate();
             }
 
             _objects.RemoveAll(o =>
@@ -361,7 +364,6 @@ namespace Vertex
                 return true;
             });
             _toAdd.RemoveAll(o => o.IsDestroyed);
-            _toDestroy.Clear();
             TidyLists();
         }
 
