@@ -189,7 +189,7 @@ namespace Vertex
         private static ulong KeyFor(uint salt, long offset) => (salt * 0x9E3779B97F4A7C15UL) ^ ((ulong)offset * 0xD6E8FEB86659FD93UL) ^ 0x5658504B5345454DUL;
 
         /// <summary>Scrambles bytes with a stream made from <paramref name="key"/> (splitmix64); scrambling them again with the same key puts them back.</summary>
-        private static void Scramble(Span<byte> data, ulong key)
+        internal static void Scramble(Span<byte> data, ulong key)
         {
             ulong state = key;
             Span<ulong> words = MemoryMarshal.Cast<byte, ulong>(data);
