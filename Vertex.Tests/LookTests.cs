@@ -64,6 +64,32 @@ namespace Vertex.Tests
         }
 
         [Fact]
+        public void The_sky_can_have_stars_a_bigger_sun_and_tinted_clouds_and_by_default_has_none_of_them()
+        {
+            var frame = new RenderFrame { Width = 1280, Height = 720, Environment = EnvironmentData.From(new Lighting()) };
+            FrameUniforms plain = FrameUniforms.Create(frame, null);
+            Assert.Equal(0f, plain.SkyDetail.X);
+            Assert.Equal(1f, plain.SkyDetail.Y);
+            Assert.Equal(Vector3.One, new Vector3(plain.CloudColor.X, plain.CloudColor.Y, plain.CloudColor.Z));
+
+            var lighting = new Lighting { Sky = SkyStyle.Gradient, Stars = 0.8f, SunSize = 4f, CloudColor = new Color(0.5f, 1f, 0.5f) };
+            frame = new RenderFrame { Width = 1280, Height = 720, Environment = EnvironmentData.From(lighting) };
+            FrameUniforms night = FrameUniforms.Create(frame, null);
+            Assert.Equal(0.8f, night.SkyDetail.X);
+            Assert.Equal(4f, night.SkyDetail.Y);
+            Assert.Equal(FrameUniforms.ToLinear(new Color(0.5f, 1f, 0.5f)), new Vector3(night.CloudColor.X, night.CloudColor.Y, night.CloudColor.Z));
+
+            // Kept in range, and an empty frame (nothing set) still has a sun and white clouds.
+            Assert.Equal(12f, EnvironmentData.From(new Lighting { SunSize = 50f }).SunSize);
+            FrameUniforms empty = FrameUniforms.Create(new RenderFrame { Width = 64, Height = 64 }, null);
+            Assert.Equal(1f, empty.SkyDetail.Y);
+            Assert.Equal(1f, empty.CloudColor.X);
+
+            // The frame's data still fits the least uniform block OpenGL promises.
+            Assert.True(System.Runtime.CompilerServices.Unsafe.SizeOf<FrameUniforms>() <= 16384, $"{System.Runtime.CompilerServices.Unsafe.SizeOf<FrameUniforms>()} bytes");
+        }
+
+        [Fact]
         public void Outlines_get_thicker_with_their_width_and_with_the_screen()
         {
             var lighting = new Lighting { Outlines = 1f, OutlineWidth = 3f };

@@ -158,6 +158,8 @@ namespace Vertex.Rendering.Shaders
                 mat4 localShadowMatrix[16];   // into each spot light's shadow map (see LocalShadows)
                 vec4 localShadowParams[16];   // x: its first layer, y: a texel's size a unit from the light, z: near, w: far (negative for a point light)
                 uvec4 lightShadows[16];       // a byte for each point and spot light, four to a word: which of those it has plus one (0 for none) in the low 5 bits, a baked one's shadow mask channel plus one in the top 3
+                vec4 skyDetail;         // x: how bright the stars are (0 for none), y: how big the sun looks (1 as it is)
+                vec4 cloudColor;        // the clouds' tint (linear)
             } frame;
 
             TEXTURE(0, 1) sampler2DArrayShadow shadowMap;
@@ -1374,9 +1376,26 @@ namespace Vertex.Rendering.Shaders
                 vec3 sunLight = frame.sunColor.rgb * sunTransmittance(1.0) * frame.sunDirection.w;
                 float towardsSun = pow(max(dot(direction, sun), 0.0), 6.0);
                 vec3 light = frame.skyLight.rgb * 1.3 + sunLight * (0.85 - 0.55 * thickness) + sunLight * towardsSun * (1.0 - density) * 0.8;
+                light *= frame.cloudColor.rgb;
 
                 // Far off they thin into the haze at the horizon.
                 return mix(sky, light, density * smoothstep(0.0, 0.15, direction.y) * 0.95);
+            }
+
+            // Stars, in the gradient sky: the sky split into small cells, a few of them holding a star somewhere inside,
+            // each twinkling at its own pace, a little warm or cool, fading out towards the horizon.
+            vec3 stars(vec3 direction)
+            {
+                if (frame.skyDetail.x <= 0.0 || direction.y <= 0.0 || int(frame.zenith.w + 0.5) != 1) return vec3(0.0);
+                vec3 p = direction * 220.0;
+                vec3 cell = floor(p);
+                float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+                if (h < 0.982) return vec3(0.0);
+                vec3 centre = cell + 0.5 + (vec3(fract(h * 17.0), fract(h * 31.0), fract(h * 47.0)) - 0.5) * 0.6;
+                float twinkle = 0.6 + 0.4 * sin(frame.cameraPosition.w * (1.5 + fract(h * 13.0) * 3.0) + h * 40.0);
+                float star = smoothstep(0.38, 0.0, length(p - centre)) * twinkle;
+                vec3 tint = mix(vec3(1.0, 0.86, 0.72), vec3(0.76, 0.86, 1.0), fract(h * 91.0));
+                return tint * star * frame.skyDetail.x * smoothstep(0.02, 0.3, direction.y) * 4.0;
             }
 
             void main()
@@ -1385,16 +1404,17 @@ namespace Vertex.Rendering.Shaders
                 vec4 far = frame.inverseViewProjection * vec4(vScreen, 1.0, 1.0);
                 vec3 direction = normalize(far.xyz / far.w - near.xyz / near.w);
 
-                vec3 color = skyRadiance(direction);
+                vec3 color = skyRadiance(direction) + stars(direction);
 
-                // The sun: a bright disc, bright enough to bloom.
+                // The sun: a bright disc, bright enough to bloom (a big one less fierce, or it would bloom over half the sky).
                 if (frame.sunDirection.w > 0.5 && int(frame.zenith.w + 0.5) > 0)
                 {
+                    float size = frame.skyDetail.y;
                     float towardsSun = dot(direction, frame.sunDirection.xyz);
-                    float disc = smoothstep(0.99986, 0.99993, towardsSun);
+                    float disc = smoothstep(1.0 - 0.00014 * size * size, 1.0 - 0.00007 * size * size, towardsSun);
                     vec3 sunLight = frame.sunColor.rgb * (int(frame.zenith.w + 0.5) == 2 ? sunTransmittance(max(direction.y, 0.0)) : vec3(1.0));
-                    color += sunLight * disc * 40.0;
-                    if (int(frame.zenith.w + 0.5) == 1) color += frame.sunColor.rgb * pow(max(towardsSun, 0.0), 12.0) * 0.18;
+                    color += sunLight * disc * 40.0 / pow(max(size, 1.0), 1.5);
+                    if (int(frame.zenith.w + 0.5) == 1) color += frame.sunColor.rgb * pow(max(towardsSun, 0.0), 12.0 / size) * 0.18;
                 }
 
                 color = addClouds(color, direction);

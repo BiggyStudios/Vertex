@@ -70,6 +70,9 @@ namespace Vertex.Rendering
         public Color HorizonColor { get; init; }
         public Color GroundColor { get; init; }
         public float CloudCover { get; init; }
+        public Color CloudColor { get; init; }
+        public float Stars { get; init; }
+        public float SunSize { get; init; }
         public float AmbientIntensity { get; init; }
         public float FogDensity { get; init; }
         public float Exposure { get; init; }
@@ -103,6 +106,9 @@ namespace Vertex.Rendering
             HorizonColor = lighting.HorizonColor,
             GroundColor = lighting.GroundColor,
             CloudCover = Math.Clamp(lighting.CloudCover, 0f, 1f),
+            CloudColor = lighting.CloudColor,
+            Stars = Math.Clamp(lighting.Stars, 0f, 1f),
+            SunSize = Math.Clamp(lighting.SunSize, 0.25f, 12f),
             AmbientIntensity = MathF.Max(lighting.AmbientIntensity, 0f),
             FogDensity = MathF.Max(lighting.FogDensity, 0f),
             Exposure = MathF.Max(lighting.Exposure, 0f),

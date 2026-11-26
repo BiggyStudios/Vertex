@@ -48,6 +48,8 @@ namespace Vertex.Rendering.Shaders
         public LocalShadowMatrices LocalShadowMatrix;
         public LocalShadowVectors LocalShadowParams;
         public LightShadowBytes LightShadows;
+        public Vector4 SkyDetail;
+        public Vector4 CloudColor;
 
         /// <summary>
         /// The uniforms for <paramref name="frame"/>. <paramref name="cascades"/> are where the shadow maps were drawn, or
@@ -106,6 +108,9 @@ namespace Vertex.Rendering.Shaders
             data.Horizon = new Vector4(horizon, environment.CelShading);
             data.Zenith = new Vector4(zenith, kind);
             data.GroundColor = new Vector4(groundColor, environment.CloudCover);
+            // Stars and the sun's size; the clouds' tint (white where nothing set it).
+            data.SkyDetail = new Vector4(environment.Stars, environment.SunSize > 0f ? environment.SunSize : 1f, 0f, 0f);
+            data.CloudColor = Linear(environment.CloudColor.A > 0f ? environment.CloudColor : Color.White, 0f);
             data.Retro = new Vector4(orthographic ? 0f : environment.VertexSnapping, environment.AffineTextures, environment.PixelatedTextures ? 1f : 0f, 0f);
 
             data.DirectionalCount = Math.Min(frame.DirectionalLights.Count, ShaderLibrary.MaxDirectionalLights);

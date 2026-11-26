@@ -51,6 +51,20 @@ namespace Vertex.Rendering
         [Range(0f, 1f)]
         public float CloudCover { get; set; } = 0.4f;
 
+        /// <summary>The clouds' colour: white for ordinary ones, darker for smoke, tinted for a strange sky.</summary>
+        public Color CloudColor { get; set; } = Color.White;
+
+        /// <summary>
+        /// Stars in the sky, from 0 (none) to 1 (bright), twinkling, fading towards the horizon and hidden by cloud: for a
+        /// night or an otherworldly sky. Only in the <see cref="SkyStyle.Gradient"/> sky (the atmosphere's own night is dark).
+        /// </summary>
+        [Range(0f, 1f)]
+        public float Stars { get; set; }
+
+        /// <summary>How big the sun's disc looks, and the glow round it: 1 as it is, bigger for a huge sun or a moon.</summary>
+        [Range(0.25f, 12f)]
+        public float SunSize { get; set; } = 1f;
+
         /// <summary>How strongly the sky and ground light surfaces (and are reflected in them), on top of the scene's Lights.</summary>
         public float AmbientIntensity { get; set; } = 1f;
 
