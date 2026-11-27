@@ -187,6 +187,22 @@ namespace Vertex.Editor.Tests
         }
 
         [Fact]
+        public void A_mac_build_comes_with_a_script_that_signs_the_app_on_that_mac_and_opens_it()
+        {
+            string script = GameBuilder.MacOpener("Sam's Game");
+            Assert.StartsWith("#!/bin/sh\n", script);
+            Assert.DoesNotContain("\r", script);
+            Assert.Contains("app='Sam'\\''s Game.app'", script);
+            Assert.Contains("program='Sam'\\''s Game'", script);
+            Assert.Contains("xattr -cr \"$app\"", script);
+            Assert.Contains("chmod +x \"$app/Contents/MacOS/$program\"", script);
+            Assert.Contains("codesign --force --deep --sign - \"$app\"", script);
+            Assert.Contains("open \"$app\"", script);
+            Assert.Equal("Open Sam's Game.command", GameBuilder.MacOpenerName("Sam's Game"));
+            Assert.Contains("Open Sam's Game.command", GameBuilder.MacOpenerHelp("Sam's Game"));
+        }
+
+        [Fact]
         public void A_project_needs_somewhere_to_start_before_it_can_be_built()
         {
             Project project = Project.Create(Path.Combine(_folder, "Game.vertexproject"), "Game");

@@ -139,7 +139,7 @@ namespace Vertex.Editor.Editing
                 made = MacBundle(work, published, fileName, name, settings, icon);
                 if (!OperatingSystem.IsMacOS())
                 {
-                    notes.Add($"Built on {(OperatingSystem.IsWindows() ? "Windows" : "Linux")}: a Mac only opens it once it's signed there. On the Mac, run: codesign --force --deep -s - \"{fileName}.app\" (and chmod +x \"{fileName}.app/Contents/MacOS/{fileName}\" if it was copied from Windows).");
+                    notes.Add($"Built on {(OperatingSystem.IsWindows() ? "Windows" : "Linux")}: a Mac only opens it once it's signed there. \"{MacOpenerName(fileName)}\" beside it does that and opens the game (on the Mac, in Terminal: sh, a space, then drag the file in).");
                 }
             }
 
@@ -155,8 +155,72 @@ namespace Vertex.Editor.Editing
             string destination = platform == BuildPlatform.Mac ? Path.Combine(final, fileName + ".app") : final;
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             MoveFolder(made, destination);
+            if (platform == BuildPlatform.Mac)
+            {
+                // Downloaded games are held back by the Mac until they're signed there, so a script beside the app does it.
+                string opener = Path.Combine(final, MacOpenerName(fileName));
+                File.WriteAllText(opener, MacOpener(fileName));
+                Executable(opener);
+                File.WriteAllText(Path.Combine(final, "How to open on a Mac.txt"), MacOpenerHelp(fileName));
+            }
+
             return new Result(true, log, final, notes);
         }
+
+        /// <summary>The script that gets a Mac build ready to run: a .command, which Finder runs in Terminal.</summary>
+        internal static string MacOpenerName(string fileName) => $"Open {fileName}.command";
+
+        /// <summary>
+        /// The script beside a Mac build. It takes off the "downloaded from the internet" mark, makes the program runnable
+        /// (zips made on Windows don't keep that), signs the app for this Mac alone and opens it. Lines end in LF only,
+        /// as the Mac's shell reads a CR as part of the command.
+        /// </summary>
+        internal static string MacOpener(string fileName)
+        {
+            string Quoted(string text) => "'" + text.Replace("'", "'\\''") + "'";
+            string script = $"""
+                #!/bin/sh
+                # Gets {fileName} ready to run on this Mac, then opens it. Only needed the first time.
+                # Double-click this file. If the Mac won't open it: open Terminal, type sh and a space,
+                # drag this file into the window and press Return.
+
+                cd "$(dirname "$0")" || exit 1
+                app={Quoted(fileName + ".app")}
+                program={Quoted(fileName)}
+
+                if [ ! -d "$app" ]; then
+                    echo "$app isn't beside this script. Keep them in the same folder (unzipped) and run it again."
+                    exit 1
+                fi
+
+                echo "Getting $app ready..."
+                xattr -cr "$app" 2>/dev/null
+                chmod +x "$app/Contents/MacOS/$program"
+                if ! codesign --force --deep --sign - "$app"; then
+                    echo "Couldn't sign $app. If it's somewhere you can't change (like a disk image), copy the folder to your Mac first."
+                    exit 1
+                fi
+
+                echo "Opening $app..."
+                open "$app"
+
+                """;
+            return script.Replace("\r\n", "\n");
+        }
+
+        /// <summary>A note beside a Mac build saying how to run its opener.</summary>
+        internal static string MacOpenerHelp(string fileName) => $"""
+            The first time you play {fileName} on a Mac, it has to be signed on that Mac before it will open.
+            "{MacOpenerName(fileName)}" does that for you and then opens the game.
+
+            1. Unzip the folder, if you haven't, and keep the script beside {fileName}.app.
+            2. Double-click "{MacOpenerName(fileName)}".
+               If the Mac says it can't be opened: open Terminal (in Applications > Utilities), type sh and a space,
+               drag "{MacOpenerName(fileName)}" into the Terminal window and press Return.
+
+            After that, open {fileName}.app as you would any other app.
+
+            """.Replace("\r\n", "\n");
 
         /// <summary>What the game's code is built as: Debug for a debug build (unoptimised, so a debugger can step through it), otherwise Release.</summary>
         internal static string Configuration(ProjectSettings settings) => settings.DebugBuild ? "Debug" : "Release";
