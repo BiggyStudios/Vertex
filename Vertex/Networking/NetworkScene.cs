@@ -21,7 +21,7 @@ namespace Vertex.Networking
         Host
     }
 
-    /// <summary>A network event arriving: its name, the object it's about (if any), who sent it, and up to three values.</summary>
+    /// <summary>A network event arriving: its name, the object it's about (if any), who sent it, and its values.</summary>
     public sealed record NetworkEvent(string Name, GameObject? Target, string From, IReadOnlyList<object?> Values);
 
     /// <summary>
@@ -154,9 +154,16 @@ namespace Vertex.Networking
         // ---------------------------------------------------------------- Events
 
         /// <summary>
-        /// Sends a network event called <paramref name="name"/>, about <paramref name="target"/> (or nothing), with up to
-        /// three values (numbers, true/false, text, vectors, colours, network objects), to <paramref name="to"/>. Offline,
-        /// it comes straight back here unless it's for <see cref="NetworkTarget.Others"/>.
+        /// The most values an event carries to other machines (more are dropped). It was 8 for a long time, which silently
+        /// cut off the end of longer events (a game's whole state in one) on every machine but the sender's.
+        /// </summary>
+        public const int MaxEventValues = 255;
+
+        /// <summary>
+        /// Sends a network event called <paramref name="name"/>, about <paramref name="target"/> (or nothing), with values
+        /// (numbers, true/false, text, vectors, colours, network objects; up to <see cref="MaxEventValues"/>, and visual
+        /// scripts see the first three), to <paramref name="to"/>. Offline, it comes straight back here unless it's for
+        /// <see cref="NetworkTarget.Others"/>.
         /// </summary>
         public static void SendEvent(string name, GameObject? target, NetworkTarget to, params object?[] values)
         {
@@ -197,8 +204,8 @@ namespace Vertex.Networking
             writer.Write(EventMessage);
             writer.Write(target);
             writer.Write(name);
-            writer.Write((byte)Math.Min(values.Length, 8));
-            foreach (object? value in values.Take(8))
+            writer.Write((byte)Math.Min(values.Length, MaxEventValues));
+            foreach (object? value in values.Take(MaxEventValues))
             {
                 switch (value)
                 {

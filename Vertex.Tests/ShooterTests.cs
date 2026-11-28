@@ -249,6 +249,35 @@ namespace Vertex.Tests
             return Prefab.Save(player, Path.Combine(_folder, "Player.prefab"), _folder);
         }
 
+        [Fact]
+        public void An_event_reaches_other_machines_with_every_value_not_just_the_first_eight()
+        {
+            var transport = new FakeTransport();
+            Network.Start(transport);
+            NetworkScene.Listen();
+            transport.Start();
+            transport.Join(new PeerId(2));
+
+            object?[] values = Enumerable.Range(0, 14).Select(i => (object?)(float)i).Append(true).Append("last").ToArray();
+            NetworkScene.SendEvent("State", null, NetworkTarget.Others, values);
+            byte[] sent = Assert.Single(transport.Sent, s => s.Data[0] == 0xE3).Data;
+
+            NetworkEvent? arrived = null;
+            void Heard(NetworkEvent e) => arrived = e;
+            NetworkScene.EventReceived += Heard;
+            try
+            {
+                transport.Receive(new PeerId(2), sent);
+            }
+            finally
+            {
+                NetworkScene.EventReceived -= Heard;
+            }
+
+            Assert.NotNull(arrived);
+            Assert.Equal(values, arrived!.Values);
+        }
+
         private static byte[] HitEvent(uint target, float damage)
         {
             using var stream = new MemoryStream();
